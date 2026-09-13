@@ -15,7 +15,10 @@ the earlier SError. See [the latest video reading](gpu-hardware-9080.md).
 The power/identity hardware stage has passed. A private
 GMMU/BAR1 address space and native Tegra DC scanout have production
 build/archive/SD validation. `IMG_9081.mov` rejects GMMU before BAR1 binding
-and defers DC adoption before probe; see [the new hardware reading](gpu-hardware-9081.md).
+and defers DC adoption before probe. With the address-selector correction,
+`IMG_9082.mov` passes private BAR1 read/write/remap and reaches DC's inherited
+window snapshot, then faults during HHDM retagging of its scanout allocation;
+see [the latest hardware reading](gpu-hardware-9082.md).
 SGFX command execution is not available: the endpoint reports unavailable,
 execution support zero and command limit zero, with no execution dialect.
 Normal SWS uses the ordinary display interface and output scale 1.0.
@@ -118,8 +121,11 @@ long-running stability and GPU execution are still unvalidated. The new
 GMMU/DC candidate's exact sources, artifacts and SD readback are recorded in
 `gpu-gmmu-display-verification.json`; its physical validation flags remain false
 after the failed/deferred stages in `IMG_9081.mov`. The corrected candidate
-uses `gpu-selector-display-verification.json` and still requires physical
-BAR1/native-display validation.
+uses `gpu-selector-display-verification.json`; `IMG_9082.mov` validates its
+private BAR1 check but fails before native activation. The HHDM-corrected
+candidate uses `gpu-hhdm-display-verification.json`, with fresh physical
+validation flags pending. Prior BAR1 success is retained as historical
+evidence, rather than transferred to the new binary.
 
 The backend's opaque query record now contains twelve little-endian u32 words:
 version (2), MC_BOOT_0, MC_ENABLE, stall interrupt status, nonstall interrupt

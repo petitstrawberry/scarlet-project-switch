@@ -71,17 +71,19 @@ Scarlet Shell startup without that fault. `IMG_9076.mov` shows four schedulers
 online. The current candidate adds private GMMU/BAR1 read/write/remap validation
 and native Tegra DC scanout through the ordinary display API. `IMG_9081.mov`
 rejects the original SMMU guard and defers DC probe. The corrected GPU address
-selector and firmware pad handoff candidate has passed production build and
-SD readback; its receipt is `docs/gpu-selector-display-verification.json`.
-Physical validation of those two paths and SGFX rendering remain pending; see
+selector and firmware pad handoff candidate passes BAR1 read/write/remap on
+hardware in `IMG_9082.mov`, then faults during native-display buffer retagging.
+The corrected AArch64 HHDM candidate has passed production build and SD
+readback; its receipt is `docs/gpu-hhdm-display-verification.json`.
+Physical native scanout validation and SGFX rendering remain pending; see
 [GPU bring-up](docs/gpu-bringup.md) and [display bring-up](docs/display-bringup.md).
 Prepare its firmware once before building:
 `python3 scripts/prepare-gm20b-firmware.py --download`.
 
 Supported development hosts: Apple Silicon macOS, AArch64 Linux, x86-64 Linux.
 Use a sibling `../Scarlet` checkout at
-`7795abb5aed3fcf4c3bcaa97273332a005295d71` or a compatible successor (the native display module needs the
-new common earlyfb handoff API).
+`8fc70e81a0b01acdcec0e4b09d811509571de193` or a compatible successor (native
+display adoption needs the common earlyfb handoff API and safe HHDM retagging).
 The SDK and toolchain revisions are recorded in `flake.lock`.
 The hardware-tested kernel changes are committed locally as `99c65035`
 (Linux framebuffer diagnostics) and `e2ecbecb` (generic ECAM host selection).
@@ -90,6 +92,8 @@ hashes are preserved in `docs/kernel-boot-success.json`.
 The generic kernel fixes are proposed upstream in [PR #558](https://github.com/petitstrawberry/Scarlet/pull/558).
 The common earlyfb native-display handoff is in stacked draft
 [PR #559](https://github.com/petitstrawberry/Scarlet/pull/559).
+The AArch64 HHDM retag correction is in stacked draft
+[PR #560](https://github.com/petitstrawberry/Scarlet/pull/560).
 The current kernel test also requires the changes in
 `patches/linux-boot-framebuffer.patch` and `patches/pci-ecam-host-detection.patch`.
 They are already applied to this

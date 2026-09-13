@@ -461,6 +461,7 @@ impl GraphicsDevice for Display {
         if state.initialized {
             return Ok(());
         }
+        scarlet::println!("tegra-dc: activating native scanout");
         self.present_buffer(&mut state, 0)?;
         // Keep the ordinary boot/emergency console on the adopted surface
         // until the first userspace present. No console-mode policy lives here.
@@ -571,7 +572,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         ContiguousPages::new((STRIDE as usize * HEIGHT as usize).div_ceil(4096))
             .ok_or("Tegra DC scanout allocation failed")?,
     ];
-    for memory in &mut buffers {
+    for (index, memory) in buffers.iter_mut().enumerate() {
         if memory
             .as_paddr()
             .checked_add(u64::from(STRIDE) * u64::from(HEIGHT))
@@ -579,8 +580,14 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         {
             return Err("Tegra DC scanout exceeds 34-bit DMA address range");
         }
+        scarlet::println!(
+            "tegra-dc: preparing scanout buffer {} paddr={:#x}",
+            index,
+            memory.as_paddr()
+        );
         memory.retag_memory_attribute(MemoryAttribute::DeviceBurstable)?;
     }
+    scarlet::println!("tegra-dc: scanout buffers ready; preserving boot frame");
     // Preserve the last boot frame once. Subsequent frames are scanned out
     // directly in landscape layout; there is no per-present CPU rotation.
     let boot = vm::addr::phys_to_virt(u64::from(original[10]));

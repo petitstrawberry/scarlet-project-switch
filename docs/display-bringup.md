@@ -6,7 +6,10 @@ including two direct scanout buffers and GPU swapchain-image presentation.
 The candidate has passed production build, artifact inspection and FAT32 SD
 readback. `IMG_9081.mov` shows DC0/DC1 deferred before probe because the
 Noble binding requests PMC pinctrl states. Physical native scanout has not
-yet been validated; see [the video reading](gpu-hardware-9081.md).
+yet been validated. `IMG_9082.mov` reaches the inherited DC window snapshot
+and fails in the common AArch64 HHDM attribute-change path; see
+[the latest video reading](gpu-hardware-9082.md). The corrected candidate
+has passed production build and FAT32 SD readback and was ejected.
 
 This is native window/scanout control with inherited panel initialization.
 There is no cold DSI/panel power sequence, modesetting, HDMI, display IRQ
@@ -32,6 +35,20 @@ and userspace aliases use the same DeviceBurstable attribute, through the
 common PMM retagging/mmap mechanisms. The last boot frame is rotated once into
 the initial buffer. Later presentation sets the source pitch, SCAN_COLUMN and
 invert-H directly in DC window A; the per-frame CPU rotation is removed.
+
+The current common AArch64 correction builds the HHDM with 4-KiB leaves
+before activation. This prevents a live block split from removing unrelated
+PMM storage, including the page table needed to publish its replacement.
+Same-attribute adjacent region metadata is still merged; other mapping
+regions retain block selection. This conservative HHDM policy costs roughly
+4 MiB of leaf tables per 2 GiB of mapped RAM and reduces block-TLB coverage.
+Restoring HHDM blocks selectively requires stable page-table access during
+splits and safety for other CPUs using the affected block. Linux arm64 also
+uses page-granular direct maps when individual pages can be protected; see
+[pageattr.c](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/arch/arm64/mm/pageattr.c)
+and [mmu.c](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/arch/arm64/mm/mmu.c),
+fetched with `gh`. The correction is in draft
+[PR #560](https://github.com/petitstrawberry/Scarlet/pull/560).
 
 Assembly register writes are committed with GENERAL/WIN_A UPDATE then ACT_REQ.
 Both latch completion and another VBlank boundary are awaited before the old
@@ -76,8 +93,9 @@ Boot **More Configs → Scarlet Switch Console** and record:
   all CPU startup logs and timer/sleep wake.
 
 Report the exact last phase on a failure. The artifact/SD receipt is
-`gpu-selector-display-verification.json`; the earlier failed/deferred boot
-retains its receipt in `gpu-gmmu-display-verification.json`. Build/readback
+`gpu-hhdm-display-verification.json`. The preceding BAR1-success/DC-failure
+boot retains `gpu-selector-display-verification.json`; the earlier
+failed/deferred boot retains `gpu-gmmu-display-verification.json`. Build/readback
 do not establish DMA, rotation, VBlank, GPU-image lifetime, or suspend/resume behavior on hardware.
 
 ## Primary sources

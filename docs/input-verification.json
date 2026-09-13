@@ -1666,7 +1666,7 @@
     "additional_host_or_qemu_tests_run": false,
     "physical_tegra_clocks_emulated": false
   },
-  "current_candidate_verification": "docs/gpu-selector-display-verification.json",
+  "current_candidate_verification": "docs/gpu-hhdm-display-verification.json",
   "later_physical_boot_observation": {
     "verification": "docs/gpu-verification.json",
     "readout": "docs/gpu-hardware-9076.md",
