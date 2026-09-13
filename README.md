@@ -68,13 +68,17 @@ GPU control API and prepares pinned NVIDIA firmware. After the MC wait fix,
 asynchronous SError. With GPIO6's missing push-pull configuration corrected,
 `IMG_9080.mov` shows a valid GM20B identity read in 15 µs, `/dev/gpu0`, and normal
 Scarlet Shell startup without that fault. `IMG_9076.mov` shows four schedulers
-online. SGFX rendering remains pending;
-see [GPU bring-up](docs/gpu-bringup.md). Prepare its firmware once before building:
+online. The next candidate adds private GMMU/BAR1 read/write/remap validation
+and native Tegra DC scanout through the ordinary display API. Physical
+validation of those two paths and SGFX rendering remain pending; see
+[GPU bring-up](docs/gpu-bringup.md) and [display bring-up](docs/display-bringup.md).
+Prepare its firmware once before building:
 `python3 scripts/prepare-gm20b-firmware.py --download`.
 
 Supported development hosts: Apple Silicon macOS, AArch64 Linux, x86-64 Linux.
 Use a sibling `../Scarlet` checkout at
-`85f0cead4cb4c9add021360f1b469f08bf0d23a9` or a compatible successor.
+`7795abb5aed3fcf4c3bcaa97273332a005295d71` or a compatible successor (the native display module needs the
+new common earlyfb handoff API).
 The SDK and toolchain revisions are recorded in `flake.lock`.
 The hardware-tested kernel changes are committed locally as `99c65035`
 (Linux framebuffer diagnostics) and `e2ecbecb` (generic ECAM host selection).

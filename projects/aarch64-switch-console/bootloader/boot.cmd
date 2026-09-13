@@ -99,6 +99,9 @@ fdt set /cpus/cpu@3 performance-domains <0x5343>
 fdt set /gpu clocks <0x36 184 0x36 299 0x36 189>
 fdt set /gpu clock-names gpu pwr ref
 fdt set /gpu vdd-supply <0x2f>
+# DC0 adopts this inspected, physically addressed Hekate DSI mode. DC1 and
+# uninspected cold panel/HDMI paths are not enabled by this binding.
+fdt set /host1x/dc@54200000 scarlet,boot-scanout <1>
 setenv bootargs "init=/init init.console=/dev/null maxcpus=4 scarlet.switch=1"
 echo Launching Scarlet ${scarlet_boot_mode} at 0x80200000
 bootm ${kernload} ${initaddr} ${fdtraddr}

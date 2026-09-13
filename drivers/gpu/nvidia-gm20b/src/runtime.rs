@@ -5,6 +5,7 @@
 use alloc::{boxed::Box, sync::Arc, vec};
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use crate::gmmu::Gmmu;
 use scarlet::{
     device::{
         fdt::FdtManager,
@@ -166,6 +167,7 @@ struct Power {
     platform_before: GpuPlatformState,
     rail_before: RailState,
     changed: bool,
+    dma: Option<Gmmu>,
 }
 
 impl Power {
@@ -178,6 +180,7 @@ impl Power {
             platform_before,
             rail_before,
             changed: false,
+            dma: None,
         })
     }
 
@@ -196,8 +199,21 @@ impl Drop for Power {
             return;
         }
         if let Err(error) = self.platform.isolate() {
+            if let Some(dma) = self.dma.take() {
+                // Hardware may still fetch the tables/backing. Never return
+                // these pages to PMM after a failed isolation.
+                core::mem::forget(dma);
+            }
             scarlet::println!("gm20b: rollback stopped before rail change: {}", error);
             return;
+        }
+        if let Some(dma) = self.dma.take() {
+            if let Err(error) = flush_mc(dma.mc_base) {
+                core::mem::forget(dma);
+                scarlet::println!("gm20b: isolated GPU retained DMA backing: {}", error);
+                return;
+            }
+            drop(dma);
         }
         if let Err(error) = self.rail.restore(self.rail_before) {
             scarlet::println!("gm20b: rollback left GPU isolated: {}", error);
@@ -211,7 +227,7 @@ impl Drop for Power {
 
 struct Backend {
     _power: Power,
-    snapshot: [u8; 44],
+    snapshot: [u8; 48],
 }
 
 impl GpuBackend for Backend {
@@ -234,7 +250,14 @@ fn flush_mc(base: usize) -> Result<(), &'static str> {
     write(MC_HOTRESET_CTRL, read(MC_HOTRESET_CTRL) | MC_GPU);
     let _ = read(MC_HOTRESET_CTRL);
     let deadline = time::current_time_ns().saturating_add(1_000_000);
-    while read(MC_HOTRESET_STATUS) & MC_GPU == 0 {
+    loop {
+        // Switchroot tegra_stable_hotreset_check requires six identical
+        // reads. A transient asserted acknowledgement cannot retire DMA.
+        let status = read(MC_HOTRESET_STATUS);
+        let stable = (0..5).all(|_| read(MC_HOTRESET_STATUS) == status);
+        if stable && status & MC_GPU != 0 {
+            break;
+        }
         if time::current_time_ns() >= deadline {
             scarlet::println!(
                 "gm20b: MC flush timed out ctrl={:#010x} status={:#010x}",
@@ -356,7 +379,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         .reg()
         .and_then(|mut resources| resources.next())
         .ok_or("missing MC registers")?;
-    if mc_resource.starting_address as usize != 0x70019000 || mc_resource.size.unwrap_or(0) < 0x978
+    if mc_resource.starting_address as usize != 0x70019000 || mc_resource.size.unwrap_or(0) < 0x1000
     {
         return Err("unsupported GPU MC aperture");
     }
@@ -365,8 +388,19 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         .get_i2c_bus(node_phandle(&i2c).ok_or("missing GPU I2C5 phandle")?)
         .ok_or(PROBE_DEFER)?;
     // Complete provider checks and mappings before making any power changes.
-    let gpu_base = vm::ioremap(gpu.start, 0x204)?;
-    let mc_base = vm::ioremap(0x70019000, 0x978)?;
+    let bar1 = device
+        .get_resources()
+        .iter()
+        .find(|resource| {
+            resource.res_type == PlatformDeviceResourceType::MEM && resource.start == 0x58000000
+        })
+        .ok_or("missing GM20B BAR1")?;
+    if bar1.size()? < 0x01000000 {
+        return Err("truncated GM20B BAR1 aperture");
+    }
+    let gpu_base = vm::ioremap(gpu.start, 0x101000)?;
+    let bar1_base = vm::ioremap(bar1.start, 0x3000)?;
+    let mc_base = vm::ioremap(0x70019000, 0x1000)?;
     let mut power = Power::acquire(platform, Rail { bus })?;
     scarlet::println!(
         "gm20b: powering GPU; rail={}uV ref={}Hz pwr=204000000Hz",
@@ -395,7 +429,6 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         return Err("GPU identity is not GM20B");
     }
     scarlet::println!("gm20b: reading MC_ENABLE/interrupt status");
-    let enable = read(0x200);
     let stall = read(0x100);
     let nonstall = read(0x104);
     // No execution engine or interrupt handler exists in this first stage.
@@ -404,10 +437,15 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         scarlet::arch::mmio::write32(gpu_base + 0x144, 0);
     }
     let _ = read(0x144);
+    // Transfer the allocation owner before any hardware address is published.
+    // On failure Power isolates/drains the client before freeing its pages.
+    power.dma = Some(Gmmu::allocate(gpu_base, bar1_base, mc_base)?);
+    power.dma.as_ref().unwrap().initialize()?;
+    let enable = read(0x200);
     scarlet::println!("gm20b: interrupt masks disabled; registering control endpoint");
     let before = power.platform_before;
     let words = [
-        1,
+        2,
         boot0,
         enable,
         stall,
@@ -418,8 +456,9 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         before.power_clock,
         power.platform.reference_hz(),
         204_000_000,
+        1, // Private BAR1 physical read/write and TLB remap completed.
     ];
-    let mut snapshot = [0; 44];
+    let mut snapshot = [0; 48];
     for (bytes, word) in snapshot.chunks_exact_mut(4).zip(words) {
         bytes.copy_from_slice(&word.to_le_bytes());
     }
@@ -437,7 +476,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         nonstall,
         name
     );
-    scarlet::println!("gm20b: GR firmware/GMMU/queues pending; execution support=0");
+    scarlet::println!("gm20b: private GMMU ready; GR firmware/queues pending; execution support=0");
     Ok(())
 }
 

@@ -12,11 +12,15 @@ value is `0x09`, and valid `MC_BOOT_0=0x12b000a1` returned in 15 µs.
 `/dev/gpu0` registered and the ordinary Scarlet Shell screen appeared without
 the earlier SError. See [the latest video reading](gpu-hardware-9080.md).
 
-This first power/identity hardware stage has passed. SGFX command execution
-is not available:
-the endpoint reports unavailable, execution support zero and command limit
-zero, with no execution dialect. Normal SWS uses its existing framebuffer
-path and output scale 1.0. No Switch-specific renderer is added to SWS or UI.
+The power/identity hardware stage has passed. The next candidate adds a private
+GMMU/BAR1 address space and native Tegra DC scanout; those changes have production
+build/archive/SD validation. `IMG_9081.mov` rejects GMMU before BAR1 binding
+and defers DC adoption before probe; see [the new hardware reading](gpu-hardware-9081.md).
+SGFX command execution is not available: the endpoint reports unavailable,
+execution support zero and command limit zero, with no execution dialect.
+Normal SWS uses the ordinary display interface and output scale 1.0.
+See [display bring-up](display-bringup.md). No Switch-specific SWS/UI renderer
+or console-mode policy is added.
 
 ## Power and ownership
 
@@ -37,9 +41,39 @@ readback; STATUS indicates drained requests and is not required to clear.
 Failures isolate the GPU before rail
 rollback; isolation/rail rollback failures leave it isolated and log the
 failure. Successful probe retains the power lease in the registered backend.
-GPU interrupts remain masked. No DMA storage, channel, shader or SGFX queue
-exists yet. There is no new GPU suspend/resume implementation in this stage.
-Firmware memory reservations, GPU/VPR/WPR carveouts and scanout stay intact.
+GPU interrupts remain masked. Private DMA storage now exists for BAR1, but
+there is no channel, shader or SGFX queue. There is no new GPU suspend/resume
+implementation in this stage.
+Firmware memory reservations and GPU/VPR/WPR carveouts stay intact. The separate
+DC driver can replace inherited scanout with display-owned buffers.
+
+## Private GMMU stage
+
+The GM20B module maps BAR0 through `0x101000` and the first three BAR1 pages.
+It checks MC SMMU configuration and GPU ASID (`0xaac`) before using physical
+DRAM addresses; an enabled inherited GPU SMMU domain is rejected rather than
+silently bypassed. Tegra's video aperture addresses normal DRAM and does not
+imply CPU coherency, matching Nouveau's GK20A aperture selection.
+
+One retained page directory, a full 128-KiB small-page table, a 4-KiB instance
+block, two scratch pages, and flush/debug pages form a private 16-MiB BAR1
+address space. VA zero and all pages except `0x1000`/`0x2000` remain invalid.
+Page tables are cleaned to PoC before HUB-only MMU invalidation. The instance
+uses 64-KiB big-page geometry; only 4-KiB PTEs are populated.
+
+After bounded FIFO/bind/flush waits, the driver reads distinct patterns through
+both BAR1 virtual addresses, writes through BAR1 and checks the physical page
+after CPU cache invalidation, then remaps VA `0x1000` to the second page and
+checks that TLB invalidation changed the result. Individual MMIO loads remain
+subject to hardware bus faults/timeouts; a software deadline cannot interrupt
+a stalled bus load. SError handling is unchanged.
+
+All allocations transfer into the power lease before publishing addresses.
+On failure, GPU isolation and six stable MC drain acknowledgements precede
+page release. Failed isolation/drain retains the allocations and leaves the
+GPU isolated when possible. There are no public memory/address-space objects
+or execution dialects yet. The definitive new runtime line is
+`gm20b: GMMU BAR1 read/write/remap passed; channels pending`.
 
 ## Firmware and build
 
@@ -59,14 +93,14 @@ them is not evidence that Falcon authentication or GR initialization works.
 
 Boot **More Configs → Scarlet Switch Console**. Observe
 `gm20b: powering GPU`, the GPIO6 readback, and `gm20b: MC_BOOT_0=... read_us=...`,
-followed by `gm20b: identified MC_BOOT_0=...` and
-`gm20b: GR firmware/GMMU/queues pending; execution support=0`, or the precise
-probe/rollback error. Check normal shell, touch, Joy-Con, RTC, all CPU startup
+followed by the GMMU read/write/remap result, `gm20b: identified MC_BOOT_0=...`,
+and `gm20b: private GMMU ready; GR firmware/queues pending; execution support=0`,
+or the precise probe/rollback error. Then observe native DC scanout startup.
+Check normal shell, touch, Joy-Con, RTC, all CPU startup
 logs and sleep/timer behaviour during the same boot. `gpu-info` queries the
 ordinary GPU ABI without selecting an SGFX renderer or creating a channel.
-`gpu-info /dev/gpuN` selects another device. Record the boot output before
-enabling DMA or GR execution; host/QEMU runs cannot establish this hardware
-power path.
+`gpu-info /dev/gpuN` selects another device. Record the exact last phase on
+failure; host/QEMU runs cannot establish this hardware DMA/scanout path.
 
 The initial production build, archive inspection, SD readback and hardware
 failure are recorded in `gpu-verification.json`. The MC-corrected package and
@@ -74,17 +108,22 @@ its later failed hardware boot are in `gpu-mc-verification.json`. The current
 GPIO6-corrected package and its successful physical identity/graphical-startup
 result are in `gpu-gpio6-verification.json`. The short video also shows a
 user-task CPU-usage diagnostic followed by further UI updates. Repeated boots,
-long-running stability and GPU execution are still unvalidated.
+long-running stability and GPU execution are still unvalidated. The new
+GMMU/DC candidate's exact sources, artifacts and SD readback are recorded in
+`gpu-gmmu-display-verification.json`; its physical validation flags remain false
+after the failed/deferred stages in `IMG_9081.mov`.
 
-The backend's opaque query record contains eleven little-endian u32 words:
-version (1), MC_BOOT_0, MC_ENABLE, stall interrupt status, nonstall interrupt
+The backend's opaque query record now contains twelve little-endian u32 words:
+version (2), MC_BOOT_0, MC_ENABLE, stall interrupt status, nonstall interrupt
 status, previous GPU reset, previous clamp, previous GPU/reference gates,
-previous PLLP output-5 fields, PLL reference Hz, and power clock Hz.
+previous PLLP output-5 fields, PLL reference Hz, power clock Hz, and private
+BAR1 read/write/remap completion (1). Public execution support remains zero.
 
 ## Next execution stages
 
-1. Establish GM20B GMMU mappings and cache/TLB ordering for retained Scarlet
-   resource capabilities. Validate DMA retirement before allowing backing reuse.
+1. Physically validate private BAR1, then extend GMMU mappings/cache ordering to
+   retained Scarlet resource capabilities and public address-space objects.
+   Validate DMA retirement before allowing backing reuse.
 2. Bring up PMU/ACR authentication and FECS/GPCCS, apply Linux GR initialization
    tables and generate the hardware graphics context.
 3. Implement validated context/channel/runlist/GPFIFO submission and completion;
@@ -104,4 +143,6 @@ Fetched with `gh`, using these pinned upstream sources:
 - [Linux Tegra clocks](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/clk/tegra/clk-tegra-periph.c) and [MC reset client](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/memory/tegra/tegra210.c).
 - [Linux MC DMA unblock](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/memory/tegra/mc.c) and [Switchroot MC flush/release](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/platform/tegra/mc/mc.c).
 - [Linux GM20B GR initialization and firmware](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/gr/gm20b.c).
+- [Nouveau Tegra aperture selection](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgk20a.c), [page-table geometry](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgk104.c), and [TLB ordering](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgf100.c).
+- [nvgpu BAR1 binding](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/bus/bus_gm20b.c), [instance/PTE programming](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/gk20a/mm_gk20a.c), and [GM20B MMU setup](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/fb/fb_gm20b.c).
 - [NVIDIA GM20B firmware](https://github.com/NVIDIA/linux-firmware/tree/46a6999a2d14a5f2239e7e712e5bbcf543f59034/nvidia/gm20b) and [redistribution licence](https://github.com/NVIDIA/linux-firmware/blob/46a6999a2d14a5f2239e7e712e5bbcf543f59034/LICENCE.nvidia).
