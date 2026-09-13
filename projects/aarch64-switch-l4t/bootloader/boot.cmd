@@ -49,7 +49,8 @@ fi
 fdt addr ${fdtraddr} ${fdtrsize}
 fdt resize 16384
 
-# Inspected Noble U-Boot framebuffer: ABGR8888, portrait surface, vidconsole3.
+# Hekate v6.5.3 scanout: BGRA bytes (a8r8g8b8), portrait, vidconsole3.
+# Noble U-Boot's embedded a8b8g8r8 declaration does not match this scanout.
 # This is an inherited scanout buffer, not a Scarlet display-controller driver.
 fdt set /chosen "#address-cells" <2>
 fdt set /chosen "#size-cells" <2>
@@ -60,7 +61,7 @@ fdt set /chosen/framebuffer@f5a00000 reg <0 0xf5a00000 0 0x384000>
 fdt set /chosen/framebuffer@f5a00000 width <720>
 fdt set /chosen/framebuffer@f5a00000 height <1280>
 fdt set /chosen/framebuffer@f5a00000 stride <2880>
-fdt set /chosen/framebuffer@f5a00000 format a8b8g8r8
+fdt set /chosen/framebuffer@f5a00000 format a8r8g8b8
 fdt set /chosen/framebuffer@f5a00000 scarlet,rotation <3>
 fdt set /chosen/framebuffer@f5a00000 status okay
 fdt rsvmem add 0xf5a00000 0x400000

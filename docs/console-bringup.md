@@ -45,7 +45,7 @@ must fit the dedicated 224 MiB loading buffer; packaging enforces that limit.
 The ordinary simple-framebuffer graphics driver exports a 1280×720 BGRA8888
 surface through `/dev/display0`. A RAM shadow has Normal memory attributes;
 present rotates and converts its damaged region into the inherited portrait
-720×1280 ABGR8888 scanout. After the first present, the early diagnostic
+720×1280 BGRA8888 scanout (`a8r8g8b8` in FDT). After the first present, the early diagnostic
 framebuffer stops mirroring text over the GUI. No Tegra-specific SWS backend
 or framebuffer TTY is required.
 
@@ -55,7 +55,7 @@ The generic `init.console=` option selects initial stdio; the default remains
 startup is disabled until supported network and cryptographic entropy
 sources are available. The kernel is still CPU0-only; see `cpu-bringup.md`.
 Joy-Con, touch, and Tegra USB input are not implemented by this bring-up.
-QEMU display success is not evidence of Switch panel or input operation.
+Input operation has not been verified on the Switch.
 
 ## Observed host behavior
 
@@ -69,10 +69,20 @@ repeated twice through both Rust std and Native Sleep. Both entry cases must
 complete these checks without early return or an excessive delay.
 The no-UART case uses the unchanged packaged RAMDisk and `/dev/null` stdio.
 It must render the same Home application grid as the log-observed SWS case.
-The test captures the actual portrait scanout memory and renders PNG/PPM
-artifacts under `.cache/console-qa/`.
+The test reads the framebuffer format from the actual packaged `boot.scr`,
+checks that script against `boot.cmd`, and uses the same format in its FDT.
+It captures the actual portrait scanout memory and decodes little-endian
+RGBA or BGRA bytes into PNG/PPM artifacts under
+`.cache/console-qa/<framebuffer-format>/`.
 
 The first frame may show an empty Library while its artwork worker loads
 assets. The host test waits for the normal initial rendering to settle.
-`console-verification.json` records the exact binaries and observed results;
-Switch hardware validation remains pending for this new console image.
+`console-verification.json` records the initial binaries and host results.
+The user-supplied `IMG_9059.HEIC` subsequently showed the SWS console Home on
+the Switch, including Clock, Files, Notepad and Settings. Its colors were
+incorrect because the initial boot script declared RGBA while Hekate's
+inherited scanout uses BGRA. The boot scripts now declare `a8r8g8b8`;
+only the console package's `boot.scr` changed, with the kernel, initramfs
+and firmware retaining their installed hashes. `console-hardware.json`
+records the photo, original installation, and the corrected host results.
+The corrected colors still require a new Switch boot.

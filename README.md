@@ -50,6 +50,9 @@ Clock, Files, Notepad, Settings, Task Manager and Terminal. See
 [console-bringup.md](docs/console-bringup.md) for build, verification and
 the separate **Scarlet Switch Console** Hekate entry. The diagnostic build
 described below remains available separately.
+The SWS console Home was subsequently observed on the Switch in
+`IMG_9059.HEIC`. Its initial color mismatch is corrected in the board boot
+script; a new hardware boot is still needed to verify the corrected colors.
 
 Supported development hosts: Apple Silicon macOS, AArch64 Linux, x86-64 Linux.
 Use a sibling `../Scarlet` checkout at

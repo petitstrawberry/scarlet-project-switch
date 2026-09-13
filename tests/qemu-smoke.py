@@ -22,7 +22,8 @@ OUT = ROOT / ".cache/qa"
 FB_BASE = 0xb0000000
 FB_SIZE = 720 * 1280 * 4
 
-def fixture(initrd_size, mode="probe", framebuffer=True, invalid_stride=False, uart=True, pci_host=None):
+def fixture(initrd_size, mode="probe", framebuffer=True, invalid_stride=False, uart=True, pci_host=None,
+            framebuffer_format="a8b8g8r8"):
     fb = ""
     if framebuffer:
         fb = f"""
@@ -31,7 +32,7 @@ def fixture(initrd_size, mode="probe", framebuffer=True, invalid_stride=False, u
             reg = <0 0xb0000000 0 0x384000>;
             width = <720>; height = <1280>;
             stride = <{4 if invalid_stride else 2880}>;
-            format = "a8b8g8r8"; scarlet,rotation = <3>;
+            format = "{framebuffer_format}"; scarlet,rotation = <3>;
         }};"""
     stdout = 'stdout-path = "/pl011@9000000";' if uart else ""
     uart_node = '''pl011@9000000 { compatible = "arm,pl011"; reg = <0 0x09000000 0 0x1000>;
@@ -139,11 +140,11 @@ def framebuffer_text(data):
         lines.append("".join(line).rstrip())
     return "\n".join(lines)
 
-def legacy_payload(path, kind, compression):
+def legacy_payload(path, kind, compression, expected_arch=22):
     data = path.read_bytes()
     assert len(data) >= 64, "truncated legacy image"
     magic, header_crc, timestamp, size, load, entry, crc, os_id, arch, image_type, comp, name = struct.unpack_from(">7I4B32s", data)
-    assert magic == 0x27051956 and os_id == 5 and arch == 22
+    assert magic == 0x27051956 and os_id == 5 and arch == expected_arch
     assert image_type == kind and comp == compression, "unexpected legacy image type/compression"
     assert header_crc == zlib.crc32(data[:4] + bytes(4) + data[8:64])
     payload = data[64:]

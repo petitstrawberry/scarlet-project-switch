@@ -25,6 +25,17 @@ starts at file offset `0x5b060`, contains the inherited framebuffer address
 rotation 3. These values were extracted from the pinned binary, independently
 of the source comparison.
 
+That embedded format is U-Boot's software declaration, not a measurement of
+the display controller. Hekate v6.5.3 initializes its linear Window A with
+[`WIN_COLOR_DEPTH_B8G8R8A8`](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/display/di.inl#L437)
+via [`display_init_window_a_pitch()`](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bootloader/main.c#L1493).
+U-Boot's simplefb driver consumes the inherited buffer without programming
+the controller. `IMG_9059.HEIC` shows the ordinary console Home on the Switch,
+with red selections and yellow artwork becoming blue under the original
+`a8b8g8r8` declaration. The current board boot scripts describe the inherited
+BGRA bytes as `a8r8g8b8`. The generic framebuffer driver remains unchanged.
+See `console-hardware.json` for the photo and exact pre-fix package snapshot.
+
 U-Boot source was inspected at Switchroot commit
 `722e2b86be9ab1ae073335585c5997093e05f4f2`. This is a source reference, not a
 reproducible-build attestation for the distributed BL33. It enables legacy
@@ -46,7 +57,7 @@ Its board code excludes firmware DRAM carveouts from the memory banks which
 | Compressed uImage read buffer | `0xa0000000` |
 | Platform DT image read buffer | `0xa8000000` |
 | Existing BL33 | `0xaa000000`, from Hekate's L4T contract |
-| Inherited framebuffer | `0xf5a00000`, 720 x 1280, 2880-byte stride, ABGR8888 |
+| Inherited framebuffer | `0xf5a00000`, 720 x 1280, 2880-byte stride, BGRA bytes (`a8r8g8b8`) |
 
 The linker rejects a runtime image reaching the DTB buffer. Packaging checks
 ELF64/AArch64, physical identity-linked PT_LOAD segments, header magic/flags,

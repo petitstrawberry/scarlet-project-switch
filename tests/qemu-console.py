@@ -47,20 +47,37 @@ def cpio_file(name, data, inode, mode=0o100644):
     return entry + bytes(-len(entry) % 4)
 
 
-def logical_rgb(data):
+def logical_rgb(data, framebuffer_format):
+    # FDT format names describe a packed word. The guest is little-endian.
+    channels = {"a8b8g8r8": (0, 1, 2), "a8r8g8b8": (2, 1, 0)}[framebuffer_format]
     rgb = bytearray()
     for y in range(720):
         for x in range(1280):
             offset = ((1280 - 1 - x) * 720 + y) * 4
-            rgb.extend(data[offset:offset + 3])
+            rgb.extend(data[offset + channel] for channel in channels)
     return rgb
 
 
+def boot_framebuffer_format(boot):
+    payload = smoke.legacy_payload(boot / "boot.scr", 6, 0, expected_arch=2)
+    size, terminator = struct.unpack_from(">II", payload)
+    assert terminator == 0 and len(payload) == size + 8, "invalid legacy script payload"
+    script = payload[8:]
+    assert script == (PROJECT / "bootloader/boot.cmd").read_bytes(), "boot.scr is stale"
+    formats = re.findall(rb"^fdt set /chosen/framebuffer@f5a00000 format (\S+)$", script, re.M)
+    assert len(formats) == 1, "missing or ambiguous framebuffer format"
+    framebuffer_format = formats[0].decode()
+    assert framebuffer_format in ("a8b8g8r8", "a8r8g8b8"), "unsupported scanout format"
+    return framebuffer_format
+
+
 def run(el1=False, timeout=120, screen_only=False, settle_seconds=20):
-    case_name = ("screen-only-" if screen_only else "") + ("el1" if el1 else "el2")
-    case = ROOT / ".cache/console-qa" / case_name
-    case.mkdir(parents=True, exist_ok=True)
     boot = PROJECT / ".scarlet/l4t/switchroot/scarlet-console"
+    framebuffer_format = boot_framebuffer_format(boot)
+    case_name = ("screen-only-" if screen_only else "") + ("el1" if el1 else "el2")
+    case_root = ROOT / ".cache/console-qa" / framebuffer_format
+    case = case_root / case_name
+    case.mkdir(parents=True, exist_ok=True)
     image = gzip.decompress(smoke.legacy_payload(boot / "uImage", 2, 1))
     assert image == (boot / "Image").read_bytes()
     (case / "Image").write_bytes(image)
@@ -88,7 +105,8 @@ depends = ["scarlet-desktop"]
         extra += cpio_file("bin/console-qa", qa.read_bytes(), 0x7ffffffd, 0o100755)
         initrd = initrd[:trailer] + extra + initrd[trailer:]
     (case / "initramfs.cpio").write_bytes(initrd)
-    dts = smoke.fixture(len(initrd), mode="kernel", pci_host="tegra", uart=not screen_only)
+    dts = smoke.fixture(len(initrd), mode="kernel", pci_host="tegra", uart=not screen_only,
+                        framebuffer_format=framebuffer_format)
     console = "/dev/null" if screen_only else "/dev/tty0"
     dts = dts.replace('bootargs = "init=/init maxcpus=1";', f'bootargs = "init=/init init.console={console} maxcpus=1";')
     (case / "input.dts").write_text(dts)
@@ -120,7 +138,7 @@ depends = ["scarlet-desktop"]
             qmp = smoke.Qmp(qmp_path)
             match_ratio = None
             if screen_only:
-                reference = (ROOT / ".cache/console-qa/el2/desktop.ppm").read_bytes().split(b"\n", 3)[3]
+                reference = (case_root / "el2/desktop.ppm").read_bytes().split(b"\n", 3)[3]
                 # The Home grid is stable; omit status clock and controls.
                 points = [(y * 1280 + x) * 3 for y in range(120, 600, 4) for x in range(256, 1024, 4)]
             while time.monotonic() < deadline:
@@ -133,7 +151,7 @@ depends = ["scarlet-desktop"]
                 if screen_only:
                     dump = case / "framebuffer.bin"
                     qmp.command("pmemsave", {"val": smoke.FB_BASE, "size": smoke.FB_SIZE, "filename": str(dump)})
-                    rgb = logical_rgb(dump.read_bytes())
+                    rgb = logical_rgb(dump.read_bytes(), framebuffer_format)
                     match_ratio = sum(rgb[i:i + 3] == reference[i:i + 3] for i in points) / len(points)
                     if match_ratio > 0.98:
                         break
@@ -149,7 +167,7 @@ depends = ["scarlet-desktop"]
             dump = case / "framebuffer.bin"
             qmp.command("pmemsave", {"val": smoke.FB_BASE, "size": smoke.FB_SIZE, "filename": str(dump)})
             data = dump.read_bytes()
-            rgb = logical_rgb(data)
+            rgb = logical_rgb(data, framebuffer_format)
             (case / "desktop.ppm").write_bytes(b"P6\n1280 720\n255\n" + rgb)
             def chunk(kind, payload):
                 return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", zlib.crc32(kind + payload))
@@ -179,7 +197,9 @@ depends = ["scarlet-desktop"]
             result = {"passed": True, "current_el": 1 if el1 else 2,
                       "hardware_validated": False, "sws_ready": True,
                       "scarlet_shell_started": True, "logical_surface": [1280, 720],
-                      "scanout_unique_colors": len(colors), "image_sha256": hashlib.sha256(image).hexdigest(),
+                      "scanout_unique_colors": len(colors), "scanout_format": framebuffer_format,
+                      "boot_script_sha256": hashlib.sha256((boot / "boot.scr").read_bytes()).hexdigest(),
+                      "image_sha256": hashlib.sha256(image).hexdigest(),
                       "uart_present": not screen_only, "home_reference_match": match_ratio,
                       "sleep_wakes": [{"api": api, "requested_ns": int(requested), "elapsed_ns": int(elapsed), "result": int(result)} for api, requested, elapsed, result in timers],
                       "file_io_observed": not screen_only, "application_catalog_observed": not screen_only,
