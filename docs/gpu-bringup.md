@@ -3,10 +3,12 @@
 The current candidate adds the external `scarlet-driver-nvidia-gm20b` module.
 It powers the Erista GPU, releases its clamp/reset, flushes the MC GPU client,
 checks the actual `MC_BOOT_0` identity and registers the normal `/dev/gpuN`
-control endpoint. In `IMG_9076.mov`, power sequencing and MC acknowledgement
-completed, but an incorrect STATUS-clear wait failed before GPU identity.
-The current candidate corrects MC release to follow Linux; its identity result
-is pending. See [the video reading](gpu-hardware-9076.md).
+control endpoint. `IMG_9076.mov` exposed an incorrect MC STATUS-clear wait.
+After correcting it, `IMG_9079.mov` shows the first GPU identity read returning
+`0xffffffff` after a delay, then a fatal asynchronous SError during startup.
+The current candidate also sets GPIO6 to push-pull, as specified by the Noble
+DTB, instead of inheriting an open-drain enable pin. Its hardware result is
+pending. See [the latest video reading](gpu-hardware-9079.md).
 
 This is the first hardware stage. SGFX command execution is not available:
 the endpoint reports unavailable, execution support zero and command limit
@@ -17,7 +19,9 @@ path and output scale 1.0. No Switch-specific renderer is added to SWS or UI.
 
 The GPU uses I2C5 MAX77621 address `0x1c`, both DVS voltage banks at 1.0 V,
 and active-high MAX77620 GPIO6. The FDT supply, voltage limits and enable
-GPIO are checked before changing the rail. GPIO5 (CPU), GPIO7 (DSI), touch
+GPIO are checked before changing the rail. GPIO6 is explicitly configured as
+push-pull/high/output, and all three configuration bits are read back. The
+inherited and enabled pin configurations are logged. GPIO5 (CPU), GPIO7 (DSI), touch
 LDO6 and RTC registers are separate. The GPU is isolated before its voltage
 changes. CAR bank X clock/reset ID 184 and PLL_G_REF ID 189 are owned by
 this driver; PLLP output 5 supplies the 204 MHz power clock. Shared registers
@@ -51,7 +55,8 @@ them is not evidence that Falcon authentication or GR initialization works.
 ## Physical iteration
 
 Boot **More Configs → Scarlet Switch Console**. Observe
-`gm20b: powering GPU`, followed by `gm20b: identified MC_BOOT_0=...` and
+`gm20b: powering GPU`, the GPIO6 readback, and `gm20b: MC_BOOT_0=... read_us=...`,
+followed by `gm20b: identified MC_BOOT_0=...` and
 `gm20b: GR firmware/GMMU/queues pending; execution support=0`, or the precise
 probe/rollback error. Check normal shell, touch, Joy-Con, RTC, all CPU startup
 logs and sleep/timer behaviour during the same boot. `gpu-info` queries the
@@ -61,8 +66,10 @@ enabling DMA or GR execution; host/QEMU runs cannot establish this hardware
 power path.
 
 The initial production build, archive inspection, SD readback and hardware
-failure are recorded in `gpu-verification.json`. The corrected package is in
-`gpu-mc-verification.json`; actual GPU identity validation is pending.
+failure are recorded in `gpu-verification.json`. The MC-corrected package and
+its later failed hardware boot are in `gpu-mc-verification.json`. The current
+GPIO6-corrected package is in `gpu-gpio6-verification.json`; actual GPU identity
+validation is pending.
 
 The backend's opaque query record contains eleven little-endian u32 words:
 version (1), MC_BOOT_0, MC_ENABLE, stall interrupt status, nonstall interrupt
@@ -88,6 +95,7 @@ Fetched with `gh`, using these pinned upstream sources:
 - [Switchroot nvgpu GPU power sequence](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/os/linux/platform_gk20a_tegra.c).
 - [Linux Nouveau Tegra power sequence](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/device/tegra.c).
 - [Linux Tegra210 GPU bindings](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/arch/arm64/boot/dts/nvidia/tegra210.dtsi).
+- [Linux MAX77620 drive configuration](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/pinctrl/pinctrl-max77620.c) and [Hekate's GPIO configuration](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/power/max7762x.c).
 - [Linux Tegra clocks](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/clk/tegra/clk-tegra-periph.c) and [MC reset client](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/memory/tegra/tegra210.c).
 - [Linux MC DMA unblock](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/memory/tegra/mc.c) and [Switchroot MC flush/release](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/platform/tegra/mc/mc.c).
 - [Linux GM20B GR initialization and firmware](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/gr/gm20b.c).

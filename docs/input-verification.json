@@ -1628,7 +1628,7 @@
     "kernel_elf_sha256": "230e9ecd0e62d2fd0b6b6553b1d85ef2ac84bf65d7e8fe1253588d2c79f2d55e",
     "initramfs_sha256": "f10eda07e2c1ceeb7246eecf3c8b6174dd6ca0f5651571bf074e524c26ed45cf",
     "date": "2026-09-13",
-    "user_report": "動いた",
+    "user_report": "\u52d5\u3044\u305f",
     "context": "Reply after candidate with Linux-length Joy-Con ACK waits and PSCI four-core startup",
     "boot_success_user_reported": true,
     "video_or_device_log_supplied": false,
@@ -1666,10 +1666,15 @@
     "additional_host_or_qemu_tests_run": false,
     "physical_tegra_clocks_emulated": false
   },
-  "current_candidate_verification": "docs/gpu-mc-verification.json",
+  "current_candidate_verification": "docs/gpu-gpio6-verification.json",
   "later_physical_boot_observation": {
     "verification": "docs/gpu-verification.json",
     "readout": "docs/gpu-hardware-9076.md",
     "scope": "Both Joy-Cons Ready; Right HID received; touch ready and RTC seed succeeded. No user-operated input is shown."
+  },
+  "latest_gpu_hardware_observation": {
+    "verification": "docs/gpu-mc-verification.json",
+    "readout": "docs/gpu-hardware-9079.md",
+    "scope": "RTC seed and touch initialization completed, but failed GPU identity read was followed by asynchronous SError; no interactive input validation in this recording"
   }
 }

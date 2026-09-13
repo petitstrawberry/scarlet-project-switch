@@ -63,10 +63,11 @@ completed transition requesting 710400 kHz; repeated switching
 remains pending. See [CPU frequency bring-up](docs/cpufreq-bringup.md).
 
 The next hardware stage adds GM20B power/identity bring-up through the ordinary
-GPU control API and prepares pinned NVIDIA firmware. `IMG_9076.mov` shows an
-MC release-wait failure before identity; the current candidate corrects that
-wait following Linux. The same video shows four schedulers online. SGFX
-rendering is pending;
+GPU control API and prepares pinned NVIDIA firmware. After the MC wait fix,
+`IMG_9079.mov` shows an inaccessible GPU identity register and a later
+asynchronous SError. The current candidate corrects GPIO6's missing push-pull
+drive configuration. `IMG_9076.mov` shows four schedulers online. SGFX rendering
+and the latest candidate's hardware result are pending;
 see [GPU bring-up](docs/gpu-bringup.md). Prepare its firmware once before building:
 `python3 scripts/prepare-gm20b-firmware.py --download`.
 

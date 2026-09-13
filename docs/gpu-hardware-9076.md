@@ -38,8 +38,9 @@ The corrected driver retains the bounded flush-acknowledgement wait, checks
 that CTRL bit 2 actually clears, and prints CTRL/STATUS before GPU identity.
 
 The corrected package is recorded separately in `gpu-mc-verification.json`.
-Its hardware result is pending. The next boot should show
-`gm20b: MC flush complete ctrl=... status=...`, then `gm20b: identified`, or
-the next precise failure. SGFX execution remains unimplemented. Four-core
+The later [IMG_9079 reading](gpu-hardware-9079.md) confirms MC release completed,
+but the first GPU identity read returned all ones and startup later stopped
+on an asynchronous SError. The subsequent GPIO6-corrected candidate is recorded
+in `gpu-gpio6-verification.json`. SGFX execution remains unimplemented. Four-core
 task execution, per-core timer delivery, sleep/wake, user-operated input and
 repeated CPU frequency changes still require physical verification.

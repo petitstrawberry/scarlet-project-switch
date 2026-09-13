@@ -28,6 +28,9 @@ const PMIC_ADDRESS: u8 = 0x3c;
 const GPIO6: u8 = 0x3c;
 const GPIO_ALT: u8 = 0x40;
 const GPU_ENABLE: u8 = 1 << 6;
+const GPIO_PUSH_PULL: u8 = 1;
+const GPIO_INPUT: u8 = 1 << 1;
+const GPIO_HIGH: u8 = 1 << 3;
 const VOLTAGE_UV: u32 = 1_000_000;
 const VOLTAGE_SELECTOR: u8 = 63; // 606250 + 63 * 6250 = 1000000 uV.
 const MC_HOTRESET_CTRL: usize = 0x970;
@@ -109,16 +112,26 @@ impl Rail {
         let alternate = self.read(PMIC_ADDRESS, GPIO_ALT)?;
         self.write(PMIC_ADDRESS, GPIO_ALT, alternate & !GPU_ENABLE)?;
         let gpio = self.read(PMIC_ADDRESS, GPIO6)?;
-        // Linux max77620_gpio_dir_output: OUT=bit3, DIR=bit1 (0=output).
-        // Preserve drive mode, debounce and interrupt configuration.
-        let gpio = (gpio & !2) | 8;
+        // Switchroot's PMIC pinctrl sets GPIO6 to push-pull before the
+        // regulator drives it high. Hekate can leave it open-drain/input;
+        // retaining that drive mode only releases the GPU enable line.
+        // Linux pinctrl-max77620: drive=bit0; gpio-max77620: OUT=bit3,
+        // DIR=bit1 (0=output). Preserve debounce/interrupt configuration.
+        let gpio = (gpio & !GPIO_INPUT) | GPIO_PUSH_PULL | GPIO_HIGH;
         self.write(PMIC_ADDRESS, GPIO6, gpio)?;
         delay_us(1000);
-        if self.read(PMIC_ADDRESS, GPIO6)? & 0x0a != 8
-            || self.read(PMIC_ADDRESS, GPIO_ALT)? & GPU_ENABLE != 0
+        let gpio = self.read(PMIC_ADDRESS, GPIO6)?;
+        let alternate = self.read(PMIC_ADDRESS, GPIO_ALT)? & GPU_ENABLE;
+        if gpio & (GPIO_PUSH_PULL | GPIO_INPUT | GPIO_HIGH) != GPIO_PUSH_PULL | GPIO_HIGH
+            || alternate != 0
         {
             return Err("GPU enable GPIO readback mismatch");
         }
+        scarlet::println!(
+            "gm20b: rail ready GPIO6={:#04x} ALT6={:#04x} (push-pull high)",
+            gpio,
+            alternate
+        );
         Ok(())
     }
 
@@ -360,15 +373,28 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         VOLTAGE_UV,
         power.platform.reference_hz()
     );
+    scarlet::println!(
+        "gm20b: inherited GPIO6={:#04x} ALT6={:#04x}",
+        power.rail_before.gpio,
+        power.rail_before.alternate
+    );
     power.enable()?;
     flush_mc(mc_base)?;
     let read = |offset| unsafe { scarlet::arch::mmio::read32(gpu_base + offset) };
+    scarlet::println!("gm20b: reading MC_BOOT_0");
+    let read_started = time::current_time_ns();
     let boot0 = read(0);
+    scarlet::println!(
+        "gm20b: MC_BOOT_0={:#010x} read_us={}",
+        boot0,
+        time::current_time_ns().saturating_sub(read_started) / 1000
+    );
     // The MC_BOOT_0 architecture/implementation fields identify GM20B (0x12b).
     if (boot0 >> 20) & 0x1ff != 0x12b {
         scarlet::println!("gm20b: unexpected MC_BOOT_0={:#010x}", boot0);
         return Err("GPU identity is not GM20B");
     }
+    scarlet::println!("gm20b: reading MC_ENABLE/interrupt status");
     let enable = read(0x200);
     let stall = read(0x100);
     let nonstall = read(0x104);
@@ -378,6 +404,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         scarlet::arch::mmio::write32(gpu_base + 0x144, 0);
     }
     let _ = read(0x144);
+    scarlet::println!("gm20b: interrupt masks disabled; registering control endpoint");
     let before = power.platform_before;
     let words = [
         1,

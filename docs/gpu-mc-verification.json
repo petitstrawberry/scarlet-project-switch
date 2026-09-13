@@ -71,7 +71,7 @@
     "hardware_boot_validated": false
   },
   "previous_candidate_verification": "docs/gpu-verification.json",
-  "next_physical_check": "Boot Scarlet Switch Console; record gm20b MC flush complete and identity or the next precise failure; verify normal shell/input and timers",
+  "next_physical_check": "Historical failed candidate; subsequent GPIO6-corrected candidate and checks are recorded in docs/gpu-gpio6-verification.json",
   "formatting_check_log": ".cache/gm20b-mc-format-check.log",
   "formatting_check_exit_code": 0,
   "linked_driver_diagnostics_log": ".cache/gm20b-mc-linked-diagnostics.log",
@@ -94,5 +94,29 @@
   "sd_installation_exit_code": 0,
   "sd_ejected": true,
   "sd_ejection_log": ".cache/gm20b-mc-sd-eject.log",
-  "sd_ejection_exit_code": 0
+  "sd_ejection_exit_code": 0,
+  "hardware_mc_release_validated": true,
+  "hardware_attempt": {
+    "source": "/Users/petitstrawberry/Downloads/IMG_9079.mov",
+    "source_sha256": "494b1b049f7202e4449fe9f96b1c7e6ad550521261813532ae821c60dc8c0fe5",
+    "readout": "docs/gpu-hardware-9079.md",
+    "candidate_attribution": "Last verified SD deployment; video does not display artifact hash",
+    "result": "GPU identity read eventually returned 0xffffffff; startup continued and then halted on asynchronous SError",
+    "mc_flush_ctrl": "0x00000000",
+    "mc_flush_status": "0x00000004",
+    "mc_boot_0": "0xffffffff",
+    "asynchronous_serror_observed": true,
+    "serror_esr": "0xbf000002",
+    "serror_original_access_attributed": false,
+    "gpu_endpoint_registered": false,
+    "rtc_seed_succeeded": true,
+    "touch_ready_observed": true,
+    "interactive_shell_validated": false,
+    "earlier_still": {
+      "source": "/Users/petitstrawberry/Downloads/IMG_9078.HEIC",
+      "source_sha256": "d7e709d4fcad0a81f30f5bd115d9cd8b6b886d8539f770b4654f2e6747b07a73",
+      "last_visible_log": "gm20b: MC flush complete ctrl=0x00000000 status=0x00000004"
+    }
+  },
+  "superseded_by": "docs/gpu-gpio6-verification.json"
 }
