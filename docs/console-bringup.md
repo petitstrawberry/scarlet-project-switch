@@ -48,8 +48,8 @@ present rotates and converts its damaged region into the inherited portrait
 framebuffer stops mirroring text over the GUI. No Tegra-specific SWS backend
 or framebuffer TTY is required.
 
-The current image uses the normal SWS output scale of 1.5, reduced from 2.0
-after the user's feedback.
+The current image uses the normal SWS output scale of 1.0 after the user's
+feedback on 2.0 and fractional scaling.
 
 The generic `init.console=` option selects initial stdio; the default remains
 `/dev/tty0` for existing distributions. This image explicitly uses

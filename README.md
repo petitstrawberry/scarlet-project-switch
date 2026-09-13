@@ -57,7 +57,7 @@ The console build now includes attached Joy-Con, touchscreen and RTC drivers,
 plus native SWS/ScarletUI gamepad support. Touch and Left Joy-Con operation
 were observed physically; the latest Joy-Con/SMP candidate received the user's
 successful-boot report. See [input bring-up](docs/input-bringup.md).
-The next candidate uses scale 1.5 and adds PLLX/MAX77621 CPU frequency control
+The next candidate uses scale 1.0 and adds PLLX/MAX77621 CPU frequency control
 through the common governors and `cpufreqctl`. Physical switching remains
 pending; see [CPU frequency bring-up](docs/cpufreq-bringup.md).
 

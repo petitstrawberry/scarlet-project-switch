@@ -131,7 +131,8 @@
     "change_since_sixth_hardware_attempt": "PSCI CPU_ON SMP, per-CPU boot stack and MMU/EL1 entry, common AP timer initialization and scheduler-online reporting; Joy-Con uses Linux one-second init ACK waits with one retry before HID verification",
     "maxcpus": 4,
     "kernel_smp_changes_are_uncommitted": true,
-    "cpu_frequency_verification": "docs/cpufreq-verification.json"
+    "cpu_frequency_verification": "docs/cpufreq-verification.json",
+    "superseded_by": "docs/scale1-verification.json"
   },
   "software_validation": {
     "production_build": {
@@ -1664,5 +1665,6 @@
     "package_hashes_verified": 8,
     "additional_host_or_qemu_tests_run": false,
     "physical_tegra_clocks_emulated": false
-  }
+  },
+  "current_candidate_verification": "docs/scale1-verification.json"
 }

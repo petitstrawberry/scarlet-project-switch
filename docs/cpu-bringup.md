@@ -8,7 +8,7 @@ unmeasured. Earlier Switch boots, including
 `IMG_9070.mov`, ran the old CPU0-only path with `maxcpus=1`.
 
 The next candidate adds [CPU frequency control](cpufreq-bringup.md) and scale
-1.5. Its hardware validation is separate from the successful previous boot.
+1.0. Its hardware validation is separate from the successful previous boot.
 
 ## Firmware and entry
 

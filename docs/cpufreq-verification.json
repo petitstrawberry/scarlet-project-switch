@@ -110,5 +110,6 @@
       "drivers/soc/tegra/fuse/speedo-tegra210.c",
       "drivers/soc/tegra/fuse/fuse-tegra30.c"
     ]
-  }
+  },
+  "superseded_by": "docs/scale1-verification.json"
 }
