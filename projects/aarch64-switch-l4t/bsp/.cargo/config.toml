@@ -1,0 +1,10 @@
+[build]
+target = "targets/aarch64-switch-none-elf.json"
+
+[target.aarch64-switch-none-elf]
+rustflags = ["-C", "no-vectorize-loops", "-C", "no-vectorize-slp"]
+
+[unstable]
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]
+unstable-options = true

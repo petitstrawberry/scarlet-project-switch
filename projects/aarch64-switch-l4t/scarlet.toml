@@ -1,0 +1,34 @@
+schema_version = 2
+
+[project]
+name = "scarlet-aarch64-switch-l4t"
+
+[bsp]
+path = "bsp"
+package = "scarlet"
+
+[bsp.kernel]
+source = { path = "../../../Scarlet/kernel" }
+# The current kernel's socket ABI requires network even on a screen-only BSP.
+features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true }
+
+[modules]
+
+[images.initramfs]
+format = "newc"
+output = ".scarlet/images/initramfs.cpio"
+
+[[images.initramfs.layers]]
+kind = "copy"
+source = "initramfs"
+to = "/"
+
+[[images.initramfs.layers]]
+kind = "cargo"
+source = "../../userspace/switch-init"
+package = "switch-init"
+bin = "switch-init"
+to = "/init"
+
+[hooks.post-image]
+command = "tools/package-l4t.sh"

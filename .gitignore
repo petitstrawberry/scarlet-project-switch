@@ -1,0 +1,11 @@
+.direnv/
+.cache/
+.scarlet/
+target/
+result
+result-*
+scarlet.local.toml
+__pycache__/
+*.py[cod]
+*.log
+.DS_Store

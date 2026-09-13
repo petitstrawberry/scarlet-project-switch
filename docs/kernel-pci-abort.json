@@ -1,0 +1,62 @@
+{
+  "recorded_at": "2026-09-13T08:57:42.619629+00:00",
+  "evidence": {
+    "source": "/Users/petitstrawberry/Downloads/IMG_9058.heic",
+    "sha256": "650194e4b89fe4e082537cdafdda2831b719b16ed3c5963b8452c301c69cb7ea",
+    "decoded_image": ".cache/qa/hardware-IMG_9058.png"
+  },
+  "mode": "kernel",
+  "common_kernel_entry_observed": true,
+  "post_mmu_framebuffer_output_observed": true,
+  "userspace_arrival_observed": false,
+  "timer_wake_observed": false,
+  "installed_package_snapshot": {
+    "hardware_validated": false,
+    "kernel_source_revision": "85f0cead4cb4c9add021360f1b469f08bf0d23a9",
+    "kernel_elf_sha256": "ece2434abdc2530fb4fc508100f1aaf1461052276709465e82ea81d64b688c39",
+    "kernel_load": "0x80200000",
+    "kernel_entry": "0x80200000",
+    "text_offset": "0x200000",
+    "image_runtime_size": 17461248,
+    "dtb_selection_buffer": "0x8d000000",
+    "initramfs_load_buffer": "0x92000000",
+    "initramfs_payload_start": "0x92000040",
+    "initramfs_format": "uncompressed CPIO newc in a legacy RAMDisk header",
+    "uboot_fdt_initrd_relocation": false,
+    "entry_contract": "Linux arm64 Image; x0=physical DTB; EL1/EL2; MMU off; DAIF masked",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet.ini": "ec831917a12acad1e78e2f1b7ba1ea904283304d6cbd6cca937c03c069c86648",
+      "switchroot/scarlet/Image": "af09ec3799ae30f5a1823f8e97028d2125369424ab2fcc34a1992aa416256adb",
+      "switchroot/scarlet/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet/boot.scr": "1e3b82fff2b1f8325501d7b154f01e8059b720a90e12d18babbb46df04b86f9e",
+      "switchroot/scarlet/initramfs": "f2e183a4f65694406ee82eca11d0bf737d39db5343f8a14756e68323b1dabdb7",
+      "switchroot/scarlet/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet/uImage": "fe45f307259f21e3529aec753344852060d6510cec36ee70d05e5da4128e4412"
+    }
+  },
+  "screen_transcript": [
+    "[ioremap] paddr=0x1003000 -> vaddr=0xfffffc0000020000 (size=0x800)",
+    "[PCI] ECAM mapped paddr=0x1003000 -> vaddr=0xfffffc0000020000 size=0x800",
+    "Scanning PCI bus...",
+    "=== Trap Info ===",
+    "ESR_EL1: 0x0000000096000007 (EC=0x25, FSC=0x7)",
+    "Kernel data abort"
+  ],
+  "diagnosis": {
+    "unsupported_host_node": "/pcie@1003000",
+    "compatible": [
+      "nvidia,tegra210-pcie",
+      "nvidia,tegra124-pcie"
+    ],
+    "first_reg_name": "pads",
+    "first_reg_paddr": "0x01003000",
+    "first_reg_size": "0x800",
+    "root_cause": "PCI node-name heuristic treated a Tegra-specific pads register region as generic ECAM; enumeration accessed outside the mapped region",
+    "device_tree_source": "pinned nx-plat.dtimg ODIN entry 0",
+    "generic_ecam_binding": "https://raw.githubusercontent.com/torvalds/linux/master/Documentation/devicetree/bindings/pci/host-generic-pci.yaml",
+    "tegra_host_driver": "https://raw.githubusercontent.com/torvalds/linux/master/drivers/pci/controller/pci-tegra.c"
+  },
+  "fix_hardware_validated": true,
+  "resolution_evidence": "docs/kernel-boot-success.json"
+}

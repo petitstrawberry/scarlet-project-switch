@@ -1,0 +1,9 @@
+[target.aarch64-unknown-scarlet]
+linker = "rust-lld"
+rustflags = ["-C", "target-cpu=cortex-a57", "-C", "target-feature=-lse"]
+
+# Rebuild core/alloc too: the installed Scarlet std/core were compiled with LSE.
+[unstable]
+build-std = ["core", "compiler_builtins", "alloc"]
+build-std-features = ["compiler-builtins-mem"]
+unstable-options = true

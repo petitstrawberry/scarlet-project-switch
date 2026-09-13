@@ -1,0 +1,721 @@
+{
+  "recorded_at": "2026-09-13T09:02:16.945940+00:00",
+  "host": "aarch64-darwin",
+  "environment": "nix develop --accept-flake-config",
+  "rustc": "1.94.0-nightly",
+  "sdk_revision": "71c7d9e0510989c23ead340883b30f2b4191521e",
+  "release_image_build_passed": true,
+  "qemu_entry_and_userspace": [
+    {
+      "case": "probe-el2",
+      "passed": true,
+      "current_el": 2,
+      "serial_log": ".cache/qa/probe-el2/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": false,
+      "timer_wake_observed": null,
+      "framebuffer_console_required": false,
+      "framebuffer_console_observed": null,
+      "uart_present": true,
+      "pci_host_fixture": null,
+      "pci_scan_observed": null,
+      "sleep_checks": []
+    },
+    {
+      "case": "probe-el1",
+      "passed": true,
+      "current_el": 1,
+      "serial_log": ".cache/qa/probe-el1/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": false,
+      "timer_wake_observed": null,
+      "framebuffer_console_required": false,
+      "framebuffer_console_observed": null,
+      "uart_present": true,
+      "pci_host_fixture": null,
+      "pci_scan_observed": null,
+      "sleep_checks": []
+    },
+    {
+      "case": "uart-only",
+      "passed": true,
+      "current_el": 2,
+      "serial_log": ".cache/qa/uart-only/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": false,
+      "timer_wake_observed": null,
+      "framebuffer_console_required": false,
+      "framebuffer_console_observed": null,
+      "uart_present": true,
+      "pci_host_fixture": null,
+      "pci_scan_observed": null,
+      "sleep_checks": []
+    },
+    {
+      "case": "invalid-stride",
+      "passed": true,
+      "current_el": 2,
+      "serial_log": ".cache/qa/invalid-stride/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": false,
+      "timer_wake_observed": null,
+      "framebuffer_console_required": false,
+      "framebuffer_console_observed": null,
+      "uart_present": true,
+      "pci_host_fixture": null,
+      "pci_scan_observed": null,
+      "sleep_checks": []
+    },
+    {
+      "case": "invalid-fdt",
+      "passed": true,
+      "current_el": 2,
+      "serial_log": ".cache/qa/invalid-fdt/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": false,
+      "timer_wake_observed": null,
+      "framebuffer_console_required": false,
+      "framebuffer_console_observed": null,
+      "uart_present": true,
+      "pci_host_fixture": null,
+      "pci_scan_observed": null,
+      "sleep_checks": []
+    },
+    {
+      "case": "kernel-el2",
+      "passed": true,
+      "current_el": 2,
+      "serial_log": ".cache/qa/kernel-el2/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": true,
+      "timer_wake_observed": true,
+      "framebuffer_console_required": false,
+      "framebuffer_console_observed": null,
+      "uart_present": true,
+      "pci_host_fixture": null,
+      "pci_scan_observed": null,
+      "sleep_checks": [
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 29786000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 103182000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1007086000,
+          "result": 0
+        },
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 26650000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 106678000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1005574000,
+          "result": 0
+        }
+      ]
+    },
+    {
+      "case": "kernel-el1",
+      "passed": true,
+      "current_el": 1,
+      "serial_log": ".cache/qa/kernel-el1/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": true,
+      "timer_wake_observed": true,
+      "framebuffer_console_required": false,
+      "framebuffer_console_observed": null,
+      "uart_present": true,
+      "pci_host_fixture": null,
+      "pci_scan_observed": null,
+      "sleep_checks": [
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 27450000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 106564000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1007402000,
+          "result": 0
+        },
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 21730000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 105972000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1004768000,
+          "result": 0
+        }
+      ]
+    },
+    {
+      "case": "kernel-fb-el2",
+      "passed": true,
+      "current_el": 2,
+      "serial_log": ".cache/qa/kernel-fb-el2/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": true,
+      "timer_wake_observed": true,
+      "framebuffer_console_required": true,
+      "framebuffer_console_observed": true,
+      "uart_present": true,
+      "pci_host_fixture": null,
+      "pci_scan_observed": null,
+      "sleep_checks": [
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 28076000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 106612000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1007478000,
+          "result": 0
+        },
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 24846000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 107186000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1004940000,
+          "result": 0
+        }
+      ]
+    },
+    {
+      "case": "kernel-fb-el1",
+      "passed": true,
+      "current_el": 1,
+      "serial_log": ".cache/qa/kernel-fb-el1/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": true,
+      "timer_wake_observed": true,
+      "framebuffer_console_required": true,
+      "framebuffer_console_observed": true,
+      "uart_present": true,
+      "pci_host_fixture": null,
+      "pci_scan_observed": null,
+      "sleep_checks": [
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 26630000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 104504000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1006280000,
+          "result": 0
+        },
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 25946000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 105694000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1004284000,
+          "result": 0
+        }
+      ]
+    },
+    {
+      "case": "kernel-screen-el2",
+      "passed": true,
+      "current_el": 2,
+      "serial_log": ".cache/qa/kernel-screen-el2/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": true,
+      "timer_wake_observed": true,
+      "framebuffer_console_required": true,
+      "framebuffer_console_observed": true,
+      "uart_present": false,
+      "pci_host_fixture": null,
+      "pci_scan_observed": null,
+      "sleep_checks": [
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 28086000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 106024000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1006636000,
+          "result": 0
+        },
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 21864000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 102942000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1006044000,
+          "result": 0
+        }
+      ]
+    },
+    {
+      "case": "kernel-pci-tegra-el2",
+      "passed": true,
+      "current_el": 2,
+      "serial_log": ".cache/qa/kernel-pci-tegra-el2/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": true,
+      "timer_wake_observed": true,
+      "framebuffer_console_required": true,
+      "framebuffer_console_observed": true,
+      "uart_present": true,
+      "pci_host_fixture": "tegra",
+      "pci_scan_observed": false,
+      "sleep_checks": [
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 28198000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 106548000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1007296000,
+          "result": 0
+        },
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 26598000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 106732000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1005242000,
+          "result": 0
+        }
+      ]
+    },
+    {
+      "case": "kernel-pci-disabled-el2",
+      "passed": true,
+      "current_el": 2,
+      "serial_log": ".cache/qa/kernel-pci-disabled-el2/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": true,
+      "timer_wake_observed": true,
+      "framebuffer_console_required": false,
+      "framebuffer_console_observed": null,
+      "uart_present": true,
+      "pci_host_fixture": "disabled",
+      "pci_scan_observed": false,
+      "sleep_checks": [
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 27342000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 107148000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1007412000,
+          "result": 0
+        },
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 26704000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 103474000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1005900000,
+          "result": 0
+        }
+      ]
+    },
+    {
+      "case": "kernel-pci-mixed-el2",
+      "passed": true,
+      "current_el": 2,
+      "serial_log": ".cache/qa/kernel-pci-mixed-el2/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": true,
+      "timer_wake_observed": true,
+      "framebuffer_console_required": false,
+      "framebuffer_console_observed": null,
+      "uart_present": true,
+      "pci_host_fixture": "mixed",
+      "pci_scan_observed": true,
+      "sleep_checks": [
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 28062000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 105822000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1006766000,
+          "result": 0
+        },
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 26788000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 104848000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1003874000,
+          "result": 0
+        }
+      ]
+    },
+    {
+      "case": "kernel-pci-short-el2",
+      "passed": true,
+      "current_el": 2,
+      "serial_log": ".cache/qa/kernel-pci-short-el2/serial.log",
+      "hardware_validated": false,
+      "timer_wake_required": true,
+      "timer_wake_observed": true,
+      "framebuffer_console_required": false,
+      "framebuffer_console_observed": null,
+      "uart_present": true,
+      "pci_host_fixture": "short",
+      "pci_scan_observed": true,
+      "sleep_checks": [
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 28192000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 106628000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1006286000,
+          "result": 0
+        },
+        {
+          "requested_ns": 20000000,
+          "elapsed_ns": 26288000,
+          "result": 0
+        },
+        {
+          "requested_ns": 100000000,
+          "elapsed_ns": 106360000,
+          "result": 0
+        },
+        {
+          "requested_ns": 1000000000,
+          "elapsed_ns": 1002938000,
+          "result": 0
+        }
+      ]
+    }
+  ],
+  "host_installation_fixture_tests": {
+    "passed": true,
+    "tests": 5,
+    "physical_sd_used": false
+  },
+  "host_rejection_checks": {
+    "apfs_volume_rejected": true,
+    "collector_macos_rejected": true
+  },
+  "isa_verification": {
+    "native_osabi": "0x53",
+    "executables": [
+      {
+        "file": "projects/aarch64-switch-l4t/bsp/target/aarch64-switch-none-elf/release/scarlet",
+        "sha256": "f8663845b192226b8ca10b371bd807dad7147e38470f33ad673b9fe2e05cbb8c",
+        "decoded_instructions": 696403,
+        "lse_instructions": 0
+      },
+      {
+        "file": ".cache/switch-init-packaged.elf",
+        "sha256": "f0fa77396109847b13156458b7bebab5344d0c4a1123b78f24a56ef85ade4d69",
+        "decoded_instructions": 8391,
+        "lse_instructions": 0
+      }
+    ]
+  },
+  "isa_detector_positive_control": {
+    "passed": true,
+    "rejected": [
+      "casal",
+      "ldaddal",
+      "swpalb"
+    ]
+  },
+  "uboot_tools_mkimage_inspection": {
+    "passed": true,
+    "kernel": "AArch64 Linux Kernel Image, gzip",
+    "ramdisk": "AArch64 Linux RAMDisk Image, uncompressed",
+    "script": "ARM Linux Script, uncompressed",
+    "log": ".cache/mkimage-verification.log",
+    "inspected_kernel_elf_sha256": "ece2434abdc2530fb4fc508100f1aaf1461052276709465e82ea81d64b688c39",
+    "scope": "Legacy formats inspected before PCI source change; current image header and data CRCs validated in QEMU tests"
+  },
+  "nxboot": {
+    "version": "0.3.2 build 1",
+    "sha256": "dbdbaccc464367abeff6ecd3792b90442b0cf17b08e1690bbfa9090b4d59560e",
+    "codesign_strict_passed": true,
+    "help_passed": true,
+    "rcm_injection_executed": false
+  },
+  "kernel_timer_sleep": {
+    "passed": true,
+    "required_for_kernel_cases": true,
+    "expected_marker": "SCARLET SWITCH TIMER WAKE REACHED",
+    "entry_levels": [
+      1,
+      2
+    ],
+    "requested_durations_ns": [
+      20000000,
+      100000000,
+      1000000000
+    ],
+    "successful_sleep_calls": 54,
+    "elapsed_time_checked": true,
+    "syscall_result_checked": true,
+    "root_cause": "QEMU secure entry omitted GICC_PMR initialization; non-secure PMR writes could not open the reset secure mask",
+    "fixed_in": "tests/entry.S",
+    "command": "python3 tests/qemu-smoke.py --kernel",
+    "serial_logs": [
+      ".cache/qa/kernel-el2/serial.log",
+      ".cache/qa/kernel-el1/serial.log",
+      ".cache/qa/kernel-fb-el2/serial.log",
+      ".cache/qa/kernel-fb-el1/serial.log",
+      ".cache/qa/kernel-pci-tegra-el2/serial.log",
+      ".cache/qa/kernel-pci-disabled-el2/serial.log",
+      ".cache/qa/kernel-pci-mixed-el2/serial.log",
+      ".cache/qa/kernel-pci-short-el2/serial.log"
+    ],
+    "results": ".cache/qa/results.json",
+    "hardware_validated": true,
+    "kernel_cases": 9,
+    "rounds_per_case": 2,
+    "timer_fix_shared_kernel_changed": false,
+    "framebuffer_text_logs": [
+      ".cache/qa/kernel-fb-el2/framebuffer.txt",
+      ".cache/qa/kernel-fb-el1/framebuffer.txt",
+      ".cache/qa/kernel-screen-el2/framebuffer.txt",
+      ".cache/qa/kernel-pci-tegra-el2/framebuffer.txt"
+    ],
+    "hardware_successful_sleep_calls": 6,
+    "hardware_reported_elapsed_times_ns": null,
+    "hardware_evidence": "docs/kernel-boot-success.json"
+  },
+  "sd_installed": true,
+  "switch_boot_validated": true,
+  "stock_kubuntu_recovery_revalidated": true,
+  "package_manifest": {
+    "hardware_validated": true,
+    "kernel_source_revision": "85f0cead4cb4c9add021360f1b469f08bf0d23a9",
+    "kernel_elf_sha256": "f8663845b192226b8ca10b371bd807dad7147e38470f33ad673b9fe2e05cbb8c",
+    "kernel_load": "0x80200000",
+    "kernel_entry": "0x80200000",
+    "text_offset": "0x200000",
+    "image_runtime_size": 17436672,
+    "dtb_selection_buffer": "0x8d000000",
+    "initramfs_load_buffer": "0x92000000",
+    "initramfs_payload_start": "0x92000040",
+    "initramfs_format": "uncompressed CPIO newc in a legacy RAMDisk header",
+    "uboot_fdt_initrd_relocation": false,
+    "entry_contract": "Linux arm64 Image; x0=physical DTB; EL1/EL2; MMU off; DAIF masked",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet.ini": "ec831917a12acad1e78e2f1b7ba1ea904283304d6cbd6cca937c03c069c86648",
+      "switchroot/scarlet/Image": "dc1b71b98541c18d3b0a9023f85c81ffef0729e1dc472b41febe06151a8350b3",
+      "switchroot/scarlet/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet/boot.scr": "1e3b82fff2b1f8325501d7b154f01e8059b720a90e12d18babbb46df04b86f9e",
+      "switchroot/scarlet/initramfs": "f2e183a4f65694406ee82eca11d0bf737d39db5343f8a14756e68323b1dabdb7",
+      "switchroot/scarlet/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet/uImage": "e1060810d412b9ae973655d7a5d73d7f861546aed39386cffdb49066b4e93b4d"
+    },
+    "hardware_validation": {
+      "evidence": "docs/kernel-boot-success.json",
+      "source": "user confirmation",
+      "scope": "single-CPU diagnostic kernel boot, initramfs /init, framebuffer output and six timed sleeps"
+    }
+  },
+  "sd_installation": {
+    "recorded_at": "2026-09-13T09:00:03.911961+00:00",
+    "device": "disk8s1",
+    "mount": "/Volumes/SWITCH SD",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet.ini": "ec831917a12acad1e78e2f1b7ba1ea904283304d6cbd6cca937c03c069c86648",
+      "switchroot/scarlet/Image": "dc1b71b98541c18d3b0a9023f85c81ffef0729e1dc472b41febe06151a8350b3",
+      "switchroot/scarlet/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet/boot.scr": "1e3b82fff2b1f8325501d7b154f01e8059b720a90e12d18babbb46df04b86f9e",
+      "switchroot/scarlet/initramfs": "f2e183a4f65694406ee82eca11d0bf737d39db5343f8a14756e68323b1dabdb7",
+      "switchroot/scarlet/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet/uImage": "e1060810d412b9ae973655d7a5d73d7f861546aed39386cffdb49066b4e93b4d"
+    },
+    "protected_files_verified": 30,
+    "raw_device_accessed": false,
+    "hardware_boot_validated": true,
+    "safely_ejected": true,
+    "observed_filesystem_name": "MS-DOS FAT32",
+    "observed_partition_content": "Windows_FAT_32",
+    "receipt": "projects/aarch64-switch-l4t/.scarlet/sd-installation.json",
+    "hardware_boot_evidence": "docs/kernel-boot-success.json"
+  },
+  "switch_probe_validated": true,
+  "stage1_complete": true,
+  "switch_boot_validation_scope": "single-CPU diagnostic kernel, initramfs /init, framebuffer output and six timed sleeps",
+  "hardware_verification": "docs/hardware-verification.json",
+  "kernel_source_working_tree": {
+    "modified": true,
+    "base_revision": "85f0cead4cb4c9add021360f1b469f08bf0d23a9",
+    "source_sha256": {
+      "kernel/src/arch/aarch64/boot/linux.rs": "5b48ff82e4df365f1cc64a9c35f32f3d931ce68c951032ae4487e824eb2f0b05",
+      "kernel/src/arch/aarch64/earlycon.rs": "86de40a75e6a992cd145175e3e7b260b9c13f97fbbef8b3f7a5d4f2117782ffa",
+      "kernel/src/device/char/tty.rs": "1d51166e4245bbd221be76521e641b6981ff37526d33e660ada31c8e119c8db7",
+      "kernel/src/earlyfb.rs": "6758f0c80047612fe2b379f6d47067193eaf1fa5d0f593f2cd6251041abaace3",
+      "kernel/src/task/syscall.rs": "4f754e2195d7a1cdb27a92c2fb0feb1d8e021d22c598299165ce3112d9852fb5",
+      "kernel/src/arch/aarch64/boot/linux/framebuffer.rs": "8367b6f2c88e1fc4aae8e90c3c79f402d5779d5b0a97c22db38c8631007629e1",
+      "kernel/src/lib.rs": "e524759ac5a4b2d063652dd2a14a17f73c248686e4e9a401451069a70f6ac91b",
+      "kernel/src/device/pci/mod.rs": "569577aa66a1f66243f6f3961037e052bc07b9325c6b36e4aafaf23c0633e1a8",
+      "kernel/src/device/pci/scan.rs": "9b72b6341a1001466ec96b5c85a03617d0490efc91e646fcd8498b4a7d9f907b"
+    },
+    "patch_applies_to_reference_commit": true,
+    "patches_sha256": {
+      "patches/linux-boot-framebuffer.patch": "d0ef021999519d56650b434d23f49ffc6d19f1cf8edd106eec1f11c4f8b7824d",
+      "patches/pci-ecam-host-detection.patch": "06c11e666ef505be9b8c5fea42fda52cc1d34a50fbc54f0db88177c31550b104"
+    }
+  },
+  "kernel_framebuffer_console": {
+    "qemu_passed": true,
+    "framebuffer_cases": 4,
+    "framebuffer_memory_decoded": true,
+    "screen_only_without_uart_passed": true,
+    "expected_marker": "SCARLET SWITCH TIMER WAKE REACHED",
+    "memory_attribute": "NonCacheable",
+    "rotation": 3,
+    "runtime_direct_map_rebind": true,
+    "forced_panic_output_tested": false,
+    "hardware_validated": true,
+    "verification_log": ".cache/kernel-pci-verification-final.log",
+    "hardware_output_observed": true,
+    "hardware_output_evidence": "docs/kernel-boot-success.json"
+  },
+  "limine_compatibility_check": {
+    "passed": true,
+    "features": [
+      "limine",
+      "network",
+      "user-fpu",
+      "user-vector"
+    ],
+    "target": "aarch64-switch-none-elf",
+    "scope": "cargo check; no runtime boot",
+    "log": ".cache/kernel-limine-check.log"
+  },
+  "release_image_build_log": ".cache/kernel-pci-verification.log",
+  "pci_ecam_regression": {
+    "passed": true,
+    "cases": [
+      "kernel-pci-tegra-el2",
+      "kernel-pci-disabled-el2",
+      "kernel-pci-mixed-el2",
+      "kernel-pci-short-el2"
+    ],
+    "tegra_specific_host_rejected": true,
+    "disabled_generic_host_rejected": true,
+    "real_generic_host_bridge_discovered_after_tegra_node": true,
+    "undersized_window_completed_without_function_access": true,
+    "hardware_failure_evidence": "docs/kernel-pci-abort.json",
+    "fix_hardware_validated": true,
+    "verification_log": ".cache/kernel-pci-verification-final.log",
+    "hardware_resolution_evidence": "docs/kernel-boot-success.json"
+  },
+  "common_kernel_entry_observed": true,
+  "stage2_complete": true,
+  "kernel_success_evidence": "docs/kernel-boot-success.json"
+}

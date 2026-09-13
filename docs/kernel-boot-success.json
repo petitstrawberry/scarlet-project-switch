@@ -1,0 +1,92 @@
+{
+  "recorded_at": "2026-09-13T09:02:16.945940+00:00",
+  "evidence": {
+    "source": "user message after booting the fixed installed kernel package",
+    "confirmation_text": "\u6210\u529f\uff01\uff01",
+    "confirmation_scope": "Success reported immediately after requesting userspace arrival and final timer-wake markers"
+  },
+  "mode": "kernel",
+  "hekate_entry": "Scarlet Switch Kernel (experimental)",
+  "hekate_id": "SCR-NXK",
+  "common_kernel_boot_validated": true,
+  "userspace_validated": true,
+  "post_mmu_framebuffer_output_validated": true,
+  "timer_wake_validated": true,
+  "expected_markers": [
+    "SCARLET SWITCH USERSPACE REACHED",
+    "SCARLET SWITCH TIMER WAKE REACHED"
+  ],
+  "timer_check": {
+    "successful_sleep_calls": 6,
+    "requested_durations_ns": [
+      20000000,
+      100000000,
+      1000000000
+    ],
+    "rounds": 2,
+    "syscall_success_and_no_early_return_required_by_init": true,
+    "scope": "Derived from the diagnostic init code and confirmed final wake marker",
+    "reported_elapsed_times_ns": null
+  },
+  "single_cpu": true,
+  "persistent_storage_mounted": false,
+  "interactive_shell_included": false,
+  "desktop_included": false,
+  "installed_package_snapshot": {
+    "hardware_validated": true,
+    "kernel_source_revision": "85f0cead4cb4c9add021360f1b469f08bf0d23a9",
+    "kernel_elf_sha256": "f8663845b192226b8ca10b371bd807dad7147e38470f33ad673b9fe2e05cbb8c",
+    "kernel_load": "0x80200000",
+    "kernel_entry": "0x80200000",
+    "text_offset": "0x200000",
+    "image_runtime_size": 17436672,
+    "dtb_selection_buffer": "0x8d000000",
+    "initramfs_load_buffer": "0x92000000",
+    "initramfs_payload_start": "0x92000040",
+    "initramfs_format": "uncompressed CPIO newc in a legacy RAMDisk header",
+    "uboot_fdt_initrd_relocation": false,
+    "entry_contract": "Linux arm64 Image; x0=physical DTB; EL1/EL2; MMU off; DAIF masked",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet.ini": "ec831917a12acad1e78e2f1b7ba1ea904283304d6cbd6cca937c03c069c86648",
+      "switchroot/scarlet/Image": "dc1b71b98541c18d3b0a9023f85c81ffef0729e1dc472b41febe06151a8350b3",
+      "switchroot/scarlet/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet/boot.scr": "1e3b82fff2b1f8325501d7b154f01e8059b720a90e12d18babbb46df04b86f9e",
+      "switchroot/scarlet/initramfs": "f2e183a4f65694406ee82eca11d0bf737d39db5343f8a14756e68323b1dabdb7",
+      "switchroot/scarlet/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet/uImage": "e1060810d412b9ae973655d7a5d73d7f861546aed39386cffdb49066b4e93b4d"
+    },
+    "hardware_validation": {
+      "evidence": "docs/kernel-boot-success.json",
+      "source": "user confirmation",
+      "scope": "single-CPU diagnostic kernel boot, initramfs /init, framebuffer output and six timed sleeps"
+    }
+  },
+  "source_working_tree": {
+    "modified": true,
+    "base_revision": "85f0cead4cb4c9add021360f1b469f08bf0d23a9",
+    "source_sha256": {
+      "kernel/src/arch/aarch64/boot/linux.rs": "5b48ff82e4df365f1cc64a9c35f32f3d931ce68c951032ae4487e824eb2f0b05",
+      "kernel/src/arch/aarch64/earlycon.rs": "86de40a75e6a992cd145175e3e7b260b9c13f97fbbef8b3f7a5d4f2117782ffa",
+      "kernel/src/device/char/tty.rs": "1d51166e4245bbd221be76521e641b6981ff37526d33e660ada31c8e119c8db7",
+      "kernel/src/earlyfb.rs": "6758f0c80047612fe2b379f6d47067193eaf1fa5d0f593f2cd6251041abaace3",
+      "kernel/src/task/syscall.rs": "4f754e2195d7a1cdb27a92c2fb0feb1d8e021d22c598299165ce3112d9852fb5",
+      "kernel/src/arch/aarch64/boot/linux/framebuffer.rs": "8367b6f2c88e1fc4aae8e90c3c79f402d5779d5b0a97c22db38c8631007629e1",
+      "kernel/src/lib.rs": "e524759ac5a4b2d063652dd2a14a17f73c248686e4e9a401451069a70f6ac91b",
+      "kernel/src/device/pci/mod.rs": "569577aa66a1f66243f6f3961037e052bc07b9325c6b36e4aafaf23c0633e1a8",
+      "kernel/src/device/pci/scan.rs": "9b72b6341a1001466ec96b5c85a03617d0490efc91e646fcd8498b4a7d9f907b"
+    },
+    "patch_applies_to_reference_commit": true,
+    "patches_sha256": {
+      "patches/linux-boot-framebuffer.patch": "d0ef021999519d56650b434d23f49ffc6d19f1cf8edd106eec1f11c4f8b7824d",
+      "patches/pci-ecam-host-detection.patch": "06c11e666ef505be9b8c5fea42fda52cc1d34a50fbc54f0db88177c31550b104"
+    },
+    "committed_revision": "e2ecbecb628af955608f8013f0c45bc2edcb9dd9",
+    "commits": [
+      "99c65035",
+      "e2ecbecb"
+    ],
+    "commit_note": "These commits preserve the recorded source bytes. The installed ELF was built before the commits at base_revision plus the recorded patches."
+  },
+  "stage2_complete": true
+}

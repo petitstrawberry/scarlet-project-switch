@@ -1,0 +1,26 @@
+{
+  "arch": "aarch64",
+  "code-model": "large",
+  "abi": "softfloat",
+  "cpu": "cortex-a57",
+  "crt-objects-fallback": "false",
+  "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+  "eh-frame-header": false,
+  "emit-debug-gdb-scripts": false,
+  "features": "+v8a,+strict-align,-lse,-neon",
+  "linker": "rust-lld",
+  "linker-flavor": "gnu-lld",
+  "llvm-target": "aarch64-unknown-none",
+  "max-atomic-width": 128,
+  "metadata": {
+    "description": "Nintendo Switch T210 Cortex-A57, ARMv8.0-A LL/SC atomics, softfloat",
+    "host_tools": false,
+    "std": false,
+    "tier": 3
+  },
+  "panic-strategy": "abort",
+  "pre-link-args": { "ld.lld": ["-T", "lds/aarch64_linux.ld"] },
+  "relocation-model": "static",
+  "stack-probes": { "kind": "inline" },
+  "target-pointer-width": 64
+}
