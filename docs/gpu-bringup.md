@@ -6,11 +6,14 @@ checks the actual `MC_BOOT_0` identity and registers the normal `/dev/gpuN`
 control endpoint. `IMG_9076.mov` exposed an incorrect MC STATUS-clear wait.
 After correcting it, `IMG_9079.mov` shows the first GPU identity read returning
 `0xffffffff` after a delay, then a fatal asynchronous SError during startup.
-The current candidate also sets GPIO6 to push-pull, as specified by the Noble
-DTB, instead of inheriting an open-drain enable pin. Its hardware result is
-pending. See [the latest video reading](gpu-hardware-9079.md).
+The current candidate sets GPIO6 to push-pull, as specified by the Noble DTB.
+`IMG_9080.mov` confirms the inherited GPIO6 value was `0x02`, the corrected
+value is `0x09`, and valid `MC_BOOT_0=0x12b000a1` returned in 15 µs.
+`/dev/gpu0` registered and the ordinary Scarlet Shell screen appeared without
+the earlier SError. See [the latest video reading](gpu-hardware-9080.md).
 
-This is the first hardware stage. SGFX command execution is not available:
+This first power/identity hardware stage has passed. SGFX command execution
+is not available:
 the endpoint reports unavailable, execution support zero and command limit
 zero, with no execution dialect. Normal SWS uses its existing framebuffer
 path and output scale 1.0. No Switch-specific renderer is added to SWS or UI.
@@ -68,8 +71,10 @@ power path.
 The initial production build, archive inspection, SD readback and hardware
 failure are recorded in `gpu-verification.json`. The MC-corrected package and
 its later failed hardware boot are in `gpu-mc-verification.json`. The current
-GPIO6-corrected package is in `gpu-gpio6-verification.json`; actual GPU identity
-validation is pending.
+GPIO6-corrected package and its successful physical identity/graphical-startup
+result are in `gpu-gpio6-verification.json`. The short video also shows a
+user-task CPU-usage diagnostic followed by further UI updates. Repeated boots,
+long-running stability and GPU execution are still unvalidated.
 
 The backend's opaque query record contains eleven little-endian u32 words:
 version (1), MC_BOOT_0, MC_ENABLE, stall interrupt status, nonstall interrupt

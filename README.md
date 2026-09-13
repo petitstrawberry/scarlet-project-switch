@@ -65,9 +65,10 @@ remains pending. See [CPU frequency bring-up](docs/cpufreq-bringup.md).
 The next hardware stage adds GM20B power/identity bring-up through the ordinary
 GPU control API and prepares pinned NVIDIA firmware. After the MC wait fix,
 `IMG_9079.mov` shows an inaccessible GPU identity register and a later
-asynchronous SError. The current candidate corrects GPIO6's missing push-pull
-drive configuration. `IMG_9076.mov` shows four schedulers online. SGFX rendering
-and the latest candidate's hardware result are pending;
+asynchronous SError. With GPIO6's missing push-pull configuration corrected,
+`IMG_9080.mov` shows a valid GM20B identity read in 15 µs, `/dev/gpu0`, and normal
+Scarlet Shell startup without that fault. `IMG_9076.mov` shows four schedulers
+online. SGFX rendering remains pending;
 see [GPU bring-up](docs/gpu-bringup.md). Prepare its firmware once before building:
 `python3 scripts/prepare-gm20b-firmware.py --download`.
 

@@ -1673,8 +1673,8 @@
     "scope": "Both Joy-Cons Ready; Right HID received; touch ready and RTC seed succeeded. No user-operated input is shown."
   },
   "latest_gpu_hardware_observation": {
-    "verification": "docs/gpu-mc-verification.json",
-    "readout": "docs/gpu-hardware-9079.md",
-    "scope": "RTC seed and touch initialization completed, but failed GPU identity read was followed by asynchronous SError; no interactive input validation in this recording"
+    "verification": "docs/gpu-gpio6-verification.json",
+    "readout": "docs/gpu-hardware-9080.md",
+    "scope": "Both Joy-Cons Ready with HID reception, touch ready, RTC seed and graphical Shell startup; specific user-operated input source is not visible; CPU usage diagnostic is followed by further UI updates"
   }
 }
