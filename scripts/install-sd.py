@@ -15,6 +15,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "projects/aarch64-switch-l4t/.scarlet/l4t"
+CONSOLE_PACKAGE = ROOT / "projects/aarch64-switch-console/.scarlet/l4t"
 EXPECTED_BYTES = 123773911040
 EXPECTED_PARTITIONS = {1: 105054208 * 512, 2: 32 * 1024**3,
                        3: 61143040 * 512, 4: 4 * 1024**3}
@@ -53,9 +54,9 @@ def validate_mount(mount):
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
-def protected_hashes(mount):
+def protected_hashes(mount, paths=None):
     result = {}
-    for relative in PROTECTED:
+    for relative in PROTECTED if paths is None else paths:
         path = mount / relative
         if not path.exists(): raise ValueError(f"missing recovery/configuration path: {path}")
         files = sorted(path.rglob("*")) if path.is_dir() else [path]
@@ -67,21 +68,26 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mount", type=Path, required=True, help='e.g. "/Volumes/SWITCH SD"; rediscover the current SD')
     parser.add_argument("--write", action="store_true", help="copy the verified files (default: dry run)")
+    parser.add_argument("--console", action="store_true", help="install the SWS console entry instead of the diagnostic entry")
     args = parser.parse_args()
     mount = args.mount.resolve(strict=True)
     device = validate_mount(mount)
-    manifest = json.loads((PACKAGE / "manifest.json").read_text())
+    package = CONSOLE_PACKAGE if args.console else PACKAGE
+    boot_directory = "scarlet-console" if args.console else "scarlet"
+    entry_file = "L4T-scarlet-console.ini" if args.console else "L4T-scarlet.ini"
+    protected = PROTECTED + ["bootloader/ini/L4T-scarlet.ini", "switchroot/scarlet"] if args.console else PROTECTED
+    manifest = json.loads((package / "manifest.json").read_text())
     files = []
     for relative, expected in manifest["sha256"].items():
-        if relative != "bootloader/ini/L4T-scarlet.ini" and not relative.startswith("switchroot/scarlet/"):
+        if relative != f"bootloader/ini/{entry_file}" and not relative.startswith(f"switchroot/{boot_directory}/"):
             raise ValueError(f"unexpected package destination: {relative}")
         path = Path(relative)
         if path.is_absolute() or ".." in path.parts: raise ValueError("invalid destination path")
-        source, target = PACKAGE / path, mount / path
+        source, target = package / path, mount / path
         if not target.resolve().is_relative_to(mount): raise ValueError("destination escapes the volume")
         if digest(source) != expected: raise ValueError(f"package SHA256 mismatch: {source}")
         files.append((source, target, expected))
-    before = protected_hashes(mount)
+    before = protected_hashes(mount, protected)
     print(f"Validated {device}; {len(files)} Scarlet files, {len(before)} protected files")
     for source, target, _ in files: print(f"{source.name} -> {target.relative_to(mount)}")
     if not args.write:
@@ -104,12 +110,12 @@ def main():
         finally:
             temp.unlink(missing_ok=True)
         if digest(target) != expected: raise ValueError(f"SD readback SHA256 mismatch: {target}")
-    after = protected_hashes(mount)
+    after = protected_hashes(mount, protected)
     if after != before: raise ValueError("protected file content changed during installation")
     receipt = {"device": device, "mount": str(mount), "sha256": manifest["sha256"],
                "protected_files_verified": len(before), "raw_device_accessed": False,
                "hardware_boot_validated": False}
-    (PACKAGE.parent / "sd-installation.json").write_text(json.dumps(receipt, indent=2) + "\n")
+    (package.parent / "sd-installation.json").write_text(json.dumps(receipt, indent=2) + "\n")
     print("SD file readback and recovery/configuration hashes match. Eject the SD before unplugging.")
 
 if __name__ == "__main__":

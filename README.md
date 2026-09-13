@@ -43,6 +43,14 @@ state rather than checked into this repository.
 
 ## Host setup and build
 
+For the **SWS console distribution in initramfs**, use
+`scripts/build-console.sh` and install with `scripts/install-sd.py --console`.
+It starts the ordinary Scarlet Desktop session in console mode and includes
+Clock, Files, Notepad, Settings, Task Manager and Terminal. See
+[console-bringup.md](docs/console-bringup.md) for build, verification and
+the separate **Scarlet Switch Console** Hekate entry. The diagnostic build
+described below remains available separately.
+
 Supported development hosts: Apple Silicon macOS, AArch64 Linux, x86-64 Linux.
 Use a sibling `../Scarlet` checkout at
 `85f0cead4cb4c9add021360f1b469f08bf0d23a9` or a compatible successor.

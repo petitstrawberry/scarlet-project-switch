@@ -1,0 +1,30 @@
+schema_version = 2
+
+[project]
+name = "scarlet-aarch64-switch-console"
+
+[bsp]
+path = "bsp"
+package = "scarlet"
+
+[bsp.kernel]
+source = { path = "../../../Scarlet/kernel" }
+features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true }
+
+[modules]
+
+[images.initramfs]
+format = "newc"
+output = ".scarlet/images/initramfs.cpio"
+
+[[images.initramfs.layers]]
+kind = "bundle"
+path = ".scarlet/console-bundle.toml"
+
+[[images.initramfs.layers]]
+kind = "copy"
+source = "initramfs"
+to = "/"
+
+[hooks.post-image]
+command = "tools/package-l4t.sh"

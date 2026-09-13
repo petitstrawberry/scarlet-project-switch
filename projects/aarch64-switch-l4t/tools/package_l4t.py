@@ -58,16 +58,23 @@ def validate_image(image, elf):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", choices=["release", "debug"], default="release")
+    parser.add_argument("--project", type=Path, default=PROJECT)
+    parser.add_argument("--boot-directory", default="scarlet")
+    parser.add_argument("--entry-file", default="L4T-scarlet.ini")
     args = parser.parse_args()
-    elf = PROJECT / f"bsp/target/aarch64-switch-none-elf/{args.profile}/scarlet"
-    initrd = PROJECT / ".scarlet/images/initramfs.cpio"
-    stack = PROJECT / ".scarlet/bootstack"
-    pins = json.loads((PROJECT / "bootstack.json").read_text())
+    project = args.project.resolve()
+    for name in (args.boot_directory, args.entry_file):
+        if not name or name in (".", "..") or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_." for c in name):
+            parser.error("boot directory and entry file must be simple names")
+    elf = project / f"bsp/target/aarch64-switch-none-elf/{args.profile}/scarlet"
+    initrd = project / ".scarlet/images/initramfs.cpio"
+    stack = project / ".scarlet/bootstack"
+    pins = json.loads((project / "bootstack.json").read_text())
     for name, expected in pins["files"].items():
         path = stack / name
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             parser.error(f"missing or mismatched {path}; run scripts/prepare-bootstack.py --source <Noble boot directory>")
-    output = PROJECT / ".scarlet/l4t"
+    output = project / ".scarlet/l4t"
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=output) as tmp:
         tmp = Path(tmp)
@@ -79,31 +86,36 @@ def main():
         image_size = validate_image(image, elf.read_bytes())
         if not initrd.read_bytes().startswith(b"070701"):
             parser.error("initramfs must be a CPIO newc archive")
-        boot = tmp / "switchroot/scarlet"
+        if initrd.stat().st_size + 64 > 0xa0000000 - 0x92000000:
+            parser.error("initramfs exceeds its dedicated 224 MiB loading buffer")
+        boot = tmp / "switchroot" / args.boot_directory
         boot.mkdir(parents=True)
         (boot / "Image").write_bytes(image)
         (boot / "uImage").write_bytes(legacy_image(gzip.compress(image, mtime=0), 2, "Scarlet Switch", LOAD, LOAD, 1))
         # bootm strips the legacy RAMDisk header but does not decompress its
         # payload. Scarlet's initramfs parser needs raw CPIO, unlike Linux.
         (boot / "initramfs").write_bytes(legacy_image(initrd.read_bytes(), 3, "Scarlet initramfs"))
-        script = (PROJECT / "bootloader/boot.cmd").read_bytes()
+        script = (project / "bootloader/boot.cmd").read_bytes()
         # Script payload is a big-endian length, zero terminator, then text.
         (boot / "boot.scr").write_bytes(legacy_image(struct.pack(">II", len(script), 0) + script, 6, "Scarlet L4T boot", arch=2))
         for name in pins["files"]:
             shutil.copyfile(stack / name, boot / name)
-        ini = tmp / "bootloader/ini/L4T-scarlet.ini"
+        ini = tmp / "bootloader/ini" / args.entry_file
         ini.parent.mkdir(parents=True)
-        shutil.copyfile(PROJECT / "bootloader/L4T-scarlet.ini", ini)
+        shutil.copyfile(project / "bootloader" / args.entry_file, ini)
         hashes = {str(p.relative_to(tmp)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in sorted(tmp.rglob("*")) if p.is_file() and p != raw}
         try:
-            kernel_rev = subprocess.check_output(["git", "-C", str(PROJECT.parents[2] / "Scarlet"), "rev-parse", "HEAD"], text=True).strip()
+            kernel_rev = subprocess.check_output(["git", "-C", str(project.parents[2] / "Scarlet"), "rev-parse", "HEAD"], text=True).strip()
         except subprocess.CalledProcessError:
             kernel_rev = "unknown"
         manifest = {
             "hardware_validated": False,
             "kernel_source_revision": kernel_rev,
             "kernel_elf_sha256": hashlib.sha256(elf.read_bytes()).hexdigest(),
+            "boot_directory": args.boot_directory,
+            "entry_file": args.entry_file,
+            "initramfs_size": initrd.stat().st_size,
             "kernel_load": hex(LOAD), "kernel_entry": hex(LOAD),
             "text_offset": "0x200000", "image_runtime_size": image_size,
             "dtb_selection_buffer": "0x8d000000",

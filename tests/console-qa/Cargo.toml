@@ -1,0 +1,13 @@
+[package]
+name = "console-qa"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+scarlet-os = { path = "../../../Scarlet/user/lib/scarlet-os", default-features = false, features = ["std"] }
+scarlet-sys = { path = "../../../Scarlet/user/lib/scarlet-sys" }
+scarlet-desktop-config = { path = "../../../Scarlet/user/lib/scarlet-desktop-config", default-features = false, features = ["std"] }
+sbus-client = { path = "../../../Scarlet/user/lib/sbus-client", default-features = false, features = ["std"] }
+
+[profile.release]
+panic = "abort"

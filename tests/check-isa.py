@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Check built executables for LSE instructions unavailable on Cortex-A57."""
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -11,9 +12,9 @@ PROJECT = ROOT / "projects/aarch64-switch-l4t"
 LSE = re.compile(r"(?:cas[p]?|swp|ld(?:add|clr|eor|set|smax|smin|umax|umin)|st(?:add|clr|eor|set|smax|smin|umax|umin))(?:a|al|l)?(?:b|h)?")
 
 
-def init_elf():
+def packaged_elves(project, boot_directory):
     # Inspect the actual bytes passed to the kernel, not a separate Cargo build.
-    data = (PROJECT / ".scarlet/l4t/switchroot/scarlet/initramfs").read_bytes()[64:]
+    data = (project / ".scarlet/l4t/switchroot" / boot_directory / "initramfs").read_bytes()[64:]
     position = 0
     while True:
         header = data[position:position + 110]
@@ -23,10 +24,11 @@ def init_elf():
         size, name_size = fields[6], fields[11]
         name = data[position + 110:position + 110 + name_size - 1].decode()
         start = (position + 110 + name_size + 3) & ~3
-        if name.lstrip("./") == "init":
-            return data[start:start + size]
         if name == "TRAILER!!!":
-            raise ValueError("/init missing from packaged RAMDisk")
+            return
+        payload = data[start:start + size]
+        if payload.startswith(b"\x7fELF"):
+            yield name.lstrip("./"), payload
         position = (start + size + 3) & ~3
 
 
@@ -43,17 +45,33 @@ def inspect(path):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--console", action="store_true", help="check every executable in the actual SWS console RAMDisk")
+    args = parser.parse_args()
+    project = ROOT / "projects/aarch64-switch-console" if args.console else PROJECT
+    boot_directory = "scarlet-console" if args.console else "scarlet"
     cache = ROOT / ".cache"
     cache.mkdir(exist_ok=True)
-    elf = init_elf()
-    if elf[:4] != b"\x7fELF" or elf[7] != 0x53:
-        raise ValueError("/init must retain Scarlet Native ELF OSABI 0x53")
-    init = cache / "switch-init-packaged.elf"
-    init.write_bytes(elf)
-    results = [inspect(PROJECT / "bsp/target/aarch64-switch-none-elf/release/scarlet"), inspect(init)]
+    results = [inspect(project / "bsp/target/aarch64-switch-none-elf/release/scarlet")]
+    found_init = False
+    for name, elf in packaged_elves(project, boot_directory):
+        if not args.console and name != "init":
+            continue
+        if len(elf) < 64 or elf[7] != 0x53:
+            raise ValueError(f"/{name} must retain Scarlet Native ELF OSABI 0x53")
+        found_init |= name == "init"
+        path = cache / "console-packaged-elf" / name if args.console else cache / "switch-init-packaged.elf"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(elf)
+        result = inspect(path)
+        result["image_path"] = "/" + name
+        results.append(result)
+    if not found_init:
+        raise ValueError("/init missing from packaged RAMDisk")
     for result in results:
         print(f"PASS {result['file']}: {result['decoded_instructions']} instructions; no LSE")
-    (cache / "isa-verification.json").write_text(json.dumps({"native_osabi": "0x53", "executables": results}, indent=2) + "\n")
+    output = "console-isa-verification.json" if args.console else "isa-verification.json"
+    (cache / output).write_text(json.dumps({"native_osabi": "0x53", "executables": results}, indent=2) + "\n")
 
 
 if __name__ == "__main__":

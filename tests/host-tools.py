@@ -41,9 +41,10 @@ class SdInstallTests(unittest.TestCase):
     def manifest(self):
         (self.package / "manifest.json").write_text(json.dumps({"sha256": self.hashes}))
 
-    def invoke(self, write=False):
-        argv = ["install-sd.py", "--mount", str(self.volume)] + (["--write"] if write else [])
+    def invoke(self, write=False, console=False):
+        argv = ["install-sd.py", "--mount", str(self.volume)] + (["--write"] if write else []) + (["--console"] if console else [])
         with patch.object(sd, "PACKAGE", self.package), \
+                patch.object(sd, "CONSOLE_PACKAGE", self.package), \
                 patch.object(sd, "validate_mount", return_value="disk99s1"), \
                 patch("sys.argv", argv), contextlib.redirect_stdout(io.StringIO()):
             sd.main()
@@ -65,6 +66,30 @@ class SdInstallTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SHA256 mismatch"):
             self.invoke(write=True)
         self.assertFalse((self.volume / "switchroot/scarlet").exists())
+
+    def test_console_install_preserves_the_working_diagnostic_entry(self):
+        diagnostic = ["switchroot/scarlet/uImage", "bootloader/ini/L4T-scarlet.ini"]
+        self.hashes = {}
+        for relative in diagnostic:
+            old = self.volume / relative
+            old.parent.mkdir(parents=True, exist_ok=True)
+            old.write_bytes(b"hardware-tested diagnostic")
+            console = relative.replace("switchroot/scarlet/", "switchroot/scarlet-console/").replace("L4T-scarlet.ini", "L4T-scarlet-console.ini")
+            source = self.package / console
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_bytes(b"SWS console artifact")
+            self.hashes[console] = sd.digest(source)
+        self.manifest()
+        self.invoke(write=True, console=True)
+        for relative in diagnostic:
+            self.assertEqual((self.volume / relative).read_bytes(), b"hardware-tested diagnostic")
+        for relative, expected in self.hashes.items():
+            self.assertEqual(sd.digest(self.volume / relative), expected)
+        # A console package cannot smuggle in a write to the known-good entry.
+        self.hashes[diagnostic[0]] = sd.digest(self.package / diagnostic[0])
+        self.manifest()
+        with self.assertRaisesRegex(ValueError, "unexpected package destination"):
+            self.invoke(write=True, console=True)
 
     def test_rejects_recovery_destination_and_path_traversal(self):
         for relative in ["bootloader/hekate_ipl.ini", "switchroot/scarlet/../../escape"]:
