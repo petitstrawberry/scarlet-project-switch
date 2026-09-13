@@ -16,5 +16,6 @@
   "sd_installed": false,
   "sd_installation_status": "pending; SD card not enumerated or mounted",
   "hardware_boot_validated": false,
-  "previous_scale_1_5_package_and_sd_receipt": "docs/cpufreq-verification.json"
+  "previous_scale_1_5_package_and_sd_receipt": "docs/cpufreq-verification.json",
+  "superseded_by": "docs/gpu-verification.json"
 }

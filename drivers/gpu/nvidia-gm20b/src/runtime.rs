@@ -1,0 +1,435 @@
+// SPDX-License-Identifier: GPL-2.0-only
+//! Power sequencing and MC definitions follow Switchroot nvgpu
+//! 1ae0167d360287ca78f5a2572f0de42594140312 and Linux v6.12.
+
+use alloc::{boxed::Box, sync::Arc, vec};
+use core::sync::atomic::{AtomicBool, Ordering};
+
+use scarlet::{
+    device::{
+        fdt::FdtManager,
+        gpu::{
+            GPU_EXECUTION_SUPPORT_NONE, GpuBackend, GpuBackendInfo, GpuDeviceInfo, GpuDeviceState,
+            register_gpu_control_device,
+        },
+        i2c::{I2cAddress, I2cBus, I2cMessage},
+        manager::{DeviceManager, DriverPriority, PROBE_DEFER},
+        platform::{
+            PlatformDeviceDriver, PlatformDeviceInfo, PlatformProbeOptions,
+            resource::PlatformDeviceResourceType,
+        },
+    },
+    time, vm,
+};
+use scarlet_driver_tegra210::{GpuPlatform, GpuPlatformState, cell, delay_us, gpu_platform};
+
+const GPU_ADDRESS: u8 = 0x1c;
+const PMIC_ADDRESS: u8 = 0x3c;
+const GPIO6: u8 = 0x3c;
+const GPIO_ALT: u8 = 0x40;
+const GPU_ENABLE: u8 = 1 << 6;
+const VOLTAGE_UV: u32 = 1_000_000;
+const VOLTAGE_SELECTOR: u8 = 63; // 606250 + 63 * 6250 = 1000000 uV.
+const MC_HOTRESET_CTRL: usize = 0x970;
+const MC_HOTRESET_STATUS: usize = 0x974;
+const MC_GPU: u32 = 1 << 2;
+static REGISTERED: AtomicBool = AtomicBool::new(false);
+
+fn fdt_cell(node: &fdt::node::FdtNode<'_, '_>, name: &str) -> Option<u32> {
+    Some(u32::from_be_bytes(
+        node.property(name)?.value.get(..4)?.try_into().ok()?,
+    ))
+}
+
+fn node_phandle(node: &fdt::node::FdtNode<'_, '_>) -> Option<u32> {
+    fdt_cell(node, "phandle").or_else(|| fdt_cell(node, "linux,phandle"))
+}
+
+fn enabled(node: &fdt::node::FdtNode<'_, '_>) -> bool {
+    node.property("status")
+        .and_then(|property| property.as_str())
+        .is_none_or(|status| matches!(status, "okay" | "ok"))
+}
+
+struct Rail {
+    bus: Arc<dyn I2cBus>,
+}
+
+#[derive(Clone, Copy)]
+struct RailState {
+    vout: u8,
+    dvs: u8,
+    gpio: u8,
+    alternate: u8,
+}
+
+impl Rail {
+    fn read(&self, address: u8, register: u8) -> Result<u8, &'static str> {
+        let address = I2cAddress::SevenBit(address);
+        let mut messages = [
+            I2cMessage::write(address, &[register], true),
+            I2cMessage::read(address, 1, true),
+        ];
+        self.bus
+            .transfer(&mut messages)
+            .map_err(|_| "GPU regulator I2C read failed")?;
+        Ok(messages[1].data[0])
+    }
+
+    fn write(&self, address: u8, register: u8, value: u8) -> Result<(), &'static str> {
+        self.bus
+            .transfer(&mut [I2cMessage::write(
+                I2cAddress::SevenBit(address),
+                &[register, value],
+                true,
+            )])
+            .map_err(|_| "GPU regulator I2C write failed")?;
+        Ok(())
+    }
+
+    fn snapshot(&self) -> Result<RailState, &'static str> {
+        Ok(RailState {
+            vout: self.read(GPU_ADDRESS, 0)?,
+            dvs: self.read(GPU_ADDRESS, 1)?,
+            gpio: self.read(PMIC_ADDRESS, GPIO6)?,
+            alternate: self.read(PMIC_ADDRESS, GPIO_ALT)? & GPU_ENABLE,
+        })
+    }
+
+    fn enable(&self) -> Result<(), &'static str> {
+        // Both DVS banks must supply the selected voltage before GPIO6 is raised.
+        // GPIO6 belongs to the GPU; CPU GPIO5 and DSI GPIO7 are preserved.
+        for register in [0, 1] {
+            self.write(GPU_ADDRESS, register, 0x80 | VOLTAGE_SELECTOR)?;
+            if self.read(GPU_ADDRESS, register)? != 0x80 | VOLTAGE_SELECTOR {
+                return Err("GPU MAX77621 voltage readback mismatch");
+            }
+        }
+        delay_us(1000);
+        let alternate = self.read(PMIC_ADDRESS, GPIO_ALT)?;
+        self.write(PMIC_ADDRESS, GPIO_ALT, alternate & !GPU_ENABLE)?;
+        let gpio = self.read(PMIC_ADDRESS, GPIO6)?;
+        // Linux max77620_gpio_dir_output: OUT=bit3, DIR=bit1 (0=output).
+        // Preserve drive mode, debounce and interrupt configuration.
+        let gpio = (gpio & !2) | 8;
+        self.write(PMIC_ADDRESS, GPIO6, gpio)?;
+        delay_us(1000);
+        if self.read(PMIC_ADDRESS, GPIO6)? & 0x0a != 8
+            || self.read(PMIC_ADDRESS, GPIO_ALT)? & GPU_ENABLE != 0
+        {
+            return Err("GPU enable GPIO readback mismatch");
+        }
+        Ok(())
+    }
+
+    fn restore(&self, previous: RailState) -> Result<(), &'static str> {
+        self.write(PMIC_ADDRESS, GPIO6, previous.gpio)?;
+        delay_us(1000);
+        let alternate = self.read(PMIC_ADDRESS, GPIO_ALT)?;
+        self.write(
+            PMIC_ADDRESS,
+            GPIO_ALT,
+            (alternate & !GPU_ENABLE) | previous.alternate,
+        )?;
+        self.write(GPU_ADDRESS, 0, previous.vout)?;
+        self.write(GPU_ADDRESS, 1, previous.dvs)?;
+        delay_us(1000);
+        if self.read(PMIC_ADDRESS, GPIO6)? & 0xfb != previous.gpio & 0xfb
+            || self.read(PMIC_ADDRESS, GPIO_ALT)? & GPU_ENABLE != previous.alternate
+            || self.read(GPU_ADDRESS, 0)? != previous.vout
+            || self.read(GPU_ADDRESS, 1)? != previous.dvs
+        {
+            return Err("GPU regulator rollback readback mismatch");
+        }
+        Ok(())
+    }
+}
+
+/// On success the backend retains the powered device. Failed initialization
+/// isolates it before restoring its rail and only GPU-owned platform fields.
+struct Power {
+    platform: GpuPlatform,
+    rail: Rail,
+    platform_before: GpuPlatformState,
+    rail_before: RailState,
+    changed: bool,
+}
+
+impl Power {
+    fn acquire(platform: GpuPlatform, rail: Rail) -> Result<Self, &'static str> {
+        let platform_before = platform.snapshot();
+        let rail_before = rail.snapshot()?;
+        Ok(Self {
+            platform,
+            rail,
+            platform_before,
+            rail_before,
+            changed: false,
+        })
+    }
+
+    fn enable(&mut self) -> Result<(), &'static str> {
+        self.changed = true;
+        // Never change the voltage of an executing inherited GPU.
+        self.platform.isolate()?;
+        self.rail.enable()?;
+        self.platform.activate()
+    }
+}
+
+impl Drop for Power {
+    fn drop(&mut self) {
+        if !self.changed {
+            return;
+        }
+        if let Err(error) = self.platform.isolate() {
+            scarlet::println!("gm20b: rollback stopped before rail change: {}", error);
+            return;
+        }
+        if let Err(error) = self.rail.restore(self.rail_before) {
+            scarlet::println!("gm20b: rollback left GPU isolated: {}", error);
+            return;
+        }
+        if let Err(error) = self.platform.restore(self.platform_before) {
+            scarlet::println!("gm20b: {}", error);
+        }
+    }
+}
+
+struct Backend {
+    _power: Power,
+    snapshot: [u8; 44],
+}
+
+impl GpuBackend for Backend {
+    fn query_info(&self) -> GpuBackendInfo {
+        GpuBackendInfo::new(
+            GpuDeviceInfo::new(GpuDeviceState::Unavailable, GPU_EXECUTION_SUPPORT_NONE, 0),
+            0,
+            b"nvidia-gm20b",
+            &self.snapshot,
+        )
+    }
+}
+
+fn flush_mc(base: usize) -> Result<(), &'static str> {
+    let read = |offset| unsafe { scarlet::arch::mmio::read32(base + offset) };
+    let write = |offset, value| unsafe { scarlet::arch::mmio::write32(base + offset, value) };
+    if read(MC_HOTRESET_CTRL) & MC_GPU != 0 {
+        return Err("GPU MC client was already in hot reset");
+    }
+    write(MC_HOTRESET_CTRL, read(MC_HOTRESET_CTRL) | MC_GPU);
+    let _ = read(MC_HOTRESET_CTRL);
+    let deadline = time::current_time_ns().saturating_add(1_000_000);
+    while read(MC_HOTRESET_STATUS) & MC_GPU == 0 {
+        if time::current_time_ns() >= deadline {
+            write(MC_HOTRESET_CTRL, read(MC_HOTRESET_CTRL) & !MC_GPU);
+            let _ = read(MC_HOTRESET_CTRL);
+            return Err("GPU MC flush timeout");
+        }
+        delay_us(2);
+    }
+    delay_us(10);
+    write(MC_HOTRESET_CTRL, read(MC_HOTRESET_CTRL) & !MC_GPU);
+    let _ = read(MC_HOTRESET_CTRL);
+    let deadline = time::current_time_ns().saturating_add(1_000_000);
+    while read(MC_HOTRESET_STATUS) & MC_GPU != 0 {
+        if time::current_time_ns() >= deadline {
+            return Err("GPU MC flush release timeout");
+        }
+        delay_us(2);
+    }
+    delay_us(10);
+    Ok(())
+}
+
+fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
+    if REGISTERED.load(Ordering::Acquire) {
+        return Err("GM20B already registered");
+    }
+    let fdt = FdtManager::get_manager()
+        .get_fdt()
+        .ok_or("missing GPU FDT")?;
+    let supply = cell(device, "vdd-supply", 0).ok_or("missing GPU vdd-supply")?;
+    let i2c = fdt
+        .find_node("/i2c@7000d000")
+        .filter(enabled)
+        .ok_or("missing GPU I2C5")?;
+    let regulator = i2c
+        .children()
+        .find(|node| enabled(node) && node_phandle(node) == Some(supply))
+        .ok_or("GPU regulator is not on I2C5")?;
+    if fdt_cell(&regulator, "reg") != Some(u32::from(GPU_ADDRESS))
+        || !regulator
+            .compatible()
+            .is_some_and(|values| values.all().any(|value| value == "maxim,max77621"))
+        || fdt_cell(&regulator, "regulator-min-microvolt").is_none_or(|min| min > VOLTAGE_UV)
+        || fdt_cell(&regulator, "regulator-max-microvolt").is_none_or(|max| max < VOLTAGE_UV)
+    {
+        return Err("unsupported GPU regulator wiring/voltage");
+    }
+    let pmic = i2c
+        .children()
+        .find(|node| {
+            enabled(node)
+                && fdt_cell(node, "reg") == Some(0x3c)
+                && node
+                    .compatible()
+                    .is_some_and(|values| values.all().any(|value| value == "maxim,max77620"))
+        })
+        .ok_or("missing GPU-enable MAX77620")?;
+    let gpio = regulator
+        .property("maxim,enable-gpio")
+        .ok_or("missing GPU enable GPIO")?
+        .value;
+    if gpio.len() != 12
+        || u32::from_be_bytes(gpio[..4].try_into().unwrap())
+            != node_phandle(&pmic).ok_or("missing MAX77620 phandle")?
+        || u32::from_be_bytes(gpio[4..8].try_into().unwrap()) != 6
+        || u32::from_be_bytes(gpio[8..12].try_into().unwrap()) != 0
+    {
+        return Err("GPU enable must use active-high MAX77620 GPIO6");
+    }
+    let provider = cell(device, "resets", 0).ok_or("missing GPU reset provider")?;
+    if cell(device, "resets", 1) != Some(184)
+        || device
+            .property("resets")
+            .is_none_or(|property| property.value().len() != 8)
+        || device
+            .property("clocks")
+            .is_none_or(|property| property.value().len() != 24)
+        || [184, 299, 189].iter().enumerate().any(|(index, id)| {
+            cell(device, "clocks", index * 2) != Some(provider)
+                || cell(device, "clocks", index * 2 + 1) != Some(*id)
+        })
+    {
+        return Err("unsupported GM20B clock/reset wiring");
+    }
+    let gpu = device
+        .get_resources()
+        .iter()
+        .find(|resource| {
+            resource.res_type == PlatformDeviceResourceType::MEM && resource.start == 0x57000000
+        })
+        .ok_or("missing GM20B BAR0")?;
+    if gpu.size()? < 0x01000000 {
+        return Err("truncated GM20B aperture");
+    }
+    let mc = fdt
+        .all_nodes()
+        .find(|node| enabled(node) && node_phandle(node) == cell(device, "iommus", 0))
+        .ok_or("missing GPU MC resource")?;
+    if device
+        .property("iommus")
+        .is_none_or(|property| property.value().len() != 8)
+        || cell(device, "iommus", 1) != Some(31)
+        || !mc.compatible().is_some_and(|values| {
+            values
+                .all()
+                .any(|value| matches!(value, "nvidia,tegra210-mc" | "nvidia,tegra210-smmu"))
+        })
+    {
+        return Err("unsupported GM20B MC client");
+    }
+    let mc_resource = mc
+        .reg()
+        .and_then(|mut resources| resources.next())
+        .ok_or("missing MC registers")?;
+    if mc_resource.starting_address as usize != 0x70019000 || mc_resource.size.unwrap_or(0) < 0x978
+    {
+        return Err("unsupported GPU MC aperture");
+    }
+    let platform = gpu_platform(provider)?;
+    let bus = DeviceManager::get_manager()
+        .get_i2c_bus(node_phandle(&i2c).ok_or("missing GPU I2C5 phandle")?)
+        .ok_or(PROBE_DEFER)?;
+    // Complete provider checks and mappings before making any power changes.
+    let gpu_base = vm::ioremap(gpu.start, 0x204)?;
+    let mc_base = vm::ioremap(0x70019000, 0x978)?;
+    let mut power = Power::acquire(platform, Rail { bus })?;
+    scarlet::println!(
+        "gm20b: powering GPU; rail={}uV ref={}Hz pwr=204000000Hz",
+        VOLTAGE_UV,
+        power.platform.reference_hz()
+    );
+    power.enable()?;
+    flush_mc(mc_base)?;
+    let read = |offset| unsafe { scarlet::arch::mmio::read32(gpu_base + offset) };
+    let boot0 = read(0);
+    // The MC_BOOT_0 architecture/implementation fields identify GM20B (0x12b).
+    if (boot0 >> 20) & 0x1ff != 0x12b {
+        scarlet::println!("gm20b: unexpected MC_BOOT_0={:#010x}", boot0);
+        return Err("GPU identity is not GM20B");
+    }
+    let enable = read(0x200);
+    let stall = read(0x100);
+    let nonstall = read(0x104);
+    // No execution engine or interrupt handler exists in this first stage.
+    unsafe {
+        scarlet::arch::mmio::write32(gpu_base + 0x140, 0);
+        scarlet::arch::mmio::write32(gpu_base + 0x144, 0);
+    }
+    let _ = read(0x144);
+    let before = power.platform_before;
+    let words = [
+        1,
+        boot0,
+        enable,
+        stall,
+        nonstall,
+        before.reset,
+        before.clamp,
+        before.gates,
+        before.power_clock,
+        power.platform.reference_hz(),
+        204_000_000,
+    ];
+    let mut snapshot = [0; 44];
+    for (bytes, word) in snapshot.chunks_exact_mut(4).zip(words) {
+        bytes.copy_from_slice(&word.to_le_bytes());
+    }
+    let backend: Arc<dyn GpuBackend> = Arc::new(Backend {
+        _power: power,
+        snapshot,
+    });
+    let (_, name) = register_gpu_control_device(backend)?;
+    REGISTERED.store(true, Ordering::Release);
+    scarlet::println!(
+        "gm20b: identified MC_BOOT_0={:#010x} enable={:#010x} intr={:#x}/{:#x}; /dev/{}",
+        boot0,
+        enable,
+        stall,
+        nonstall,
+        name
+    );
+    scarlet::println!("gm20b: GR firmware/GMMU/queues pending; execution support=0");
+    Ok(())
+}
+
+fn remove(_: &PlatformDeviceInfo) -> Result<(), &'static str> {
+    Err("GM20B backend is registered")
+}
+
+fn register() {
+    let driver = PlatformDeviceDriver::new(
+        "nvidia-gm20b",
+        probe,
+        remove,
+        vec!["nvidia,tegra210-gm20b", "nvidia,gm20b"],
+    )
+    .with_probe_options(PlatformProbeOptions {
+        deassert_resets: false,
+        // Identity/power bring-up performs no DMA and creates no address
+        // space. The MC is validated above; GPU GMMU must precede queues.
+        resolve_iommu: false,
+        resolve_dma: false,
+    });
+    DeviceManager::get_manager().register_driver(Box::new(driver), DriverPriority::Standard);
+}
+
+scarlet::driver_initcall!(register);
+#[used]
+static LINK: fn() = register;
+pub fn force_link() {
+    let _ = LINK;
+}

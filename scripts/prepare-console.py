@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import shlex
 import shutil
+import subprocess
+import sys
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,6 +53,7 @@ def flatten(path):
 
 
 def main():
+    subprocess.run([sys.executable, str(ROOT / "scripts/prepare-gm20b-firmware.py")], check=True)
     cache = PROJECT / ".scarlet/cache"
     cargo_home = cache / "cargo-home"
     cargo_home.mkdir(parents=True, exist_ok=True)
@@ -77,6 +80,7 @@ def main():
         if not link.exists() and shared.exists():
             link.symlink_to(shared, target_is_directory=True)
     layers = list(flatten(SCARLET / "bundles/desktop/bundle.toml"))
+    layers.append({"kind": "copy", "source": str(PROJECT / ".scarlet/gm20b-firmware"), "to": "/"})
     # Keep the original desktop assets and configuration, including the
     # resident Files service. Catalog entries and optional services must match
     # the applications actually installed by this first RAM-only image.

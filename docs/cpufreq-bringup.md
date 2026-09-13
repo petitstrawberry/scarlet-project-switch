@@ -58,8 +58,9 @@ commands above, and check actual frequency, normal shell/input operation and
 continued clock/sleep wakeups under both low and high CPU load. Repeated boot,
 per-core timer delivery and sustained frequency stability require the Switch.
 The initial scale 1.5 package and SD readback are recorded in
-`cpufreq-verification.json`. The scale 1.0 rebuild is recorded in
-`scale1-verification.json`; its SD installation is pending.
+`cpufreq-verification.json`. The standalone scale 1.0 rebuild, which was not
+installed, is recorded in `scale1-verification.json`. The combined GM20B
+power/identity candidate and its SD readback are in `gpu-verification.json`.
 No additional host or QEMU tests are used as hardware evidence.
 
 DFLL initialization, higher frequencies, thermal policy and EMC scaling are

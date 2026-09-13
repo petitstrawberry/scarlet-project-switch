@@ -10,7 +10,11 @@
 //! are enabled here; display, memory, and other firmware clocks are preserved.
 
 extern crate alloc;
+#[cfg(target_os = "none")]
+mod gpu;
 pub mod packet;
+#[cfg(target_os = "none")]
+pub use gpu::{GpuPlatform, GpuPlatformState};
 #[cfg(target_os = "none")]
 mod runtime;
 #[cfg(target_os = "none")]

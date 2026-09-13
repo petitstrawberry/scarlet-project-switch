@@ -93,6 +93,12 @@ fdt set /cpus/cpu@0 performance-domains <0x5343>
 fdt set /cpus/cpu@1 performance-domains <0x5343>
 fdt set /cpus/cpu@2 performance-domains <0x5343>
 fdt set /cpus/cpu@3 performance-domains <0x5343>
+# Noble uses nvgpu's global clock aliases. Supply the equivalent standard
+# Nouveau bindings for Scarlet's external GM20B driver. Keep the MC/IOMMU
+# resource and all firmware GPU/VPR/WPR carveout reservations intact.
+fdt set /gpu clocks <0x36 184 0x36 299 0x36 189>
+fdt set /gpu clock-names gpu pwr ref
+fdt set /gpu vdd-supply <0x2f>
 setenv bootargs "init=/init init.console=/dev/null maxcpus=4 scarlet.switch=1"
 echo Launching Scarlet ${scarlet_boot_mode} at 0x80200000
 bootm ${kernload} ${initaddr} ${fdtraddr}

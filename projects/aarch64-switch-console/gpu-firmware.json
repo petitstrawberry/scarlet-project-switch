@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "repository": "NVIDIA/linux-firmware",
+  "revision": "46a6999a2d14a5f2239e7e712e5bbcf543f59034",
+  "files": {
+    "LICENCE.nvidia": {
+      "size": 6212,
+      "sha256": "bc5225a57f49c5249dcf238e4ae6437811677a2a8a7f579c3d839e058653ee44"
+    },
+    "nvidia/gm20b/acr/bl.bin": {
+      "size": 832,
+      "sha256": "a7d1cfe19e108ffc54c3d4e69242b64a1e2211112b8fac660feb2c400a72a56e"
+    },
+    "nvidia/gm20b/acr/ucode_load.bin": {
+      "size": 18592,
+      "sha256": "b3e365b0deddaf81bd8a8ad446f0dac2a74de61c786c8170d2959568fe9fc292"
+    },
+    "nvidia/gm20b/gr/fecs_bl.bin": {
+      "size": 576,
+      "sha256": "75a1f6ee5a3fd9c19d2d6d9d992af7926c2569a35edc963f0188b2b633a5b823"
+    },
+    "nvidia/gm20b/gr/fecs_data.bin": {
+      "size": 1964,
+      "sha256": "5a9f9181df2babacad69cebf25db84b826862fc756b9086615994e4f1cbca473"
+    },
+    "nvidia/gm20b/gr/fecs_inst.bin": {
+      "size": 17021,
+      "sha256": "6add9631ba952a9127b05c467bca57b27b1e43ac8c8b3f038c07b8c83db37f61"
+    },
+    "nvidia/gm20b/gr/fecs_sig.bin": {
+      "size": 76,
+      "sha256": "f93a11e8a43cef8445b0c2a7a96d659831c0a293dc40ed9db34e30fa86bd934c"
+    },
+    "nvidia/gm20b/gr/gpccs_data.bin": {
+      "size": 2068,
+      "sha256": "ff552f59151de5ab9a65ffa7b5c0d661dfd25f2b60c04640e5b0895fca53456f"
+    },
+    "nvidia/gm20b/gr/gpccs_inst.bin": {
+      "size": 9964,
+      "sha256": "3906a04c60a0d7b1b1483344318f3c5e1482acc284360a333b42240114dfb182"
+    },
+    "nvidia/gm20b/gr/sw_bundle_init.bin": {
+      "size": 7616,
+      "sha256": "b287695bc7ab91fb03b738172d56b8df738cb7903852d425b88bfc66585db98d"
+    },
+    "nvidia/gm20b/gr/sw_ctx.bin": {
+      "size": 5448,
+      "sha256": "c2134c3c6ba5d0c83cd6f2a84da25239fc9586b009d3ba9acfba44e15a5a583f"
+    },
+    "nvidia/gm20b/gr/sw_nonctx.bin": {
+      "size": 1432,
+      "sha256": "060d8c8eaf1bd8736849913cc035b15d08f33287ae3b1e83097c83531b010984"
+    },
+    "nvidia/gm20b/pmu/desc.bin": {
+      "size": 652,
+      "sha256": "70b0ea947d5b8d7457de99543bf140e6f077a7499ba1215f8bd2db1cb62ef92d"
+    },
+    "nvidia/gm20b/pmu/image.bin": {
+      "size": 47872,
+      "sha256": "d1106d2e3f1daa864be00449093378febf79921e047abd52b50c2c2d99f6c310"
+    },
+    "nvidia/gm20b/pmu/sig.bin": {
+      "size": 76,
+      "sha256": "7d780addbf88d67aeeac939bea27b0238a0da2d8b23aab93e862127f8ff371d8"
+    }
+  }
+}

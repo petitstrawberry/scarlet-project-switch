@@ -61,6 +61,11 @@ The next candidate uses scale 1.0 and adds PLLX/MAX77621 CPU frequency control
 through the common governors and `cpufreqctl`. Physical switching remains
 pending; see [CPU frequency bring-up](docs/cpufreq-bringup.md).
 
+The next hardware stage adds GM20B power/identity bring-up through the ordinary
+GPU control API and prepares pinned NVIDIA firmware. SGFX rendering is pending;
+see [GPU bring-up](docs/gpu-bringup.md). Prepare its firmware once before building:
+`python3 scripts/prepare-gm20b-firmware.py --download`.
+
 Supported development hosts: Apple Silicon macOS, AArch64 Linux, x86-64 Linux.
 Use a sibling `../Scarlet` checkout at
 `85f0cead4cb4c9add021360f1b469f08bf0d23a9` or a compatible successor.

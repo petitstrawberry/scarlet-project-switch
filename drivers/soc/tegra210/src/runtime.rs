@@ -76,10 +76,10 @@ pub fn phandle(d: &PlatformDeviceInfo) -> Result<u32, &'static str> {
         .ok_or("peripheral has no phandle")
 }
 
-struct Car {
-    regs: Mmio,
-    phandle: u32,
-    lock: SpinLock<()>,
+pub(crate) struct Car {
+    pub(crate) regs: Mmio,
+    pub(crate) phandle: u32,
+    pub(crate) lock: SpinLock<()>,
 }
 static CAR: IrqSpinLock<Option<Arc<Car>>> = IrqSpinLock::new(None);
 static PADS: IrqSpinLock<Option<Mmio>> = IrqSpinLock::new(None);
@@ -98,6 +98,16 @@ pub fn cpu_clock_registers(provider: u32) -> Result<Mmio, &'static str> {
         return Err("unexpected CPU clock provider");
     }
     Ok(car.regs)
+}
+/// GPU clocks share the CAR lock with peripheral clock changes. The GPU's
+/// dedicated PMC clamp register is separate from rail I/O pad configuration.
+pub fn gpu_platform(provider: u32) -> Result<crate::GpuPlatform, &'static str> {
+    let car = car()?;
+    if car.phandle != provider {
+        return Err("unexpected GPU clock provider");
+    }
+    let pmc = (*PMC.lock()).ok_or(PROBE_DEFER)?;
+    crate::GpuPlatform::new(car, pmc)
 }
 pub fn gpio() -> Result<Arc<TegraGpio>, &'static str> {
     GPIO.lock().clone().ok_or(PROBE_DEFER)
