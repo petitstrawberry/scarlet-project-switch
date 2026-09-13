@@ -1,0 +1,15 @@
+[package]
+name = "input-qa"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+scarlet-os = { path = "../../../Scarlet/user/lib/scarlet-os", default-features = false, features = ["std"] }
+sws-client = { path = "../../../Scarlet/user/lib/sws-client", default-features = false, features = ["std"] }
+sws-protocol = { path = "../../../Scarlet/user/lib/sws-protocol", default-features = false, features = ["std"] }
+scarlet-ui = { path = "../../../scarlet-ui/crates/scarlet-ui", features = ["platform-sws"] }
+scarlet-ui-macros = { path = "../../../scarlet-ui/crates/scarlet-ui-macros" }
+
+[profile.release]
+panic = "abort"

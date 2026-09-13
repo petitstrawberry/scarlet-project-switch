@@ -1,0 +1,8 @@
+[package]
+name = "switch-input-host-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+sws-protocol = { path = "../../../Scarlet/user/lib/sws-protocol", default-features = false, features = ["std"] }

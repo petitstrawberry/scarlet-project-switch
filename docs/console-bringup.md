@@ -21,7 +21,6 @@ Import the pinned Noble firmware with `scripts/prepare-bootstack.py` first.
 ```sh
 nix develop --accept-flake-config
 scripts/build-console.sh
-tests/test-console.sh
 
 python3 scripts/install-sd.py --console --mount "/Volumes/SWITCH SD"
 python3 scripts/install-sd.py --console --mount "/Volumes/SWITCH SD" --write
@@ -49,13 +48,26 @@ present rotates and converts its damaged region into the inherited portrait
 framebuffer stops mirroring text over the GUI. No Tegra-specific SWS backend
 or framebuffer TTY is required.
 
+The current image uses the normal SWS output scale of 1.5, reduced from 2.0
+after the user's feedback.
+
 The generic `init.console=` option selects initial stdio; the default remains
 `/dev/tty0` for existing distributions. This image explicitly uses
 `init.console=/dev/null`, with normal null-device semantics. SSH automatic
 startup is disabled until supported network and cryptographic entropy
-sources are available. The kernel is still CPU0-only; see `cpu-bringup.md`.
-Joy-Con, touch, and Tegra USB input are not implemented by this bring-up.
-Input operation has not been verified on the Switch.
+sources are available. The current Linux Image candidate requests four cores
+through PSCI; the previous candidate received a successful-boot report, while
+per-core timer and sustained SMP measurements remain pending. See `cpu-bringup.md`.
+The next image adds [CPU frequency control](cpufreq-bringup.md) through the
+common policy/governors, `/dev/cpufreq` and `cpufreqctl`; physical switching
+is pending.
+Attached Joy-Con, touch and RTC have external driver implementations; see
+[input bring-up](input-bringup.md). The first driver image failed all three
+physical checks because the transports remained deferred. Later boots confirmed
+touch and Left Joy-Con operation, and the latest Joy-Con candidate received
+`動いた` from the user. RTC seeding was observed; absolute accuracy remains
+unverified. Tegra USB input remains
+unimplemented.
 
 ## Observed host behavior
 

@@ -1,5 +1,5 @@
 [output]
-scale = 1.0
+scale = 1.5
 
 [cursor]
 theme = "/share/cursors/default"
@@ -25,9 +25,15 @@ overview_toggle = "Super"
 # workspace_right = "Super+Right"
 # move_window_left = "Super+Shift+Left"
 # move_window_right = "Super+Shift+Right"
-# home = "Super+Space"
+home = "Super+Space"
 # overview_activate = "Super+Enter"
 # add_workspace = "Super+Shift+N"
 # remove_workspace = "Super+Delete"
 # Other useful values include "Ctrl+Space", "Zenkaku_Hankaku", "Henkan", and "Muhenkan".
 ime_toggle = "Ctrl+Space"
+
+[gamepad]
+navigation = true
+# Nintendo layout: A confirms, B goes back. Device events retain BTN_* codes.
+confirm_button = "east"
+cancel_button = "south"

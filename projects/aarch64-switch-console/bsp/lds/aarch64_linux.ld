@@ -14,7 +14,7 @@ SECTIONS {
     .head : {
         KEEP(*(.head.text.switch_header))
         KEEP(*(.head.text.switch_entry))
-        *(.head.text.entry)
+        *(.head.text.entry .head.text.entry.*)
     } :text
     .init : { *(.init .init.*) } :text
     .text : { *(.text .text.*) } :text

@@ -79,12 +79,9 @@ pub extern "C" fn switch_entry(dtb_paddr: usize, current_el: usize) -> ! {
     }
 }
 
-// This BSP deliberately never starts secondary CPUs.
+/// Use Scarlet's standard PSCI entry without replaying the BSP boot probe.
 #[unsafe(export_name = "_entry_ap")]
-pub extern "C" fn parked_ap() -> ! {
-    loop {
-        unsafe {
-            asm!("wfe", options(nomem, nostack));
-        }
-    }
+#[unsafe(naked)]
+pub extern "C" fn secondary_entry() -> ! {
+    naked_asm!("b {entry}", entry = sym scarlet::arch::aarch64::boot::linux::secondary_image_entry);
 }

@@ -1,4 +1,4 @@
-//! Single-CPU diagnostics before Scarlet changes EL or installs a page table.
+//! Boot-CPU diagnostics before Scarlet changes EL or installs a page table.
 //! No allocator, logging locks, or uninitialized firmware UARTs are used here.
 
 use core::fmt::{self, Write};
@@ -34,7 +34,7 @@ pub fn report(dtb_paddr: usize, current_el: usize) -> bool {
     let _ = writeln!(console, "CurrentEL = EL{current_el}");
     let _ = writeln!(console, "DTB = {dtb_paddr:#018x}");
     let _ = writeln!(console, "DTB size = {} bytes", fdt.total_size());
-    let _ = writeln!(console, "MMU = OFF; CPU = single core");
+    let _ = writeln!(console, "MMU = OFF; boot CPU probe");
     let kernel = fdt
         .find_node("/chosen")
         .and_then(|node| node.property("scarlet,boot-mode"))

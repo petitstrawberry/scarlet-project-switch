@@ -30,7 +30,7 @@ projects/aarch64-switch-l4t/
   bootloader/                       dedicated Hekate entries and boot script
   tools/                            Linux Image / legacy uImage packaging
   bootstack.json                    inspected Noble binary SHA256 pins
-drivers/                            future board-driver crates
+drivers/                            Tegra210 transport, FTM4 touch, Joy-Con, RTC
 userspace/switch-init/               minimal native diagnostic PID 1
 scripts/                            bootstack import, SD install, RCM, info capture
 tests/                              actual Image CPU/entry tests under QEMU
@@ -53,6 +53,13 @@ described below remains available separately.
 The SWS console Home was subsequently observed on the Switch in
 `IMG_9059.HEIC`. Its initial color mismatch is corrected in the board boot
 script; a new hardware boot is still needed to verify the corrected colors.
+The console build now includes attached Joy-Con, touchscreen and RTC drivers,
+plus native SWS/ScarletUI gamepad support. Touch and Left Joy-Con operation
+were observed physically; the latest Joy-Con/SMP candidate received the user's
+successful-boot report. See [input bring-up](docs/input-bringup.md).
+The next candidate uses scale 1.5 and adds PLLX/MAX77621 CPU frequency control
+through the common governors and `cpufreqctl`. Physical switching remains
+pending; see [CPU frequency bring-up](docs/cpufreq-bringup.md).
 
 Supported development hosts: Apple Silicon macOS, AArch64 Linux, x86-64 Linux.
 Use a sibling `../Scarlet` checkout at

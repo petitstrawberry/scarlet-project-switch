@@ -71,15 +71,21 @@ def boot_framebuffer_format(boot):
     return framebuffer_format
 
 
-def run(el1=False, timeout=120, screen_only=False, settle_seconds=20):
+def run(el1=False, timeout=120, screen_only=False, settle_seconds=20, input_qa=False):
+    assert not (screen_only and input_qa), "input QA requires its observation service"
     boot = PROJECT / ".scarlet/l4t/switchroot/scarlet-console"
     framebuffer_format = boot_framebuffer_format(boot)
     case_name = ("screen-only-" if screen_only else "") + ("el1" if el1 else "el2")
+    if input_qa:
+        case_name = "input-" + case_name
     case_root = ROOT / ".cache/console-qa" / framebuffer_format
     case = case_root / case_name
     case.mkdir(parents=True, exist_ok=True)
     image = gzip.decompress(smoke.legacy_payload(boot / "uImage", 2, 1))
     assert image == (boot / "Image").read_bytes()
+    production_image_sha256 = hashlib.sha256(image).hexdigest()
+    if input_qa:
+        image = (ROOT / ".cache/input-qa-project/Image").read_bytes()
     (case / "Image").write_bytes(image)
     initrd = smoke.legacy_payload(boot / "initramfs", 3, 0)
     trailer = cpio_entries(initrd)
@@ -103,12 +109,52 @@ depends = ["scarlet-desktop"]
         assert qa.is_file(), "build the functional guest QA with tests/test-console.sh"
         extra = cpio_file("etc/stemd.d/services/99-console-qa.toml", services, 0x7ffffffe)
         extra += cpio_file("bin/console-qa", qa.read_bytes(), 0x7ffffffd, 0o100755)
+        if input_qa:
+            input_elf = ROOT / ".cache/input-qa-target/aarch64-unknown-scarlet/release/input-qa"
+            extra += cpio_file("bin/input-qa", input_elf.read_bytes(), 0x7ffffffc, 0o100755)
+            extra += cpio_file("etc/stemd.d/services/98-input-qa.toml", b'''[service.input-qa]
+exec = "/bin/input-qa"
+tty = "/dev/tty0"
+depends = ["scarlet-desktop", "console-qa-functional"]
+''', 0x7ffffffb)
         initrd = initrd[:trailer] + extra + initrd[trailer:]
+    (case / "result.json").unlink(missing_ok=True)
     (case / "initramfs.cpio").write_bytes(initrd)
     dts = smoke.fixture(len(initrd), mode="kernel", pci_host="tegra", uart=not screen_only,
                         framebuffer_format=framebuffer_format)
     console = "/dev/null" if screen_only else "/dev/tty0"
     dts = dts.replace('bootargs = "init=/init maxcpus=1";', f'bootargs = "init=/init init.console={console} maxcpus=1";')
+    if input_qa:
+        dts = dts.replace('model = "Scarlet Switch CPU/entry test (QEMU virt)";',
+                          'model = "Scarlet Switch input test (QEMU virt)";')
+        root_end = dts.rfind("};")
+        dts = dts[:root_end] + '''
+    input-qa-provider {
+        phandle = <0x7f000001>;
+        #reset-cells = <1>;
+        #iommu-cells = <1>;
+        #dma-cells = <1>;
+    };
+    input-qa {
+        compatible = "scarlet,input-qa";
+        status = "okay";
+        resets = <0x7f000001 7>;
+        iommus = <0x7f000001 14>;
+        dmas = <0x7f000001 9>;
+    };
+    input-qa-required-reset {
+        compatible = "scarlet,input-qa-required-reset";
+        resets = <0x7f000001 7>;
+    };
+    input-qa-required-iommu {
+        compatible = "scarlet,input-qa-required-iommu";
+        iommus = <0x7f000001 14>;
+    };
+    input-qa-required-dma {
+        compatible = "scarlet,input-qa-required-dma";
+        dmas = <0x7f000001 9>;
+    };
+''' + dts[root_end:]
     (case / "input.dts").write_text(dts)
     subprocess.run(["dtc", "-q", "-I", "dts", "-O", "dtb", "-o", str(case / "input.dtb"), str(case / "input.dts")], check=True)
     subprocess.run(["aarch64-unknown-linux-gnu-as", f"--defsym=ENTER_EL1={int(el1)}", str(ROOT / "tests/entry.S"), "-o", str(case / "entry.o")], check=True)
@@ -143,7 +189,7 @@ depends = ["scarlet-desktop"]
                 points = [(y * 1280 + x) * 3 for y in range(120, 600, 4) for x in range(256, 1024, 4)]
             while time.monotonic() < deadline:
                 text = serial.read_text(errors="replace") if serial.exists() else ""
-                if any(marker in text for marker in ("[panic]", "Panic occurred", "PanicInfo")):
+                if any(marker in text for marker in ("[panic]", "Panic occurred", "PanicInfo", "panicked at")):
                     # Let the diagnostic finish before collecting its location.
                     time.sleep(2)
                     text = serial.read_text(errors="replace")
@@ -155,7 +201,7 @@ depends = ["scarlet-desktop"]
                     match_ratio = sum(rgb[i:i + 3] == reference[i:i + 3] for i in points) / len(points)
                     if match_ratio > 0.98:
                         break
-                elif all(marker in text for marker in ("Compositor ready. Starting main loop...", "[Shell] Initializing Scarlet workspace shell", "CONSOLE_FUNCTIONAL_QA_PASS")):
+                elif all(marker in text for marker in ("Compositor ready. Starting main loop...", "[Shell] Initializing Scarlet workspace shell", "CONSOLE_FUNCTIONAL_QA_PASS")) and (not input_qa or "INPUT_QA_PASS" in text):
                     break
                 assert process.poll() is None, (case / "qemu.log").read_text()
                 time.sleep(0.5 if screen_only else 0.1)
@@ -184,6 +230,12 @@ depends = ["scarlet-desktop"]
                 assert "name=Console Controls" in text and "name=Home" in text
                 assert "[PCI] no PCI ECAM found in FDT" in text
                 assert "CONSOLE_FILE_IO_PASS" in text and "CONSOLE_CATALOG_PASS applications=6" in text
+                if input_qa:
+                    for marker in ("INPUT_QA_FIXTURE_READY", "INPUT_GAMEPAD_SWS_PASS", "INPUT_SCARLET_UI_PASS", "INPUT_CONSOLE_SHELL_PASS", "INPUT_QA_PASS"):
+                        assert marker in text, f"missing input observation: {marker}"
+                    for provider in ("reset", "iommu", "dma"):
+                        name = f"input-qa-required-{provider}"
+                        assert f"deferred Standard Devices device: {name}" in text, f"default dependency hook did not defer {name}"
                 timers = re.findall(r"CONSOLE_TIMER api=(std|native) requested_ns=(\d+) elapsed_ns=(\d+) result=(-?\d+)", text)
                 for api in ("std", "native"):
                     checks = [(int(requested), int(elapsed), int(result)) for kind, requested, elapsed, result in timers if kind == api]
@@ -192,7 +244,7 @@ depends = ["scarlet-desktop"]
             else:
                 timers = []
                 assert text == "", "screen-only fixture unexpectedly produced UART output"
-            assert not any(marker in text for marker in ("[panic]", "Panic occurred", "PanicInfo"))
+            assert not any(marker in text for marker in ("[panic]", "Panic occurred", "PanicInfo", "panicked at"))
             assert "Failed to initialize display" not in text
             result = {"passed": True, "current_el": 1 if el1 else 2,
                       "hardware_validated": False, "sws_ready": True,
@@ -200,12 +252,19 @@ depends = ["scarlet-desktop"]
                       "scanout_unique_colors": len(colors), "scanout_format": framebuffer_format,
                       "boot_script_sha256": hashlib.sha256((boot / "boot.scr").read_bytes()).hexdigest(),
                       "image_sha256": hashlib.sha256(image).hexdigest(),
+                      "production_image_sha256": production_image_sha256,
+                      "native_gamepad_delivery_observed": input_qa,
+                      "platform_probe_options_observed": input_qa,
+                      "scarlet_ui_gamepad_callback_observed": input_qa,
+                      "console_shell_gamepad_navigation_observed": input_qa,
                       "uart_present": not screen_only, "home_reference_match": match_ratio,
                       "sleep_wakes": [{"api": api, "requested_ns": int(requested), "elapsed_ns": int(elapsed), "result": int(result)} for api, requested, elapsed, result in timers],
                       "file_io_observed": not screen_only, "application_catalog_observed": not screen_only,
                       "serial_log": str(serial.relative_to(ROOT)),
                       "framebuffer_image": str((case / "desktop.png").relative_to(ROOT)),
                       "test_overrides": [] if screen_only else ["init.console=/dev/tty0", "journal/process observation services"]}
+            if input_qa:
+                result["test_overrides"] += ["isolated QA kernel", "native input injection fixture", "input QA service"]
             (case / "result.json").write_text(json.dumps(result, indent=2) + "\n")
             print(json.dumps(result))
             return result
@@ -227,5 +286,6 @@ if __name__ == "__main__":
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--screen-only", action="store_true", help="use the unchanged RAMDisk and /dev/null stdio, with no UART or tty")
     parser.add_argument("--settle-seconds", type=int, default=20)
+    parser.add_argument("--input-qa", action="store_true", help="use the isolated input fixture built by tests/test-input.py")
     args = parser.parse_args()
-    run(args.el1, args.timeout, args.screen_only, args.settle_seconds)
+    run(args.el1, args.timeout, args.screen_only, args.settle_seconds, args.input_qa)

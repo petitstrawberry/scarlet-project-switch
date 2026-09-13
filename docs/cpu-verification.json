@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "physical_validation": "User reported successful boot on 2026-09-13: 動いた; no per-core log or timer measurement supplied",
+  "hardware_smp_validated": false,
+  "kernel_source_revision": "68858063c2268e898292e8579f023549387d537d",
+  "kernel_smp_changes_are_uncommitted": true,
+  "maxcpus": 4,
+  "topology_source": "ODIN /cpus: four enabled Cortex-A57 nodes, enable-method psci; /psci method smc",
+  "package_manifest": "projects/aarch64-switch-console/.scarlet/l4t/manifest.json",
+  "image_sha256": "7ded7baf9d496d7cf5b49e666d882efd7ef3f3a31f6085ad24736037cbe13ab9",
+  "kernel_elf_sha256": "230e9ecd0e62d2fd0b6b6553b1d85ef2ac84bf65d7e8fe1253588d2c79f2d55e",
+  "initramfs_sha256": "f10eda07e2c1ceeb7246eecf3c8b6174dd6ca0f5651571bf074e524c26ed45cf",
+  "boot_script_sha256": "7bdbf210637018fd29e88d4468bb8813c55031a00745f1d6fc4a2c8ff455404f",
+  "image_runtime_size": "0x10c3000",
+  "software_validation": {
+    "production_build": {
+      "command": "nix develop --accept-flake-config --command sh scripts/build-console.sh",
+      "log": ".cache/smp4-input-build.log",
+      "exit_code": 0
+    },
+    "formatting": {
+      "tool": "pinned nightly rustfmt",
+      "edition": 2024,
+      "files_checked": 9,
+      "exit_code": 0
+    },
+    "entry_disassembly": ".cache/smp4-entry-disassembly.log",
+    "additional_host_or_qemu_tests_run": false,
+    "hardware_validation": "User reported successful boot on 2026-09-13: 動いた; no per-core log or timer measurement supplied"
+  },
+  "sd_installation": {
+    "device": "disk8s1",
+    "mount": "/Volumes/SWITCH SD",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "b43e47439a4420c641c4004f1a290e2c51ed0d2a16e73732ecc3c06a16757996",
+      "switchroot/scarlet-console/Image": "7ded7baf9d496d7cf5b49e666d882efd7ef3f3a31f6085ad24736037cbe13ab9",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "7bdbf210637018fd29e88d4468bb8813c55031a00745f1d6fc4a2c8ff455404f",
+      "switchroot/scarlet-console/initramfs": "f10eda07e2c1ceeb7246eecf3c8b6174dd6ca0f5651571bf074e524c26ed45cf",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "2980e7a9d99c601bcac80d8f19915bc17ae44546565421a78e33a3ca24037e29"
+    },
+    "protected_files_verified": 38,
+    "raw_device_accessed": false,
+    "hardware_boot_validated": true
+  },
+  "sd_installation_log": ".cache/smp4-input-sd-install.log",
+  "source_references": {
+    "linux_repository": "CTCaer/switch-l4t-kernel-4.9",
+    "linux_revision": "2d0059fd3167a8df756de2aa0489d4aa70a9fc15",
+    "paths": [
+      "arch/arm64/kernel/psci.c",
+      "drivers/firmware/psci.c",
+      "arch/arm64/kernel/head.S"
+    ]
+  },
+  "sd_ejected": true,
+  "user_reported_boot_success": true,
+  "user_report": "動いた。今度はCPUの動作周波数をちゃんと変えられるようにしたいね。あと、x2はちょっとデカすぎたわ。"
+}

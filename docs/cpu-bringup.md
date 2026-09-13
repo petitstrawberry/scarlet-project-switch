@@ -1,26 +1,77 @@
-# Linux boot CPU limitation
+# Linux Image CPU bring-up
 
-The current L4T path starts only the boot CPU. In
-`Scarlet/kernel/src/arch/aarch64/boot/linux.rs`, `BootInfo::new` receives
-`cpu_count = 1` and `start_secondary_cpus_hook = None`. The Switch BSP's
-`_entry_ap` also parks instead of entering the common AP startup path.
-Consequently, the kernel's “Detected 1 CPU(s)” message describes the current
-boot implementation, not the physical CPU topology.
-The inspected ODIN DTB contains four enabled Cortex-A57 CPU nodes, all with
-`enable-method = "psci"`; `/psci` advertises `arm,psci-1.0` and `method = "smc"`.
-The boot script also currently supplies `maxcpus=1`.
+The current candidate implements PSCI SMP in Scarlet's standard Linux arm64
+Image boot path. It is built for Switch console with `maxcpus=4`;
+the user reported successful boot with `動いた` on 2026-09-13. No per-core log or
+timer measurement was supplied, so sustained four-core behavior remains
+unmeasured. Earlier Switch boots, including
+`IMG_9070.mov`, ran the old CPU0-only path with `maxcpus=1`.
 
-The Limine path already has bootloader-assisted AP bootstrap and a
-`start_secondary_cpus` hook. The Linux Image path cannot use Limine responses;
-it needs its own firmware CPU-start mechanism, per-CPU entry/stack setup,
-exception-level and MMU transitions, topology registration, and a hook to
-release APs after global initialization. Reporting four CPUs before those
-CPUs can enter the scheduler would conceal the missing work.
+The next candidate adds [CPU frequency control](cpufreq-bringup.md) and scale
+1.5. Its hardware validation is separate from the successful previous boot.
 
-The existing QEMU fixture launches four emulated CPUs but describes only CPU0
-in its DTB and uses `maxcpus=1`. Its fourteen passing cases verify single-CPU
-boot and timer wake, not SMP. The hardware success record also explicitly
-records `single_cpu = true`.
+## Firmware and entry
 
-The next SMP check must independently observe each CPU online in the
-scheduler, run tasks on every CPU, and retain sleep/wake coverage.
+The inspected ODIN DTB contains four enabled Cortex-A57 CPU nodes, MPIDR
+Aff0 values 0 through 3, all with `enable-method = "psci"`. Its enabled `/psci`
+node advertises `arm,psci-1.0` and `method = "smc"`. Scarlet reads this topology,
+keeps the actual boot CPU at logical ID zero, skips duplicate/unsupported CPU
+nodes, and honors `maxcpus` up to its configured per-CPU table limit. The
+existing diagnostic project retains its one-core command line.
+
+After all global initialization and the BSP's first task claim, the Image
+hook calls PSCI VERSION and CPU_ON64 through the DTB-selected SMC/HVC conduit.
+CPU_ON receives the physical AP entry address and logical CPU ID as context.
+Each AP gets its own existing kernel boot-stack slot, uses the same EL1
+normalization as the boot CPU, and enables the immutable, cache-clean early
+identity page table. It then enters the common `start_ap` path, switches to
+the saved runtime kernel tables, initializes its per-CPU vectors and trampoline,
+cold-initializes its banked GIC interface, and initializes its local timer.
+The ordinary scheduler programs its timer PPI and registers the CPU online.
+Global/BSS initialization and the framebuffer boot probe run only on the BSP.
+GICv2 IPIs use the discovered CPU hardware target masks with a store barrier.
+
+Firmware acceptance alone is not counted as scheduler-online. The BSP waits
+at most one second per accepted CPU_ON request for that AP's initial scheduler
+publication and online mask. Rejected or timed-out CPUs are reported and remain
+absent from the online summary; the BSP can continue with the available CPUs.
+
+## Hardware observation
+
+Capture these messages in the next physical boot:
+
+```text
+[Scarlet Kernel] Detected 4 CPU(s)
+[linux-boot] CPU_ON cpu=1 ...: 0
+[Scarlet Kernel] AP 1: scheduler online; local timer ready
+[linux-boot] CPU_ON cpu=2 ...: 0
+[Scarlet Kernel] AP 2: scheduler online; local timer ready
+[linux-boot] CPU_ON cpu=3 ...: 0
+[Scarlet Kernel] AP 3: scheduler online; local timer ready
+[linux-boot] SMP scheduler online: 4/4 CPU(s), mask=0xf
+```
+
+The first message describes selected topology; the final message reads actual
+scheduler state. Also observe that ordinary init/SWS/ScarletShell reaches Home,
+applications run under load, the clock advances, and sleeping input/RTC workers
+continue to wake. Every CPU must execute tasks and retain timer wake before
+hardware SMP can be considered validated. The online summary alone does not
+prove later context-switch stability or timer interrupt delivery.
+
+The production build, rustfmt and generated AP/EL1 entry disassembly passed;
+no new host or QEMU tests were run. `cpu-verification.json` records the exact
+candidate package and SD installation. All eight files passed SD readback,
+all 38 protected files kept their hashes, and the SD was ejected.
+Historical single-CPU QEMU checks do
+not validate this candidate's SMP behavior.
+
+## Primary references
+
+Sources were obtained with `gh`, pinned to Switchroot Linux 5.1.2 commit
+`2d0059fd3167a8df756de2aa0489d4aa70a9fc15`. These establish the firmware call
+and processor-entry contract; they are not evidence of Scarlet hardware success.
+
+- [Linux arm64 PSCI CPU boot](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/arch/arm64/kernel/psci.c)
+- [Linux PSCI firmware calls](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/firmware/psci.c)
+- [Linux arm64 secondary entry](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/arch/arm64/kernel/head.S)
+- [Linux arm64 boot contract](https://docs.kernel.org/arch/arm64/booting.html)

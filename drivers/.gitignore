@@ -1,0 +1,2 @@
+# Library crates resolve through the BSP's committed Cargo.lock.
+**/Cargo.lock

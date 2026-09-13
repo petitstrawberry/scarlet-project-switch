@@ -12,6 +12,11 @@ source = { path = "../../../Scarlet/kernel" }
 features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true }
 
 [modules]
+"scarlet-driver-tegra210" = { path = "../../drivers/soc/tegra210", enabled = true }
+"scarlet-driver-tegra210-cpufreq" = { path = "../../drivers/cpufreq/tegra210", enabled = true }
+"scarlet-driver-max77620" = { path = "../../drivers/rtc/max77620", enabled = true }
+"scarlet-driver-stm-ftm4" = { path = "../../drivers/input/touchscreen/stm-ftm4", enabled = true }
+"scarlet-driver-joycon" = { path = "../../drivers/input/joycon", enabled = true }
 
 [images.initramfs]
 format = "newc"

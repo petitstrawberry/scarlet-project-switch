@@ -1,0 +1,114 @@
+{
+  "schema": 1,
+  "physical_validation": "pending next Switch boot; no physical frequency measurement yet",
+  "hardware_frequency_validated": false,
+  "kernel_source_revision": "cd94d24f2495eea4953db521242e80cb7e88cf42",
+  "kernel_source_checkpoint": "cd94d24f2495eea4953db521242e80cb7e88cf42",
+  "board_source_base_revision": "ed3d780",
+  "board_driver_was_uncommitted_at_build": true,
+  "package_manifest": "projects/aarch64-switch-console/.scarlet/l4t/manifest.json",
+  "image_sha256": "07fe91f264290d797bb425ede21b1ff42483bad85bdcb08f1e24246621f0fdf1",
+  "kernel_elf_sha256": "9d9a4021e0037b54d907c2c0b8d0ffe656feed1e99e9663fa86f2ab4b84c49cd",
+  "image_runtime_size": 17612800,
+  "output_scale": 1.5,
+  "maxcpus": 4,
+  "backend": "tegra210-pllx",
+  "default_governor": "schedutil",
+  "configured_shared_policy_cpu_mask": "0xf",
+  "hardware_current_frequency_source": "active CAR burst-policy parent and PLLX M/N/P registers",
+  "expected_opps_khz_for_38400000_hz_reference": [
+    101120,
+    204000,
+    303360,
+    408000,
+    505600,
+    608000,
+    710400,
+    816000,
+    912000,
+    1017600
+  ],
+  "opps_are_not_physical_measurements": true,
+  "voltage_source": "NVIDIA CPU_PLL_CVB_TABLE_ODN, actual speedo fuse conversion, PLL margin 30%, 950000 uV minimum, rounded up to MAX77621 selectors",
+  "cpu_regulator": {
+    "i2c": 5,
+    "address": "0x1b",
+    "vout_register": 0,
+    "dvs_register": 1,
+    "min_selector_uv": 606250,
+    "selector_step_uv": 6250
+  },
+  "pll_bridge_khz": 408000,
+  "pll_lock_timeout_us": 300,
+  "architected_timer_frequency_changed": false,
+  "software_validation": {
+    "production_build": {
+      "command": "nix develop --accept-flake-config --command sh scripts/build-console.sh",
+      "log": ".cache/cpufreq-build.log",
+      "exit_code": 0
+    },
+    "packaging": {
+      "log": ".cache/cpufreq-package.log",
+      "exit_code": 0,
+      "note": "Repackaged after generic source checkpoint and zero-cell domain declaration; ELF unchanged"
+    },
+    "rustfmt": {
+      "log": ".cache/cpufreq-format.log",
+      "files_checked": 10,
+      "exit_code": 0
+    },
+    "linked_symbols": ".cache/cpufreq-linked-symbols.log",
+    "archive_and_package_inspection": ".cache/cpufreq-package-inspection.json",
+    "archive_contains_executable_aarch64_cpufreqctl": {
+      "path": "/bin/cpufreqctl",
+      "size": 147272,
+      "elf_machine": 183,
+      "executable": true,
+      "sha256": "ea7769ce46ff67647e90e83c9ec54800a4dd3dd31754f6229b32c9da106f2f6f"
+    },
+    "boot_script_matches_source": true,
+    "package_hashes_verified": 8,
+    "additional_host_or_qemu_tests_run": false,
+    "physical_tegra_clocks_emulated": false
+  },
+  "sd_installation": {
+    "device": "disk8s1",
+    "mount": "/Volumes/SWITCH SD",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "b43e47439a4420c641c4004f1a290e2c51ed0d2a16e73732ecc3c06a16757996",
+      "switchroot/scarlet-console/Image": "07fe91f264290d797bb425ede21b1ff42483bad85bdcb08f1e24246621f0fdf1",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "3b8fe6c5317df7c3441bd6af083c8f98b433db291e4d3201b3617d9c62b0ec2c",
+      "switchroot/scarlet-console/initramfs": "a47a032f2cfc21ef0e4b0f737f1974b6446e7e2955d21fb4ae1f90e57ea87eb7",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "69f5e584235e2f844bf3843fca4edcc3b458b93a25e9ebff76cd5c43363145e4"
+    },
+    "protected_files_verified": 38,
+    "raw_device_accessed": false,
+    "hardware_boot_validated": false
+  },
+  "sd_installation_log": ".cache/cpufreq-sd-install.log",
+  "sd_dry_run_log": ".cache/cpufreq-sd-dry-run.log",
+  "sd_ejected": true,
+  "sd_ejection_log": ".cache/cpufreq-sd-eject.log",
+  "previous_candidate_report": {
+    "image_sha256": "7ded7baf9d496d7cf5b49e666d882efd7ef3f3a31f6085ad24736037cbe13ab9",
+    "user_report": "動いた",
+    "does_not_validate_new_cpufreq_driver": true
+  },
+  "primary_source": {
+    "repository": "CTCaer/switch-l4t-kernel-4.9",
+    "revision": "2d0059fd3167a8df756de2aa0489d4aa70a9fc15",
+    "obtained_with": "gh",
+    "paths": [
+      "drivers/clk/tegra/clk-tegra210.c",
+      "drivers/clk/tegra/clk-super.c",
+      "drivers/clk/tegra/clk-tegra-fixed.c",
+      "drivers/soc/tegra/tegra210-dvfs.c",
+      "drivers/soc/tegra/cvb.c",
+      "drivers/soc/tegra/fuse/speedo-tegra210.c",
+      "drivers/soc/tegra/fuse/fuse-tegra30.c"
+    ]
+  }
+}

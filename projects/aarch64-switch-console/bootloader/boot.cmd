@@ -85,7 +85,15 @@ elif test "${uart_port}" = 3; then
 fi
 
 # Kernel initramfs stays the root. No Kubuntu/emuMMC/Scarlet partition mounts.
-setenv bootargs "init=/init init.console=/dev/null maxcpus=1 scarlet.switch=1"
+# The four A57s share one cpufreq policy. Give the existing CPU-scaling node
+# a provider phandle and use the common performance-domains binding.
+fdt set /cpufreq phandle <0x5343>
+fdt set /cpufreq "#performance-domain-cells" <0>
+fdt set /cpus/cpu@0 performance-domains <0x5343>
+fdt set /cpus/cpu@1 performance-domains <0x5343>
+fdt set /cpus/cpu@2 performance-domains <0x5343>
+fdt set /cpus/cpu@3 performance-domains <0x5343>
+setenv bootargs "init=/init init.console=/dev/null maxcpus=4 scarlet.switch=1"
 echo Launching Scarlet ${scarlet_boot_mode} at 0x80200000
 bootm ${kernload} ${initaddr} ${fdtraddr}
 echoe Scarlet bootm returned
