@@ -57,5 +57,10 @@
   },
   "sd_ejected": true,
   "user_reported_boot_success": true,
-  "user_report": "動いた。今度はCPUの動作周波数をちゃんと変えられるようにしたいね。あと、x2はちょっとデカすぎたわ。"
+  "user_report": "動いた。今度はCPUの動作周波数をちゃんと変えられるようにしたいね。あと、x2はちょっとデカすぎたわ。",
+  "later_physical_boot_observation": {
+    "verification": "docs/gpu-verification.json",
+    "readout": "docs/gpu-hardware-9076.md",
+    "scope": "Later combined GPU image shows all four schedulers online; sustained tasks and per-core timer delivery remain unmeasured."
+  }
 }

@@ -57,12 +57,16 @@ The console build now includes attached Joy-Con, touchscreen and RTC drivers,
 plus native SWS/ScarletUI gamepad support. Touch and Left Joy-Con operation
 were observed physically; the latest Joy-Con/SMP candidate received the user's
 successful-boot report. See [input bring-up](docs/input-bringup.md).
-The next candidate uses scale 1.0 and adds PLLX/MAX77621 CPU frequency control
-through the common governors and `cpufreqctl`. Physical switching remains
-pending; see [CPU frequency bring-up](docs/cpufreq-bringup.md).
+The current candidate uses scale 1.0 and adds PLLX/MAX77621 CPU frequency control
+through the common governors and `cpufreqctl`. The boot video shows one
+completed transition requesting 710400 kHz; repeated switching
+remains pending. See [CPU frequency bring-up](docs/cpufreq-bringup.md).
 
 The next hardware stage adds GM20B power/identity bring-up through the ordinary
-GPU control API and prepares pinned NVIDIA firmware. SGFX rendering is pending;
+GPU control API and prepares pinned NVIDIA firmware. `IMG_9076.mov` shows an
+MC release-wait failure before identity; the current candidate corrects that
+wait following Linux. The same video shows four schedulers online. SGFX
+rendering is pending;
 see [GPU bring-up](docs/gpu-bringup.md). Prepare its firmware once before building:
 `python3 scripts/prepare-gm20b-firmware.py --download`.
 
@@ -139,11 +143,11 @@ on temporary directories, with mocked diskutil data for layout rejection.
 Serial logs, input DTBs, framebuffer dumps,
 rendered PPMs, and results are written to `.cache/qa/`.
 
-The Linux boot path currently operates on CPU0 only: it passes `cpu_count = 1`
-and does not provide a secondary-CPU startup hook. This is missing SMP bring-up,
-not proof that the hardware has only one CPU. See `docs/cpu-bringup.md`.
+The current Linux Image path implements PSCI SMP; the console uses `maxcpus=4`
+and `IMG_9076.mov` shows all four schedulers online. Sustained task execution
+and timer delivery need further physical checks. See `docs/cpu-bringup.md`.
 
-The fixture models four physical CPUs with only CPU0 exposed to Scarlet. It
+The historical fixture models four physical CPUs with only CPU0 exposed to Scarlet. It
 uses QEMU virt's PL011/GIC, not Tegra devices. These checks do not verify Hekate,
 BL31/BL33 execution, Switch DRAM carveouts, panel scanout, or Tegra UARTs.
 The current shared kernel emits existing compiler warnings during the build.

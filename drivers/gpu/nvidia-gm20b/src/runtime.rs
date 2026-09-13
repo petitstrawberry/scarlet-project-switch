@@ -223,6 +223,11 @@ fn flush_mc(base: usize) -> Result<(), &'static str> {
     let deadline = time::current_time_ns().saturating_add(1_000_000);
     while read(MC_HOTRESET_STATUS) & MC_GPU == 0 {
         if time::current_time_ns() >= deadline {
+            scarlet::println!(
+                "gm20b: MC flush timed out ctrl={:#010x} status={:#010x}",
+                read(MC_HOTRESET_CTRL),
+                read(MC_HOTRESET_STATUS)
+            );
             write(MC_HOTRESET_CTRL, read(MC_HOTRESET_CTRL) & !MC_GPU);
             let _ = read(MC_HOTRESET_CTRL);
             return Err("GPU MC flush timeout");
@@ -231,15 +236,18 @@ fn flush_mc(base: usize) -> Result<(), &'static str> {
     }
     delay_us(10);
     write(MC_HOTRESET_CTRL, read(MC_HOTRESET_CTRL) & !MC_GPU);
-    let _ = read(MC_HOTRESET_CTRL);
-    let deadline = time::current_time_ns().saturating_add(1_000_000);
-    while read(MC_HOTRESET_STATUS) & MC_GPU != 0 {
-        if time::current_time_ns() >= deadline {
-            return Err("GPU MC flush release timeout");
-        }
-        delay_us(2);
+    // Linux tegra_mc_unblock_dma_common releases the request in CTRL. STATUS
+    // acknowledges drained DMA, not release; an idle GPU may keep it asserted.
+    let control = read(MC_HOTRESET_CTRL);
+    if control & MC_GPU != 0 {
+        return Err("GPU MC flush control release mismatch");
     }
     delay_us(10);
+    scarlet::println!(
+        "gm20b: MC flush complete ctrl={:#010x} status={:#010x}",
+        control,
+        read(MC_HOTRESET_STATUS)
+    );
     Ok(())
 }
 

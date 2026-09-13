@@ -2,13 +2,15 @@
 
 The current candidate implements PSCI SMP in Scarlet's standard Linux arm64
 Image boot path. It is built for Switch console with `maxcpus=4`;
-the user reported successful boot with `動いた` on 2026-09-13. No per-core log or
-timer measurement was supplied, so sustained four-core behavior remains
-unmeasured. Earlier Switch boots, including
+the user reported successful boot with `動いた` on 2026-09-13. The later
+`IMG_9076.mov` shows CPU_ON success for CPUs 1–3, each AP's scheduler/local-timer
+initialization and `SMP schedulers online: 4/4 CPU(s)`. See
+[the video reading](gpu-hardware-9076.md). Sustained four-core task execution
+and timer interrupt delivery remain unmeasured. Earlier Switch boots, including
 `IMG_9070.mov`, ran the old CPU0-only path with `maxcpus=1`.
 
-The next candidate adds [CPU frequency control](cpufreq-bringup.md) and scale
-1.0. Its hardware validation is separate from the successful previous boot.
+The combined GPU candidate includes [CPU frequency control](cpufreq-bringup.md)
+and scale 1.0; both remain in the MC-release correction.
 
 ## Firmware and entry
 
@@ -38,7 +40,8 @@ absent from the online summary; the BSP can continue with the available CPUs.
 
 ## Hardware observation
 
-Capture these messages in the next physical boot:
+The initialization messages below were observed in `IMG_9076.mov`; the exact
+summary emitted by the current kernel is `SMP schedulers online: 4/4 CPU(s)`:
 
 ```text
 [Scarlet Kernel] Detected 4 CPU(s)
@@ -48,7 +51,7 @@ Capture these messages in the next physical boot:
 [Scarlet Kernel] AP 2: scheduler online; local timer ready
 [linux-boot] CPU_ON cpu=3 ...: 0
 [Scarlet Kernel] AP 3: scheduler online; local timer ready
-[linux-boot] SMP scheduler online: 4/4 CPU(s), mask=0xf
+[linux-boot] SMP schedulers online: 4/4 CPU(s)
 ```
 
 The first message describes selected topology; the final message reads actual

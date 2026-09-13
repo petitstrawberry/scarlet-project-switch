@@ -1666,5 +1666,10 @@
     "additional_host_or_qemu_tests_run": false,
     "physical_tegra_clocks_emulated": false
   },
-  "current_candidate_verification": "docs/gpu-verification.json"
+  "current_candidate_verification": "docs/gpu-mc-verification.json",
+  "later_physical_boot_observation": {
+    "verification": "docs/gpu-verification.json",
+    "readout": "docs/gpu-hardware-9076.md",
+    "scope": "Both Joy-Cons Ready; Right HID received; touch ready and RTC seed succeeded. No user-operated input is shown."
+  }
 }

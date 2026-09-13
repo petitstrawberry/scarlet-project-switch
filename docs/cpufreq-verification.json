@@ -111,5 +111,10 @@
       "drivers/soc/tegra/fuse/fuse-tegra30.c"
     ]
   },
-  "superseded_by": "docs/scale1-verification.json"
+  "superseded_by": "docs/scale1-verification.json",
+  "later_physical_boot_observation": {
+    "verification": "docs/gpu-verification.json",
+    "readout": "docs/gpu-hardware-9076.md",
+    "scope": "Later combined GPU image shows PLLX probe and a completed deferred transition requesting 710400 kHz; no post-transition frequency query, repeated switching or sustained timer measurement is shown."
+  }
 }

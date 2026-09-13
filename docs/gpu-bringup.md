@@ -3,7 +3,10 @@
 The current candidate adds the external `scarlet-driver-nvidia-gm20b` module.
 It powers the Erista GPU, releases its clamp/reset, flushes the MC GPU client,
 checks the actual `MC_BOOT_0` identity and registers the normal `/dev/gpuN`
-control endpoint. These operations have not yet been validated on a Switch.
+control endpoint. In `IMG_9076.mov`, power sequencing and MC acknowledgement
+completed, but an incorrect STATUS-clear wait failed before GPU identity.
+The current candidate corrects MC release to follow Linux; its identity result
+is pending. See [the video reading](gpu-hardware-9076.md).
 
 This is the first hardware stage. SGFX command execution is not available:
 the endpoint reports unavailable, execution support zero and command limit
@@ -21,8 +24,10 @@ this driver; PLLP output 5 supplies the 204 MHz power clock. Shared registers
 use the peripheral driver's CAR lock, with writes limited to GPU fields.
 PLLP's existing 408 MHz rate is checked and never changed by the GPU driver.
 
-The MC client uses hot-reset control/status `0x970`/`0x974`, bit 2. Both flush
-and release waits are bounded to 1 ms. Failures isolate the GPU before rail
+The MC client uses hot-reset control/status `0x970`/`0x974`, bit 2. Flush
+acknowledgement is bounded to 1 ms. Release clears CTRL bit 2 and checks its
+readback; STATUS indicates drained requests and is not required to clear.
+Failures isolate the GPU before rail
 rollback; isolation/rail rollback failures leave it isolated and log the
 failure. Successful probe retains the power lease in the registered backend.
 GPU interrupts remain masked. No DMA storage, channel, shader or SGFX queue
@@ -55,8 +60,9 @@ ordinary GPU ABI without selecting an SGFX renderer or creating a channel.
 enabling DMA or GR execution; host/QEMU runs cannot establish this hardware
 power path.
 
-The production build, archive inspection and SD readback are recorded in
-`gpu-verification.json`; actual GPU power/identity validation is pending.
+The initial production build, archive inspection, SD readback and hardware
+failure are recorded in `gpu-verification.json`. The corrected package is in
+`gpu-mc-verification.json`; actual GPU identity validation is pending.
 
 The backend's opaque query record contains eleven little-endian u32 words:
 version (1), MC_BOOT_0, MC_ENABLE, stall interrupt status, nonstall interrupt
@@ -83,5 +89,6 @@ Fetched with `gh`, using these pinned upstream sources:
 - [Linux Nouveau Tegra power sequence](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/device/tegra.c).
 - [Linux Tegra210 GPU bindings](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/arch/arm64/boot/dts/nvidia/tegra210.dtsi).
 - [Linux Tegra clocks](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/clk/tegra/clk-tegra-periph.c) and [MC reset client](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/memory/tegra/tegra210.c).
+- [Linux MC DMA unblock](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/memory/tegra/mc.c) and [Switchroot MC flush/release](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/platform/tegra/mc/mc.c).
 - [Linux GM20B GR initialization and firmware](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/gr/gm20b.c).
 - [NVIDIA GM20B firmware](https://github.com/NVIDIA/linux-firmware/tree/46a6999a2d14a5f2239e7e712e5bbcf543f59034/nvidia/gm20b) and [redistribution licence](https://github.com/NVIDIA/linux-firmware/blob/46a6999a2d14a5f2239e7e712e5bbcf543f59034/LICENCE.nvidia).
