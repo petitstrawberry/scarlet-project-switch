@@ -15,7 +15,13 @@ handler, suspend/resume, or GPU rendering implementation in this stage.
 ## Adoption and ownership
 
 The board boot script marks only DC0 with `scarlet,boot-scanout = <1>`.
-Probe validates the running clock/reset, absence of an enabled DC SMMU domain,
+Its adoption binding removes DC0's cold PMC pinctrl states and disables the
+unclaimed DC1 node in the in-memory DTB. The actual inherited DSI pads and
+clocks are preserved. This avoids the pre-probe PMC dependency observed in
+`IMG_9081.mov`, without a common-kernel or Switch-only probe exception.
+Probe validates the running clock/reset and requires both Noble DC0 SWGROUP
+enables (DC `0x240`, DC1 `0xa88`) clear. Unreadable or enabled domains reject
+adoption; the TrustZone-owned global enable is not read or changed. It checks
 continuous 720x1280 mode, pitch/BGRA window A, and the reserved physical boot
 buffer at `0xf5a00000`. Unsupported modes leave the ordinary simple-framebuffer
 fallback published. DC1 is not claimed. No global clock, DSI, panel, regulator,
@@ -70,8 +76,9 @@ Boot **More Configs → Scarlet Switch Console** and record:
   all CPU startup logs and timer/sleep wake.
 
 Report the exact last phase on a failure. The artifact/SD receipt is
-`gpu-gmmu-display-verification.json`; build/readback do not establish DMA,
-rotation, VBlank, GPU-image lifetime, or suspend/resume behavior on hardware.
+`gpu-selector-display-verification.json`; the earlier failed/deferred boot
+retains its receipt in `gpu-gmmu-display-verification.json`. Build/readback
+do not establish DMA, rotation, VBlank, GPU-image lifetime, or suspend/resume behavior on hardware.
 
 ## Primary sources
 

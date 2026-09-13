@@ -4,11 +4,14 @@
 //! Switchroot nvgpu 1ae0167d360287ca78f5a2572f0de42594140312 mm_gk20a,
 //! fb_gm20b and bus_gm20b. Tegra's video aperture addresses ordinary DRAM;
 //! it does not provide CPU cache coherency (see Nouveau gk20a_vmm_aper).
+//! GPU addresses with bit 34 set select Tegra SMMU translation. This private
+//! address space only publishes PMM physical backing below that selector.
 
 use scarlet::{arch, mem::page::ContiguousPages, time};
 use scarlet_driver_tegra210::delay_us;
 
 const PAGE: usize = 4096;
+const IOMMU_SELECTOR: u64 = 1 << 34;
 const VA_A: usize = PAGE;
 const VA_B: usize = 2 * PAGE;
 const VA_LIMIT: u32 = 16 * 1024 * 1024;
@@ -40,9 +43,9 @@ fn pages(count: usize) -> Result<ContiguousPages, &'static str> {
     if memory
         .as_paddr()
         .checked_add((count * PAGE) as u64)
-        .is_none_or(|end| end > 1 << 40)
+        .is_none_or(|end| end > IOMMU_SELECTOR)
     {
-        return Err("GMMU allocation exceeds 40-bit physical address space");
+        return Err("GMMU physical allocation overlaps Tegra IOMMU selector");
     }
     Ok(memory)
 }
@@ -85,6 +88,10 @@ impl Gmmu {
         let deadline = time::current_time_ns().saturating_add(100_000_000);
         loop {
             let value = self.read(offset);
+            if value == u32::MAX {
+                scarlet::println!("gm20b: GMMU unreadable reg={:#x}", offset);
+                return Err("GMMU register read returned all ones");
+            }
             if ready(value) {
                 return Ok(value);
             }
@@ -128,13 +135,12 @@ impl Gmmu {
     }
 
     pub fn initialize(&self) -> Result<(), &'static str> {
-        let mc_read = |offset| unsafe { arch::mmio::read32(self.mc_base + offset) };
-        let smmu = mc_read(0x10);
-        let gpu_asid = mc_read(0xaac);
-        scarlet::println!("gm20b: GMMU MC smmu={:#x} gpu_asid={:#x}", smmu, gpu_asid);
-        if smmu & 1 != 0 && gpu_asid & (1 << 31) != 0 {
-            return Err("GPU is attached to an inherited Tegra SMMU domain");
-        }
+        // Linux Nouveau instmem/gk20a.c sets bit 34 only on IOMMU addresses;
+        // NVIDIA nvgpu_mem.c does the same. All our allocations are physical
+        // and checked below that bit. MC_SMMU_CONFIG is TrustZone-owned, and
+        // GPU ASID reads can return all ones: neither is a physical-DMA guard.
+        // No MC translation, ASID, security or carveout register is changed.
+        scarlet::println!("gm20b: GMMU physical backing; IOMMU selector bit 34 clear");
         if self.read(BAR1_BLOCK) & (1 << 31) != 0 {
             return Err("GPU BAR1 already has a virtual address space");
         }

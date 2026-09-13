@@ -102,6 +102,16 @@ fdt set /gpu vdd-supply <0x2f>
 # DC0 adopts this inspected, physically addressed Hekate DSI mode. DC1 and
 # uninspected cold panel/HDMI paths are not enabled by this binding.
 fdt set /host1x/dc@54200000 scarlet,boot-scanout <1>
+# This driver preserves Hekate's DSI pad state. Do not request Noble's cold
+# PMC pinctrl transitions during the common platform pre-probe pass.
+fdt rm /host1x/dc@54200000 pinctrl-names
+fdt rm /host1x/dc@54200000 pinctrl-0
+fdt rm /host1x/dc@54200000 pinctrl-1
+fdt rm /host1x/dc@54200000 pinctrl-2
+fdt rm /host1x/dc@54200000 pinctrl-3
+fdt rm /host1x/dc@54200000 pinctrl-4
+fdt rm /host1x/dc@54200000 pinctrl-5
+fdt set /host1x/dc@54240000 status disabled
 setenv bootargs "init=/init init.console=/dev/null maxcpus=4 scarlet.switch=1"
 echo Launching Scarlet ${scarlet_boot_mode} at 0x80200000
 bootm ${kernload} ${initaddr} ${fdtraddr}

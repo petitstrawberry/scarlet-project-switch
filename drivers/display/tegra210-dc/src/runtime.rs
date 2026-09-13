@@ -495,12 +495,25 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         return Err("missing Tegra DC firmware scanout contract");
     }
     let car = vm::ioremap(0x60006000, 0x20)?;
-    let mc = vm::ioremap(0x70019000, 0x248)?;
+    let mc = vm::ioremap(0x70019000, 0x1000)?;
     let read = |base, offset| unsafe { arch::mmio::read32(base + offset) };
     if read(car, 0x10) & (1 << 27) == 0 || read(car, 4) & (1 << 27) != 0 {
         return Err("inherited Tegra DC clock/reset is not active");
     }
-    if read(mc, 0x10) & 1 != 0 && read(mc, 0x240) & (1 << 31) != 0 {
+    // Noble DC0 names both DC and DC1 SWGROUPs. The global enable register
+    // belongs to TrustZone; conservatively require both per-group enables
+    // clear before publishing physical scanout. Never change either domain.
+    let dc_asid = read(mc, 0x240);
+    let dc1_asid = read(mc, 0xa88);
+    scarlet::println!(
+        "tegra-dc: MC dc_asid={:#010x} dc1_asid={:#010x}",
+        dc_asid,
+        dc1_asid
+    );
+    if dc_asid == u32::MAX || dc1_asid == u32::MAX {
+        return Err("DC SMMU domain registers are unreadable");
+    }
+    if (dc_asid | dc1_asid) & (1 << 31) != 0 {
         return Err("DC0 is attached to an inherited SMMU domain");
     }
     let base = vm::ioremap(resource.start, 0x2100)?;
@@ -530,6 +543,16 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         kind,
         display_command,
         active
+    );
+    scarlet::println!(
+        "tegra-dc: inherited color={} size={:#x} prescale={:#x} dda={:#x} stride={} offsets={}/{}",
+        original[2],
+        original[4],
+        original[5],
+        original[8],
+        original[9],
+        original[12],
+        original[13]
     );
     if original[0] != WIN_ENABLE
         || original[2] != 12

@@ -68,9 +68,12 @@ GPU control API and prepares pinned NVIDIA firmware. After the MC wait fix,
 asynchronous SError. With GPIO6's missing push-pull configuration corrected,
 `IMG_9080.mov` shows a valid GM20B identity read in 15 µs, `/dev/gpu0`, and normal
 Scarlet Shell startup without that fault. `IMG_9076.mov` shows four schedulers
-online. The next candidate adds private GMMU/BAR1 read/write/remap validation
-and native Tegra DC scanout through the ordinary display API. Physical
-validation of those two paths and SGFX rendering remain pending; see
+online. The current candidate adds private GMMU/BAR1 read/write/remap validation
+and native Tegra DC scanout through the ordinary display API. `IMG_9081.mov`
+rejects the original SMMU guard and defers DC probe. The corrected GPU address
+selector and firmware pad handoff candidate has passed production build and
+SD readback; its receipt is `docs/gpu-selector-display-verification.json`.
+Physical validation of those two paths and SGFX rendering remain pending; see
 [GPU bring-up](docs/gpu-bringup.md) and [display bring-up](docs/display-bringup.md).
 Prepare its firmware once before building:
 `python3 scripts/prepare-gm20b-firmware.py --download`.
@@ -85,6 +88,8 @@ The hardware-tested kernel changes are committed locally as `99c65035`
 The installed artifact predates those commits; its exact source and binary
 hashes are preserved in `docs/kernel-boot-success.json`.
 The generic kernel fixes are proposed upstream in [PR #558](https://github.com/petitstrawberry/Scarlet/pull/558).
+The common earlyfb native-display handoff is in stacked draft
+[PR #559](https://github.com/petitstrawberry/Scarlet/pull/559).
 The current kernel test also requires the changes in
 `patches/linux-boot-framebuffer.patch` and `patches/pci-ecam-host-detection.patch`.
 They are already applied to this

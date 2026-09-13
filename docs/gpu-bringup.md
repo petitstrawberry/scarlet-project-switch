@@ -12,8 +12,8 @@ value is `0x09`, and valid `MC_BOOT_0=0x12b000a1` returned in 15 µs.
 `/dev/gpu0` registered and the ordinary Scarlet Shell screen appeared without
 the earlier SError. See [the latest video reading](gpu-hardware-9080.md).
 
-The power/identity hardware stage has passed. The next candidate adds a private
-GMMU/BAR1 address space and native Tegra DC scanout; those changes have production
+The power/identity hardware stage has passed. A private
+GMMU/BAR1 address space and native Tegra DC scanout have production
 build/archive/SD validation. `IMG_9081.mov` rejects GMMU before BAR1 binding
 and defers DC adoption before probe; see [the new hardware reading](gpu-hardware-9081.md).
 SGFX command execution is not available: the endpoint reports unavailable,
@@ -50,10 +50,16 @@ DC driver can replace inherited scanout with display-owned buffers.
 ## Private GMMU stage
 
 The GM20B module maps BAR0 through `0x101000` and the first three BAR1 pages.
-It checks MC SMMU configuration and GPU ASID (`0xaac`) before using physical
-DRAM addresses; an enabled inherited GPU SMMU domain is rejected rather than
-silently bypassed. Tegra's video aperture addresses normal DRAM and does not
-imply CPU coherency, matching Nouveau's GK20A aperture selection.
+`IMG_9081.mov` exposed an incorrect guard: MC_SMMU_CONFIG and GPU ASID
+returned all ones and were treated as an observed enabled domain. The new
+candidate follows Nouveau instance-memory and NVIDIA `nvgpu_mem_iommu_translate`:
+GPU address bit 34 selects SMMU translation. Every private allocation is PMM
+physical memory with its complete extent below `1 << 34`, so the selector
+stays clear in all published page-table, instance, scratch and flush/debug
+addresses. No global SMMU, ASID, security or carveout register is changed.
+MC_SMMU_CONFIG is TrustZone-owned; its readback is not a physical-DMA guard.
+Tegra's video aperture addresses normal DRAM and does not imply CPU coherency.
+An all-ones completion-register read now rejects the transaction explicitly.
 
 One retained page directory, a full 128-KiB small-page table, a 4-KiB instance
 block, two scratch pages, and flush/debug pages form a private 16-MiB BAR1
@@ -111,7 +117,9 @@ user-task CPU-usage diagnostic followed by further UI updates. Repeated boots,
 long-running stability and GPU execution are still unvalidated. The new
 GMMU/DC candidate's exact sources, artifacts and SD readback are recorded in
 `gpu-gmmu-display-verification.json`; its physical validation flags remain false
-after the failed/deferred stages in `IMG_9081.mov`.
+after the failed/deferred stages in `IMG_9081.mov`. The corrected candidate
+uses `gpu-selector-display-verification.json` and still requires physical
+BAR1/native-display validation.
 
 The backend's opaque query record now contains twelve little-endian u32 words:
 version (2), MC_BOOT_0, MC_ENABLE, stall interrupt status, nonstall interrupt
@@ -145,4 +153,5 @@ Fetched with `gh`, using these pinned upstream sources:
 - [Linux GM20B GR initialization and firmware](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/gr/gm20b.c).
 - [Nouveau Tegra aperture selection](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgk20a.c), [page-table geometry](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgk104.c), and [TLB ordering](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgf100.c).
 - [nvgpu BAR1 binding](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/bus/bus_gm20b.c), [instance/PTE programming](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/gk20a/mm_gk20a.c), and [GM20B MMU setup](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/fb/fb_gm20b.c).
+- [Nouveau IOMMU address selector](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/gk20a.c), [NVIDIA physical/IOMMU address selection](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/mm/nvgpu_mem.c), [selector bit 34](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/gk20a/mm_gk20a.c), and [TrustZone SMMU ownership](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/mem/smmu.c).
 - [NVIDIA GM20B firmware](https://github.com/NVIDIA/linux-firmware/tree/46a6999a2d14a5f2239e7e712e5bbcf543f59034/nvidia/gm20b) and [redistribution licence](https://github.com/NVIDIA/linux-firmware/blob/46a6999a2d14a5f2239e7e712e5bbcf543f59034/LICENCE.nvidia).
