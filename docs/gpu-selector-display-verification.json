@@ -69,7 +69,7 @@
   "gpu_dialect_available": false,
   "sgfx_execution_implemented": false,
   "hardware_boot_validated": false,
-  "hardware_gmmu_validated": false,
+  "hardware_gmmu_validated": true,
   "hardware_native_scanout_validated": false,
   "hardware_gpu_image_direct_scanout_validated": false,
   "additional_host_or_qemu_tests_run": false,
@@ -197,5 +197,20 @@
   "sd_dry_run_log": ".cache/gmmu-dc-selector-sd-dry-run.log",
   "sd_installation_log": ".cache/gmmu-dc-selector-sd-install.log",
   "sd_eject_exit_code": 0,
-  "sd_eject_log": ".cache/gmmu-dc-selector-sd-eject.log"
+  "sd_eject_log": ".cache/gmmu-dc-selector-sd-eject.log",
+  "hardware_observation": {
+    "video": "docs/gpu-hardware-9082.md",
+    "video_sha256": "db5a39a1a486b266dac6a4e0246a6721732a132e68fb0ed91e43ab42edbe101f",
+    "private_bar1_read_write_remap_passed": true,
+    "dc_inherited_register_snapshot_reached": true,
+    "native_scanout_active_observed": false,
+    "fatal_kernel_data_abort": true,
+    "far_el1": "0xffff80017f244028",
+    "x30": "0x804e6dd4",
+    "exception_class": "0x25",
+    "fault_status_code": "0x5",
+    "elr_el1_readable": false,
+    "register_addresses_are_visual_readings": true,
+    "recording_displays_artifact_hash": false
+  }
 }
