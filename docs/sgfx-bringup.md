@@ -47,15 +47,34 @@ This is conversion time, not total frame latency or measured FPS.
 
 Separate commit `c859177` makes linear render aliases Normal cached and
 leaves private storage Normal-NC. Its production build/package inspection
-passes, but it has not been installed or physically tested. At the user's
-request further CPU storage-conversion tuning stops at this checkpoint.
+passes; its standalone package was not installed or physically tested.
+At the user's request further CPU storage-conversion tuning stops at this checkpoint.
 The next target is direct presentation of the actual render image without
 an intermediate upload. Pitch-column input needs missing MC/EMC policy
 investigated; compatible GPU storage needs explicit common resource layout
 and GM20B/DC integration. No universal pitch-column restriction is assumed.
 Sustained address alternation, frame rate and input latency remain unmeasured.
-GM20B code and genuine Ready admission are unchanged. See
+GM20B code was unchanged in that DC comparison. The following GPU iteration
+retains genuine rendering admission checks. See
 [display implementation](display-bringup.md).
+
+## Current GPU iteration
+
+The [memory/runlist candidate](gpu-fifo-memory-bringup.md) requests
+GPU-internal HUB/XBAR and memory ELPG controls, explicitly permits its owned
+PFIFO runlist, and checks private USERD/ring/push inputs through BAR1 before
+binding. Ordered GP_PUT readback and PBDMA/scheduler diagnostics distinguish
+input visibility from real execution. Production build/package inspection
+passes. This includes the earlier cached render-alias checkpoint, which was
+not installed as a standalone image. DC register/rotation programming is
+unchanged. Actual PFIFO completion, authenticated GR and SGFX Ready remain
+physically unproven for this image. It is installed to the known FAT32 SD
+with all 12 readbacks and 38 protected-file hashes verified, then ejected.
+[IMG_9095](gpu-hardware-9095.md) reaches the rootfs retry and powers the GPU,
+but the added MC_ENABLE mask assertion rejects the unchanged register readback
+before ELPG or PFIFO. The early deferral is therefore not permanent. Native
+DC publication still passes. Exact source/build/SD identities are in
+[gpu-fifo-memory-verification.json](gpu-fifo-memory-verification.json).
 
 ## Execution path
 

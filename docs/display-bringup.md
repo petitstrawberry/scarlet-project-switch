@@ -35,10 +35,13 @@ private buffer, preserving pixel coordinates and byte order. Consecutive
 output rotation. A successful active-state latch and a subsequent VBlank
 retire the previous private front before it can be written again. CPU/GPU
 source owners remain retained until that presentation succeeds. In the
-installed IMG_9094 image, both HHDM and application aliases are Normal Non-cacheable. Separate
-checkpoint commit `c859177` changes only ordinary linear render aliases to
+installed IMG_9094 image, both HHDM and application aliases are Normal
+Non-cacheable. Separate checkpoint commit `c859177` changes only ordinary linear render aliases to
 Normal cached; private DC storage remains Normal-NC. That cached-source image
-builds successfully but has not been installed or physically tested.
+builds successfully; its standalone package was not installed or physically
+tested. It is included in the subsequent
+[GPU memory/runlist candidate](gpu-fifo-memory-bringup.md), whose DC register
+programming is unchanged.
 
 The layout follows
 [Linux drm_fourcc.h](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/include/uapi/drm/drm_fourcc.h#L974)
