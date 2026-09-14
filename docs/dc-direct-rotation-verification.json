@@ -179,12 +179,12 @@
     }
   },
   "limits": [
-    "DC hardware rotation, correct GUI pixels and edges require the next physical boot",
-    "Upstream Linux uses a pixel-aligned reflect-X offset; downstream NVIDIA uses last byte; the effect of the candidate correction is not yet established",
+    "IMG_9090 and user report establish failed gray native GUI with increasing A fetch underflows",
+    "The pixel-aligned cursor change did not fix physical column scan; neither pitch-linear incompatibility nor exact fetch cause is established",
     "Inherited panel initialization only; no cold modesetting, suspend/resume or IRQ-based retirement",
     "Extra synchronous VBlank retirement remains; no measured frame rate is claimed",
-    "SGFX hardware execution remains pending and is not advanced by this DC-only image",
-    "SD file readback and protected hashes verified, then ejected; physical DC rotation is pending"
+    "SGFX hardware execution remains blocked at private FIFO host-method completion",
+    "SD readback/protected hashes passed; physical display validation failed afterward"
   ],
   "sd_installation": {
     "device": "disk8s1",
@@ -213,5 +213,20 @@
   },
   "sd_installed_at_utc": "2026-09-14T05:09:37.222537+00:00",
   "sd_install_log": ".cache/dc-direct-rotation-sd-install.log",
-  "sd_install_log_sha256": "ae3b773ec002ab691eb0cfea43c74433a2cbecca884464b05b395072c9ee4d88"
+  "sd_install_log_sha256": "ae3b773ec002ab691eb0cfea43c74433a2cbecca884464b05b395072c9ee4d88",
+  "hardware_tested": true,
+  "hardware_report": "docs/gpu-hardware-9090.md",
+  "hardware_observations": {
+    "native_device_published": true,
+    "normal_console_gray_screen_reported_by_user": true,
+    "diagnostic_window_b_logs_visible": true,
+    "frame_8_cpu_sample_varied": 575,
+    "sample_count": 576,
+    "window_a_underflow_first": "0x5",
+    "window_a_underflow_frame_8": "0x2cf",
+    "window_b_underflow": "0x0",
+    "gpu_host_method_timeout": true,
+    "successful_sgfx_execution": false,
+    "input_video_sha256": "fc110b42f57d94949668f131b9adb562d8d9bc21e3eacac74d0dee820d1e7471"
+  }
 }

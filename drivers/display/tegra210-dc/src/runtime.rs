@@ -6,7 +6,7 @@
 use alloc::{boxed::Box, sync::Arc, vec};
 use core::{
     any::Any,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
 use scarlet::{
     arch,
@@ -49,6 +49,8 @@ const SCAN_COLUMN: u32 = 1 << 4;
 const H_DIRECTION: u32 = 1;
 const BUFFER_STRIDE: usize = 0x70b;
 const UV_BUFFER_STRIDE: usize = 0x70c;
+const MEM_HIGH_PRIORITY: usize = 0x403;
+const MEM_HIGH_PRIORITY_TIMER: usize = 0x404;
 const ACT_REQ: u32 = 3; // GENERAL and window A.
 const VBLANK: u32 = 1 << 2;
 const WINDOW_A_FETCH_EVENTS: u32 = (1 << 8) | (1 << 14);
@@ -103,11 +105,14 @@ struct Display {
     event_mask: u32,
     original_event_enable: u32,
     original_event_mask: u32,
+    original_priority: [u32; 2],
     state: Mutex<State>,
     front: AtomicUsize,
     gpu_active: AtomicBool,
     keep_console: bool,
     diagnostic_frames: AtomicUsize,
+    last_underflow_a: AtomicU32,
+    last_underflow_b: AtomicU32,
 }
 
 impl Display {
@@ -164,12 +169,31 @@ impl Display {
         Ok(())
     }
 
+    fn priority_fields(&self) -> (u32, u32, u32, u32) {
+        // Linux dc.h places A in bits 22:16, B in 14:8. Timer fields
+        // are six bits each. Preserve cursor, C and unclaimed B fields.
+        let windows = (1 << 16) | if self.keep_console { 1 << 8 } else { 0 };
+        (0x7f * windows, 0x3f * windows, 0x20 * windows, windows)
+    }
+
     fn flip(&self, paddr: u64, stride: u32, format: PixelFormat) -> Result<(), &'static str> {
         let access = self.read(STATE_ACCESS);
         let header = self.read(HEADER);
         self.write(STATE_ACCESS, 0); // Read and write assembly state.
         self.write(HEADER, 1 << 4);
         let result = (|| {
+            // Hekate initializes both priority controls to zero. Adopt
+            // Linux/NVIDIA's native DC fetch threshold and timer instead
+            // of retaining bootloader FIFO policy for SCAN_COLUMN fetches.
+            let (priority_mask, timer_mask, priority, timer) = self.priority_fields();
+            self.write(
+                MEM_HIGH_PRIORITY,
+                (self.read(MEM_HIGH_PRIORITY) & !priority_mask) | priority,
+            );
+            self.write(
+                MEM_HIGH_PRIORITY_TIMER,
+                (self.read(MEM_HIGH_PRIORITY_TIMER) & !timer_mask) | timer,
+            );
             self.write(0x701, 0); // No byte swap.
             self.write(0x702, 0); // Host buffer, pitch-linear.
             let color_depth = match format {
@@ -197,10 +221,9 @@ impl Display {
             self.write(START, paddr as u32);
             self.write(START_HI, (paddr >> 32) as u32);
             // NVIDIA window.c swaps prescaled axes for SCAN_COLUMN.
-            // Start at the final complete source pixel, as Linux's
-            // reflect_x calculation does: (width - 1) * bytes_per_pixel.
-            // Keep the source cursor pixel-aligned; the former last-byte
-            // offset was not Linux's reflect-X calculation.
+            // Keep the IMG_9090 source cursor unchanged while isolating
+            // fetch-priority setup. Upstream Linux's reflect-X formula
+            // does not itself establish 90-degree column-scan addressing.
             let h_offset = (WIDTH - 1) * 4;
             let options = WIN_ENABLE | SCAN_COLUMN | H_DIRECTION;
             self.write(0x806, h_offset);
@@ -256,6 +279,21 @@ impl Display {
                 );
                 return Err("Tegra DC active scanout readback mismatch");
             }
+            for (register, mask, value) in [
+                (MEM_HIGH_PRIORITY, priority_mask, priority),
+                (MEM_HIGH_PRIORITY_TIMER, timer_mask, timer),
+            ] {
+                if self.read(register) & mask != value {
+                    scarlet::println!(
+                        "tegra-dc: active priority reg={:#x} mask={:#010x} expected={:#010x} actual={:#010x}",
+                        register,
+                        mask,
+                        value,
+                        self.read(register)
+                    );
+                    return Err("Tegra DC active fetch priority mismatch");
+                }
+            }
             if self.keep_console {
                 self.write(HEADER, 1 << 5);
                 let valid = REGISTERS
@@ -291,6 +329,17 @@ impl Display {
         let header = self.read(HEADER);
         self.write(STATE_ACCESS, 0);
         self.write(HEADER, 1 << 4);
+        let (priority_mask, timer_mask, _, _) = self.priority_fields();
+        for (register, mask, original) in [
+            (MEM_HIGH_PRIORITY, priority_mask, self.original_priority[0]),
+            (
+                MEM_HIGH_PRIORITY_TIMER,
+                timer_mask,
+                self.original_priority[1],
+            ),
+        ] {
+            self.write(register, (self.read(register) & !mask) | (original & mask));
+        }
         for (register, value) in REGISTERS.iter().zip(self.original) {
             self.write(*register, value);
         }
@@ -312,6 +361,13 @@ impl Display {
                 || self.read(0x80b) != self.original_kind
             {
                 return Err("Tegra DC rollback active state mismatch");
+            }
+            if self.read(MEM_HIGH_PRIORITY) & priority_mask
+                != self.original_priority[0] & priority_mask
+                || self.read(MEM_HIGH_PRIORITY_TIMER) & timer_mask
+                    != self.original_priority[1] & timer_mask
+            {
+                return Err("Tegra DC rollback fetch priority mismatch");
             }
             if self.keep_console {
                 self.write(HEADER, 1 << 5);
@@ -441,6 +497,10 @@ impl Display {
             return;
         }
         let mc_read = |offset| unsafe { arch::mmio::read32(self.mc + offset) };
+        let underflow_a = self.read(0xbca);
+        let underflow_b = self.read(0xdca);
+        let previous_a = self.last_underflow_a.swap(underflow_a, Ordering::Relaxed);
+        let previous_b = self.last_underflow_b.swap(underflow_b, Ordering::Relaxed);
         // These are fetch counters/status, not proof of correct physical
         // pixels. Read the shared MC error latch without acknowledging it.
         scarlet::println!(
@@ -455,13 +515,23 @@ impl Display {
             self.read(UV_BUFFER_STRIDE)
         );
         scarlet::println!(
-            "tegra-dc: fetch uf={:#010x}/{:#010x} intr={:#010x} mc={:#010x} err={:#010x}/{:#010x}",
-            self.read(0xbca),
-            self.read(0xdca),
+            "tegra-dc: fetch uf={:#010x}/{:#010x} delta={}/{} intr={:#010x} priority={:#010x}/{:#010x}",
+            underflow_a,
+            underflow_b,
+            underflow_a.wrapping_sub(previous_a),
+            underflow_b.wrapping_sub(previous_b),
             self.read(INT_STATUS),
+            self.read(MEM_HIGH_PRIORITY),
+            self.read(MEM_HIGH_PRIORITY_TIMER)
+        );
+        scarlet::println!(
+            "tegra-dc: sticky-mc={:#010x} err={:#010x}/{:#010x} la-ab={:#010x} scaled-la={:#010x}/{:#010x}",
             mc_read(0),
             mc_read(8),
-            mc_read(0xc)
+            mc_read(0xc),
+            mc_read(0x2e8),
+            mc_read(0x690),
+            mc_read(0x698)
         );
     }
 }
@@ -750,6 +820,9 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     dc_write(HEADER, 1 << 4);
     let original = REGISTERS.map(dc_read);
     let kind = dc_read(0x80b);
+    let original_priority = [dc_read(MEM_HIGH_PRIORITY), dc_read(MEM_HIGH_PRIORITY_TIMER)];
+    let underflow_a = dc_read(0xbca);
+    let underflow_b = dc_read(0xdca);
     dc_write(HEADER, 1 << 5);
     let original_console_window = REGISTERS.map(dc_read);
     let original_console_kind = dc_read(0x80b);
@@ -779,6 +852,16 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         original[9],
         original[12],
         original[13]
+    );
+    scarlet::println!(
+        "tegra-dc: inherited fetch uf={:#010x}/{:#010x} priority={:#010x}/{:#010x} sticky-mc={:#010x} err={:#010x}/{:#010x}",
+        underflow_a,
+        underflow_b,
+        original_priority[0],
+        original_priority[1],
+        read(mc, 0),
+        read(mc, 8),
+        read(mc, 0xc)
     );
     if original[0] != WIN_ENABLE
         || original[2] != 12
@@ -847,10 +930,13 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         event_mask,
         original_event_enable: dc_read(INT_ENABLE) & event_mask,
         original_event_mask: dc_read(INT_MASK) & event_mask,
+        original_priority,
         front: AtomicUsize::new(0),
         gpu_active: AtomicBool::new(false),
         keep_console: earlyfb::keep_boot_console(),
         diagnostic_frames: AtomicUsize::new(0),
+        last_underflow_a: AtomicU32::new(underflow_a),
+        last_underflow_b: AtomicU32::new(underflow_b),
         state: Mutex::new(State {
             initialized: false,
             changed: false,
