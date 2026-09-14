@@ -32,7 +32,9 @@ activation. This reads actual hardware output; it neither performs a CPU
 transpose nor proves physical panel pixels. A VIC failure isolates DMA and
 leaves the preceding DC front untouched. The new
 [VIC artifact receipt](dc-vic-rotation-verification.json) distinguishes build
-and package checks from a pending physical boot.
+and package checks from a pending physical boot. The VIC image was installed
+to FAT32 SD disk8s1 with 12 readback hashes and 38 protected-file hashes
+verified, then ejected.
 
 All CPU render and portrait-output allocations use Normal Non-cacheable in
 HHDM and display mmap aliases, matching arm64 Linux write-combine mappings.
