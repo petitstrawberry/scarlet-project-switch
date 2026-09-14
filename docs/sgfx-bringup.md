@@ -60,21 +60,35 @@ retains genuine rendering admission checks. See
 
 ## Current GPU iteration
 
-The [memory/runlist candidate](gpu-fifo-memory-bringup.md) requests
-GPU-internal HUB/XBAR and memory ELPG controls, explicitly permits its owned
-PFIFO runlist, and checks private USERD/ring/push inputs through BAR1 before
-binding. Ordered GP_PUT readback and PBDMA/scheduler diagnostics distinguish
-input visibility from real execution. Production build/package inspection
-passes. This includes the earlier cached render-alias checkpoint, which was
-not installed as a standalone image. DC register/rotation programming is
-unchanged. Actual PFIFO completion, authenticated GR and SGFX Ready remain
-physically unproven for this image. It is installed to the known FAT32 SD
-with all 12 readbacks and 38 protected-file hashes verified, then ejected.
-[IMG_9095](gpu-hardware-9095.md) reaches the rootfs retry and powers the GPU,
-but the added MC_ENABLE mask assertion rejects the unchanged register readback
-before ELPG or PFIFO. The early deferral is therefore not permanent. Native
-DC publication still passes. Exact source/build/SD identities are in
+The installed [memory/runlist candidate](gpu-fifo-memory-bringup.md) was tested
+in [IMG_9095](gpu-hardware-9095.md). Rootfs retry and GPU power work, but the
+added MC_ENABLE memory-bit assertion rejects unchanged `0xc0012024` readback
+before ELPG, BAR1 or PFIFO. Early probe deferral is therefore not permanent.
+Native DC publication still passes with the cached render-alias checkpoint.
+Exact installed identities remain in
 [gpu-fifo-memory-verification.json](gpu-fifo-memory-verification.json).
+
+Follow-up commit `01b9112` uses NVIDIA's actual GM20B framebuffer reset:
+MC_ELPG_ENABLE (`0x20c`), XBAR/PFB/HUB mask `0x20100004`, preserving other fields.
+It removes the generic MC_ENABLE write and mandatory memory-bit assertion.
+ELPG readback still rejects unreadable/missing owned fields and reports the
+missing mask. BAR1 physical backing/remap, private USERD/ring/push visibility,
+ordered GP_PUT, runlist permission, both real semaphore/reference completions
+and full retirement remain required before authenticated GR/SGFX bring-up.
+Sources are NVIDIA
+[GM20B framebuffer reset](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/mc/mc_gm20b.c#L340)
+and [common MM setup](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/mm/mm.c#L347).
+
+Production kernel/package build and all 12 package hashes pass, including 16
+firmware files, all 13 shader pairs and eight unchanged native applications.
+The follow-up is **not installed or physically tested**. Its exact source,
+ELF/package hashes and preceding installed receipt are in
+[gpu-elpg-9095-verification.json](gpu-elpg-9095-verification.json).
+DC register/rotation programming is unchanged. Actual PFIFO completion,
+authenticated GR, SGFX Ready and direct compatible GPU scanout remain unproven.
+Boot **Scarlet Switch SGFX Logs** after installing the follow-up and capture
+from `gm20b: memory elpg=... missing=...` through the first fault or both real
+`FIFO completion` lines and subsequent GR initialization.
 
 ## Execution path
 

@@ -12,6 +12,11 @@ reaches hardware initialization after rootfs setup but rejects the added
 Exact source/build/SD identities are in
 [gpu-fifo-memory-verification.json](gpu-fifo-memory-verification.json).
 
+Follow-up `01b9112` corrects the failed admission by using the GM20B ELPG
+framebuffer reset alone. It is built and package-verified, but not installed
+or physically tested; see [current GPU status](sgfx-bringup.md#current-gpu-iteration)
+and [follow-up build receipt](gpu-elpg-9095-verification.json).
+
 ## Corrections
 
 - GPU-internal `MC_ENABLE` (`0x200`) enables XBAR, L2, PFB and HUB, mask

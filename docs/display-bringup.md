@@ -14,7 +14,8 @@ window B above the GUI and does not establish sustained address alternation.
 It preserves Switchroot's `SCAN_COLUMN | INVERT_H`, named 90 degrees in that
 driver, into the inherited 720x1280 DSI mode. It changes storage layout;
 it does not perform a per-frame CPU transpose or start VIC. The experimental
-VIC source remains outside the linked DC runtime. GM20B code is unchanged.
+VIC source remains outside the linked DC runtime. GM20B code was unchanged
+in that DC comparison; later GPU iterations are in [SGFX status](sgfx-bringup.md).
 
 ## Image storage and application buffers
 
@@ -36,12 +37,14 @@ output rotation. A successful active-state latch and a subsequent VBlank
 retire the previous private front before it can be written again. CPU/GPU
 source owners remain retained until that presentation succeeds. In the
 installed IMG_9094 image, both HHDM and application aliases are Normal
-Non-cacheable. Separate checkpoint commit `c859177` changes only ordinary linear render aliases to
-Normal cached; private DC storage remains Normal-NC. That cached-source image
+Non-cacheable. Separate checkpoint commit `c859177` changes only ordinary
+linear render aliases to Normal cached; private DC storage remains Normal-NC. That cached-source image
 builds successfully; its standalone package was not installed or physically
 tested. It is included in the subsequent
 [GPU memory/runlist candidate](gpu-fifo-memory-bringup.md), whose DC register
-programming is unchanged.
+programming is unchanged. [IMG_9095](gpu-hardware-9095.md) also passes native
+publication with those cached render aliases; GPU initialization rejects its
+new MC_ENABLE assertion independently.
 
 The layout follows
 [Linux drm_fourcc.h](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/include/uapi/drm/drm_fourcc.h#L974)
