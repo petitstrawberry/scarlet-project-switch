@@ -152,5 +152,6 @@ correct physical pixels/orientation and sustained updates. Record actual
 private DC address alternation, upload time and input latency. An address
 reused by simplefb after failed native admission is not native success.
 Build/package checks do not validate physical scanout, DMA completion,
-shader execution or suspend/resume. The new receipt currently records no SD
-installation and no physical test.
+shader execution or suspend/resume. The new image was installed to the known
+FAT32 SD with all 12 readbacks and 38 protected files verified, then ejected.
+Physical testing is pending.
