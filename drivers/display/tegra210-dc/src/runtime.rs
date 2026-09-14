@@ -763,7 +763,10 @@ impl GraphicsDevice for Display {
         Ok(self.buffers.as_ref().unwrap()[self.front.load(Ordering::Acquire) ^ 1].as_paddr())
     }
     fn framebuffer_memory_attribute(&self) -> MemoryAttribute {
-        MemoryAttribute::NonCacheable
+        // These are CPU-only linear render/upload sources. DC fetches the
+        // private Normal-NC allocations, never these cacheable mmap buffers.
+        // Keep the HHDM and application aliases on the same Normal attribute.
+        MemoryAttribute::Normal
     }
     fn scanout_buffer_count(&self) -> usize {
         2
@@ -902,7 +905,7 @@ impl GraphicsDevice for Display {
         // The first ordinary userspace present retires B unless keep_bootcon.
         state.initialized = true;
         scarlet::println!(
-            "tegra-dc: native scanout active; DC90, block-linear kind=0x42, render/scanout=2/2, V-counter, Normal-NC"
+            "tegra-dc: native scanout active; DC90, block-linear kind=0x42, render/scanout=2/2, V-counter, render=Normal scanout=Normal-NC"
         );
         if self.keep_console {
             scarlet::println!("tegra-dc: keep_bootcon; boot logs remain visible in window B");
@@ -1044,15 +1047,23 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
             return Err("Tegra DC scanout exceeds 34-bit DMA address range");
         }
         scarlet::println!(
-            "tegra-dc: preparing {} buffer {} paddr={:#x} bytes={}",
+            "tegra-dc: preparing {} buffer {} paddr={:#x} bytes={} attribute={:?}",
             if index < 2 { "render" } else { "block-linear" },
             index % 2,
             memory.as_paddr(),
-            memory.len() * 4096
+            memory.len() * 4096,
+            if index < 2 {
+                MemoryAttribute::Normal
+            } else {
+                MemoryAttribute::NonCacheable
+            }
         );
-        // Allocation zeroes the complete padded extent. Retagging cleans
-        // those stores before replacing both aliases with Normal-NC.
-        memory.retag_memory_attribute(MemoryAttribute::NonCacheable)?;
+        if index >= 2 {
+            // Only DC's private front/back require uncached CPU writes.
+            // Allocation zeroes the complete padded extent; retagging cleans
+            // those stores before replacing the HHDM alias with Normal-NC.
+            memory.retag_memory_attribute(MemoryAttribute::NonCacheable)?;
+        }
     }
     scarlet::println!("tegra-dc: scanout buffers ready; preserving boot frame");
     // Convert the inherited portrait boot frame once during adoption.
