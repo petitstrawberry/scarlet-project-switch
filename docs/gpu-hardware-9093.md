@@ -77,6 +77,7 @@ is unchanged.
 This is a surface-layout comparison, not a claim that pitch-column rotation
 is universally unsupported or that block-linear will resolve Scarlet's
 underflow. Linux's rotation flags alone do not establish allocation-layout
-or bandwidth equivalence. The image has not yet been physically tested.
-The added upload is a full visible-frame copy whose latency must be measured;
-see [display implementation](display-bringup.md).
+or bandwidth equivalence. The subsequent
+[IMG_9094 result](gpu-hardware-9094.md) passes native publication and measures
+the first full-frame upload at 27,284 microseconds. That upload remains an
+intermediate copy; see [display implementation](display-bringup.md).

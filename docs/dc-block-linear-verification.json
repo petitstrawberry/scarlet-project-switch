@@ -10,7 +10,7 @@
     "drivers/display/tegra210-dc/src/block_linear.rs": "1841b783fc6af0146f6a206903897c1514f9cecb231c9f778818788efd0c388b"
   },
   "hardware_validated": false,
-  "hardware_tested": false,
+  "hardware_tested": true,
   "installed_to_sd": true,
   "preceding_hardware_report": "docs/gpu-hardware-9093.md",
   "preceding_installed_image": "docs/dc-linux-column-verification.json",
@@ -243,7 +243,7 @@
     },
     "protected_files_verified": 38,
     "raw_device_accessed": false,
-    "hardware_boot_validated": false,
+    "hardware_boot_validated": true,
     "board_source_revision": "eaff47fe84082040bda7d426fcefe1c788bc4386",
     "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
     "kernel_elf_sha256": "5565a36a187528efadbdb82cd393a321dd3542e4c3c62069083fd027623068f1",
@@ -254,11 +254,39 @@
   },
   "limitations": [
     "IMG_9093 rejected the preceding direct-pitch native driver after A underflow rose 3 to 4; visible Shell used ordinary simplefb fallback",
-    "Block-linear layout is a comparative hypothesis; Linux flags do not establish that all pitch-column surfaces are unsupported",
-    "Installed to the known FAT32 SD with all 12 readbacks and 38 protected files verified, then ejected; no physical boot result for this image yet",
-    "Every CPU or retired linear GPU frame requires a full visible storage upload; conversion time, FPS and input latency require hardware measurement",
+    "IMG_9094 passes native publication and shows initial A/B underflow delta 0/0; opaque diagnostic window B covers window A, so the video does not establish GUI pixels or sustained address alternation",
+    "The user separately reports apparently working output and no obvious tearing, but severe slowness; this is not a measured frame rate or tear-free guarantee",
+    "The first full-frame storage upload takes 27284 microseconds and matches 576/576 sampled pixels; this is conversion time rather than total frame latency",
+    "Block-linear is a successful comparative input layout, not proof that pitch-column input is universally unsupported",
+    "Further CPU storage-conversion optimization is stopped at the user request; the next target is direct presentation without that upload",
     "GPU-produced block-linear resources are not yet accepted directly; genuine SGFX Ready admission remains unchanged",
     "Initial private GPU FIFO host-method completion and GR/SGFX admission remain physically unresolved",
     "Cold DSI/HDMI modesetting, IRQ-driven flips and suspend/resume remain pending"
-  ]
+  ],
+  "hardware_report": "docs/gpu-hardware-9094.md",
+  "hardware_evidence": {
+    "video_sha256": "4488a090b7df93ef935eb891413655106d61b6691b1f5295135523ad4b1d7b6d",
+    "native_source_device_id": 9,
+    "native_framebuffer_resource": "9 -> fb0",
+    "initial_active_underflow_delta_a_b": [
+      0,
+      0
+    ],
+    "native_initialization_fetch_gate_passed": true,
+    "first_storage_upload_microseconds": 27284,
+    "first_storage_upload_sample_matches": 576,
+    "first_storage_upload_sample_count": 576,
+    "first_private_scanout_address": "0x1750c0000",
+    "first_linear_source_address": "0x17e8a7000",
+    "diagnostic_window_b_covers_gui": true,
+    "user_report": {
+      "visible_output": "appears to work",
+      "tearing": "no obvious tearing reported",
+      "performance": "very slow"
+    },
+    "sustained_address_alternation_measured": false,
+    "frame_rate_or_input_latency_measured": false,
+    "sustained_underflows_measured": false,
+    "gpu_rendering_proven": false
+  }
 }

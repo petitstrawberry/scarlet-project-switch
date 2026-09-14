@@ -36,15 +36,24 @@ latches V-counter/CDE/cursor state but rejects native adoption after A
 underflow rises 3 to 4. The visible Shell again uses ordinary simplefb.
 The first private FIFO host push still times out before GR/SGFX admission.
 
-The new [block-linear DC candidate](dc-block-linear-verification.json)
-compares Tegra 16Bx2 storage with the same native fetch check. Applications
-remain on the ordinary linear swapchain; the driver uploads complete frames
-into two private block-linear DC buffers, and DC performs rotation. There is
-no VIC composition or per-frame CPU transpose. This intermediate upload
-adds traffic and may reduce performance; measured conversion time is logged.
-Direct GPU-produced block-linear presentation is a later integration goal,
-not implemented here. No universal pitch-column restriction is assumed.
-Physical output, native address alternation and performance are unverified.
+The installed [block-linear DC comparison](dc-block-linear-verification.json)
+passes native publication in [IMG_9094](gpu-hardware-9094.md), with initial
+A/B underflow delta 0/0. The diagnostic console covers the GUI; the user
+separately reports apparently working output and no obvious tearing, but
+severe slowness. Applications remain on the ordinary linear swapchain;
+every present uploads complete frames into two private block-linear DC
+buffers, and DC performs rotation. The first upload takes 27,284 microseconds.
+This is conversion time, not total frame latency or measured FPS.
+
+Separate commit `c859177` makes linear render aliases Normal cached and
+leaves private storage Normal-NC. Its production build/package inspection
+passes, but it has not been installed or physically tested. At the user's
+request further CPU storage-conversion tuning stops at this checkpoint.
+The next target is direct presentation of the actual render image without
+an intermediate upload. Pitch-column input needs missing MC/EMC policy
+investigated; compatible GPU storage needs explicit common resource layout
+and GM20B/DC integration. No universal pitch-column restriction is assumed.
+Sustained address alternation, frame rate and input latency remain unmeasured.
 GM20B code and genuine Ready admission are unchanged. See
 [display implementation](display-bringup.md).
 
