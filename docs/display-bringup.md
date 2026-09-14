@@ -20,6 +20,8 @@ normal display mmap interfaces, matching arm64 Linux write-combine mappings.
 A barrier completes CPU stores before activation. No per-present conversion or
 private portrait scanout buffers remain. Build/package validation is separate
 from physical image validation.
+The FAT32 SD installation verified all 12 boot-file readbacks and 38 protected-file
+hashes before eject. Physical hardware rotation remains pending.
 
 Hekate's working framebuffer is portrait 720x1280 with pitch 2880. The boot
 script exports that existing surface with `scarlet,rotation = <3>`; this
