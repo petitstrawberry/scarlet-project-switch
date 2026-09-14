@@ -8,7 +8,7 @@
     "drivers/display/tegra210-dc/src/runtime.rs": "437efa7834e2ec978a44ba7a14666afc1a296a8fff269c0d7048477999a7e540"
   },
   "hardware_validated": false,
-  "installed_to_sd": false,
+  "installed_to_sd": true,
   "build_log": ".cache/dc-portrait-pitch-build.log",
   "build_log_sha256": "9a9cc3f57a6280528b596eca91a1c62eb1532bac5b955d2d57aeba50d86c1d1d",
   "preceding_hardware_report": "docs/gpu-hardware-9088.md",
@@ -26,7 +26,7 @@
     "Per-frame CPU rotation/copy adds overhead and two additional scanout allocations",
     "The DC traversal defect is a hypothesis; this candidate tests portrait fetch without establishing a root cause",
     "GPU direct landscape presentation remains physically unverified",
-    "No new SD write or physical run has occurred"
+    "SD installation/readback/eject succeeded; correct physical pixels remain unverified"
   ],
   "cpu_dc_layout": {
     "render_width": 1280,
@@ -180,5 +180,34 @@
     "https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/window.c",
     "https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/dc.c",
     "https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/display/di.inl"
-  ]
+  ],
+  "sd_installation": {
+    "device": "disk8s1",
+    "mount": "/Volumes/SWITCH SD",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "56f96e1cb454d3f431ace388c8cd56f048fb74696c892628235c01078425c39c",
+      "switchroot/scarlet-console/Image": "db07596854cf3fd5246f7c340286e61603ef448d3785e907eb4dca1a4546f824",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "41dc156b5e2ee33b7a483e42f1afc056cd9ae65a1ecb127b8f6f968966ebdabd",
+      "switchroot/scarlet-console/initramfs": "7bb47a58f12655eb8d931c20624c75c8c7dc8da87393cccd7045fa52708b516e",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "378ee0bd7c783393c3fdeea3a08769c423a823c0daceeecad00e0ef6ed319c68",
+      "switchroot/scarlet-console-logs/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console-logs/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console-logs/boot.scr": "43fd16bf4d0585ff1477343d4f93d5d2b630f4a881c7fb2b05e036a63a9da6cf",
+      "switchroot/scarlet-console-logs/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df"
+    },
+    "protected_files_verified": 38,
+    "raw_device_accessed": false,
+    "hardware_boot_validated": false,
+    "ejected": true,
+    "readback_files_verified": 12,
+    "installed_at_utc": "2026-09-14T04:38:41.728417+00:00",
+    "source_board_revision": "671f1462ffd3b98fc196d860081700ccc7441af9",
+    "source_kernel_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+    "kernel_elf_sha256": "ee9ee17119168e3be8f68aeffaaae903396ae6c4de86b8550e763c9498924fcb"
+  },
+  "sd_install_log": ".cache/dc-portrait-pitch-sd-install.log",
+  "sd_install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd"
 }

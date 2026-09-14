@@ -30,7 +30,8 @@ DC display correctness is now the immediate priority. The next
 the normal distribution and 1280x720 rendering interface, but rotates CPU frames
 into private portrait buffers for the known Hekate linear fetch. It adds bounded
 DC underflow and read-only MC fault diagnostics. The production build/package
-checks pass; this candidate has not been installed or tested physically. The
+checks pass. It was installed to the FAT32 SD with all 12 readbacks and 38
+protected-file hashes verified, then ejected. Physical validation is pending. The
 pending GPU memory/runlist investigation is not included in its image. Direct
 GPU landscape scanout remains unverified.
 

@@ -13,10 +13,19 @@ the normal 1280x720 CPU render buffers and converts complete frames into private
 720x1280 scanout buffers. Window A uses the inspected Hekate portrait pitch
 fetch, with no SCAN_COLUMN or inverted direction. Bounded logs report the
 actual scanout address, pitch/options, A/B underflow counters and read-only MC
-error latches. Production build and package inspection pass; SD installation
-and physical validation of this candidate are pending. The extra CPU copy is
+error latches. Production build and package inspection pass. The candidate was
+installed to the FAT32 SD, all 12 readbacks and 38 protected-file hashes matched,
+and the SD was ejected. Physical validation is pending. The extra CPU copy is
 a display baseline, not proof of correct GPU direct scanout or a diagnosed
 root cause.
+
+Hekate's working framebuffer is portrait 720x1280 with pitch 2880. The boot
+script exports that existing surface with `scarlet,rotation = <3>`; this
+metadata describes the CPU coordinate mapping and does not reprogram DC.
+DC0 window A supports SCAN_COLUMN according to the pinned NVIDIA T210 feature
+table. CPU conversion is therefore a temporary diagnostic baseline, not a
+required display architecture. The intended native landscape path is configured
+in the Display driver after correct fetch and buffer switching are established.
 
 This is native window/scanout control with inherited panel initialization.
 Cold DSI/panel power-up, modesetting, HDMI, display IRQ handling and
@@ -147,5 +156,5 @@ do not establish DMA, rotation, VBlank, GPU-image lifetime, or suspend/resume be
 Fetched with `gh`:
 
 - [Linux Tegra DC](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/tegra/dc.c).
-- [NVIDIA rotation and T210 fetch reset](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/window.c) and [T210 window A rotation support](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/dc_config.c).
+- [NVIDIA rotation and T210 fetch reset](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/window.c) and [T210 window A rotation support](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/dc_config.c), re-fetched with `gh` after the IMG_9088 report.
 - [Hekate scanout](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/display/di.inl) and [masked event polling](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/display/di.c).

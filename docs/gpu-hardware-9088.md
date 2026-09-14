@@ -80,5 +80,7 @@ Bounded logs report the target address, pitch/options, cumulative A/B underflow
 counts and the shared MC fault latch without acknowledging it, following
 [NVIDIA underflow handling](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/dc.c)
 and [Linux MC register definitions](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/memory/tegra/mc.h).
-The build and package checks pass. SD installation and physical confirmation
-of correct GUI colors, orientation, input updates and all four edges are pending.
+The build and package checks pass. The subsequent portrait candidate was
+installed to the FAT32 SD with all 12 readbacks and 38 protected-file hashes
+verified, then ejected. Physical confirmation of correct GUI colors, orientation,
+input updates and all four edges remains pending.
