@@ -64,5 +64,7 @@ gm20b: powering GPU; ...
 
 The new candidate passed production compilation and package inspection;
 [gpu-initramfs-retry-verification.json](gpu-initramfs-retry-verification.json)
-records its hashes. It has not been copied to SD or physically tested.
-DC adoption and genuine GPU rendering remain to be verified on hardware.
+records its hashes. It was copied to the FAT32 SD; all 12 file readbacks and
+38 protected-file hashes matched, and the SD was ejected. Physical testing
+of this retry candidate is pending. DC adoption and genuine GPU rendering
+remain to be verified on hardware.

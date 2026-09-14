@@ -12,7 +12,8 @@ It does not establish successful GPU rendering or native DC adoption. A new
 candidate retries the deferred queue after mounting; its build and package
 checks are recorded in
 [gpu-initramfs-retry-verification.json](gpu-initramfs-retry-verification.json).
-That candidate has not been copied to SD or physically tested.
+That candidate has been copied to the FAT32 SD, verified by file hashes and
+ejected. Physical testing of the retry candidate is pending.
 
 ## Execution path
 

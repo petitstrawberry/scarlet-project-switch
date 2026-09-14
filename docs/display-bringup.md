@@ -20,9 +20,9 @@ physical GPU-image presentation is still unverified.
 [IMG_9086](gpu-hardware-9086.md) shows a console GUI with SWS logs drawn over
 it, but does not establish native DC adoption or the intended opaque window-B
 diagnostic view. GPU discovery remains deferred in that installed image.
-The next candidate adds a common post-initramfs retry; its
+The installed retry candidate adds a common post-initramfs retry; its
 [verification record](gpu-initramfs-retry-verification.json) distinguishes
-successful package checks from pending SD installation and hardware testing.
+successful package checks and SD readback from pending hardware testing.
 
 ## Adoption and ownership
 
