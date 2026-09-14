@@ -171,7 +171,6 @@
     "only_after_gpu_isolation_and_successful_mc_drain": true,
     "hardware_admission_relaxed": false
   },
-  "gpu_cpu_irq_outputs_verified_masked": true,
   "gpu_physical_mmu_policy": {
     "private_security_fuse_read_only": "0x21434",
     "phy_policy": "0x100ce4",
@@ -276,5 +275,6 @@
     "The reference-backed FB/LTC and local routing differences are established, but their causal role in IMG_9106 is not proven",
     "BAR1 input visibility and saved failure/backing snapshots do not substitute for both genuine host completions and retirement",
     "Authenticated GR, all real SGFX draw/copy admission and the common direct GPU/DC layout contract remain required"
-  ]
+  ],
+  "gpu_cpu_irq_output_mask_readback_enforced_in_source": true
 }
