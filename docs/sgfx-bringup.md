@@ -25,15 +25,13 @@ host-method push still times out with GET/ref/fence unchanged; GR and SGFX
 admission are not reached. Varied CPU samples do not establish correct scanout:
 the user reports white/gray screens with input and possible edge garbage.
 
-DC display correctness is now the immediate priority. The next
-[CPU portrait-pitch candidate](dc-portrait-pitch-verification.json) preserves
-the normal distribution and 1280x720 rendering interface, but rotates CPU frames
-into private portrait buffers for the known Hekate linear fetch. It adds bounded
-DC underflow and read-only MC fault diagnostics. The production build/package
-checks pass. It was installed to the FAT32 SD with all 12 readbacks and 38
-protected-file hashes verified, then ejected. Physical validation is pending. The
-pending GPU memory/runlist investigation is not included in its image. Direct
-GPU landscape scanout remains unverified.
+[IMG_9089](gpu-hardware-9089.md) confirms visible content and orientation in
+the portrait-pitch isolation image, with very slow operation. The immediate
+priority is now **DC hardware rotation**, before additional SGFX changes. The
+[direct-rotation candidate](dc-direct-rotation-verification.json) scans the
+ordinary landscape buffers directly with SCAN_COLUMN and Normal Non-cacheable
+RAM aliases. No GPU memory/runlist changes are included. FIFO completion,
+authenticated GR boot and SGFX admission remain physically unverified.
 
 ## Execution path
 

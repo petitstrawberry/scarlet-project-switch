@@ -3,29 +3,30 @@
 The console distribution now links `scarlet-driver-tegra210-dc`. It adopts the
 inspected Hekate DC0/DSI mode and exports normal `/dev/display0` controls,
 including two direct scanout buffers and GPU swapchain-image presentation.
-[IMG_9088](gpu-hardware-9088.md) reaches native publication and varied CPU
-frame samples, but the user reports white/gray screens on input and possible
-garbage at the display edge. Active register checks do not establish correct
-physical pixels. DC correctness is the current priority, before GR/SGFX.
+[IMG_9089](gpu-hardware-9089.md) establishes the visible portrait-pitch
+isolation baseline by user confirmation, with very slow operation. That isolation
+is complete. The current [direct-rotation candidate](dc-direct-rotation-verification.json)
+returns to DC hardware rotation before further SGFX work.
 
-The next [portrait-pitch candidate](dc-portrait-pitch-verification.json) keeps
-the normal 1280x720 CPU render buffers and converts complete frames into private
-720x1280 scanout buffers. Window A uses the inspected Hekate portrait pitch
-fetch, with no SCAN_COLUMN or inverted direction. Bounded logs report the
-actual scanout address, pitch/options, A/B underflow counters and read-only MC
-error latches. Production build and package inspection pass. The candidate was
-installed to the FAT32 SD, all 12 readbacks and 38 protected-file hashes matched,
-and the SD was ejected. Physical validation is pending. The extra CPU copy is
-a display baseline, not proof of correct GPU direct scanout or a diagnosed
-root cause.
+Window A directly reads the application's 1280x720 pitch-5120 buffer with
+SCAN_COLUMN and invert-H. The source cursor is pixel-aligned at 5116 bytes,
+following upstream Linux's reflect-X formula, and both pixel/tile buffer-stride
+registers are explicitly cleared and verified. NVIDIA's downstream invert-H
+formula uses 5119 instead; the effect of this correction requires physical
+validation. The portrait output remains 720x1280 with axis-swapped prescaling.
+
+Framebuffer DRAM uses Normal Non-cacheable consistently in the HHDM and both
+normal display mmap interfaces, matching arm64 Linux write-combine mappings.
+A barrier completes CPU stores before activation. No per-present conversion or
+private portrait scanout buffers remain. Build/package validation is separate
+from physical image validation.
 
 Hekate's working framebuffer is portrait 720x1280 with pitch 2880. The boot
 script exports that existing surface with `scarlet,rotation = <3>`; this
 metadata describes the CPU coordinate mapping and does not reprogram DC.
 DC0 window A supports SCAN_COLUMN according to the pinned NVIDIA T210 feature
-table. CPU conversion is therefore a temporary diagnostic baseline, not a
-required display architecture. The intended native landscape path is configured
-in the Display driver after correct fetch and buffer switching are established.
+table. The current candidate configures this native landscape path in the Display
+driver. The previous CPU conversion is retained only as historical isolation evidence.
 
 This is native window/scanout control with inherited panel initialization.
 Cold DSI/panel power-up, modesetting, HDMI, display IRQ handling and
@@ -44,8 +45,8 @@ image was installed to the FAT32 SD with all 12 readbacks and 38 protected-file
 hashes verified, then ejected. IMG_9088 subsequently confirms native publication
 and continued window-B logs. It also confirms the post-initramfs GPU retry and
 initial FIFO runlist activation, followed by a host-method completion timeout
-before graphics execution. Correct GUI pixels and GPU-image presentation
-remain unverified.
+before graphics execution. IMG_9089 later confirms the portrait-pitch baseline;
+hardware-rotated direct GUI pixels and GPU-image presentation remain unverified.
 
 ## Adoption and ownership
 
@@ -62,15 +63,13 @@ buffer at `0xf5a00000`. Unsupported modes leave the ordinary simple-framebuffer
 fallback published. DC1 is not claimed. No global clock, DSI, panel, regulator,
 carveout, or MC translation configuration is changed.
 
-Two page-owned 1280x720 BGRA buffers provide the ordinary rendering interface. Their CPU
-and userspace aliases use the same DeviceBurstable attribute, through the
-common PMM retagging/mmap mechanisms. The last boot frame is preserved in the
-initial render buffer. Each CPU presentation rotates the complete render frame
-into its own private 720x1280 pitch-2880 scanout buffer. These two additional
-buffers use the same memory attribute and remain owned through activation,
-retirement and failed rollback. The conversion adds about 7 MiB of storage and
-per-frame CPU overhead. The separate GPU presentation path still sets source
-pitch, SCAN_COLUMN and invert-H directly; that path remains physically unverified.
+Two page-owned 1280x720 BGRA buffers are the actual CPU scanout buffers. Their
+kernel and application aliases use Normal Non-cacheable through the common PMM
+retagging and framebuffer/display mmap mechanisms. The initial buffer preserves
+the inherited boot frame with a one-time coordinate conversion. Subsequent CPU
+presents publish that buffer directly and use DC hardware rotation. The generic
+earlyfb handoff targets the same linear, noncacheable landscape allocation;
+no CPU renderer or console-distribution exception is introduced.
 
 The current common AArch64 correction builds the HHDM with 4-KiB leaves
 before activation. This prevents a live block split from removing unrelated
@@ -139,13 +138,14 @@ Boot **More Configs → Scarlet Switch Console** and record:
 
 - `gm20b: GMMU BAR1 read/write/remap passed; channels pending`.
 - `tegra-dc: inherited addr=... options=... kind=... mode=... active=...`.
-- `tegra-dc: native scanout active; CPU portrait pitch, 1280x720 display`.
-- `tegra-dc: scanout=... pitch=2880 options=0x40000000` and `tegra-dc: fetch uf=... mc=... err=...`.
+- `tegra-dc: native scanout active; 1280x720, direct pitch, hardware rotation, Normal-NC`.
+- `tegra-dc: scanout=... pitch=5120 options=0x40000011 offsets=5116/0 buf-stride=0/0`.
 - The ordinary Shell, colors/orientation, sustained updates, Joy-Con/touch,
   all CPU startup logs and timer/sleep wake.
 
 Report the exact last phase on a failure. The artifact/SD receipt is
-`dc-portrait-pitch-verification.json`. The image tested in IMG_9088 retains
+`dc-direct-rotation-verification.json`. IMG_9089 retains its installed
+`dc-portrait-pitch-verification.json`; the image tested in IMG_9088 retains
 `gpu-fifo-bar1-gen2-verification.json`. The preceding BAR1-success/DC-failure
 boot retains `gpu-selector-display-verification.json`; the earlier
 failed/deferred boot retains `gpu-gmmu-display-verification.json`. Build/readback
@@ -157,4 +157,5 @@ Fetched with `gh`:
 
 - [Linux Tegra DC](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/tegra/dc.c).
 - [NVIDIA rotation and T210 fetch reset](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/window.c) and [T210 window A rotation support](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/dc_config.c), re-fetched with `gh` after the IMG_9088 report.
+- [Linux arm64 write-combine mappings](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/arch/arm64/include/asm/pgtable.h#L692).
 - [Hekate scanout](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/display/di.inl) and [masked event polling](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/display/di.c).

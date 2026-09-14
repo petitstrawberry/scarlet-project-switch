@@ -23,10 +23,9 @@
     "GPU landscape direct scanout stays unverified; no pending GPU memory/runlist edits are included"
   ],
   "limits": [
-    "Per-frame CPU rotation/copy adds overhead and two additional scanout allocations",
-    "The DC traversal defect is a hypothesis; this candidate tests portrait fetch without establishing a root cause",
-    "GPU direct landscape presentation remains physically unverified",
-    "SD installation/readback/eject succeeded; correct physical pixels remain unverified"
+    "User confirms visible content and orientation, but operation is very slow",
+    "The isolation does not establish the cause of the earlier hardware-rotation traversal fault",
+    "Hardware-rotated direct presentation and GPU SGFX remain physically unverified"
   ],
   "cpu_dc_layout": {
     "render_width": 1280,
@@ -209,5 +208,18 @@
     "kernel_elf_sha256": "ee9ee17119168e3be8f68aeffaaae903396ae6c4de86b8550e763c9498924fcb"
   },
   "sd_install_log": ".cache/dc-portrait-pitch-sd-install.log",
-  "sd_install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd"
+  "sd_install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd",
+  "display_baseline_validated": true,
+  "hardware_observations": {
+    "video": "/Users/petitstrawberry/Downloads/IMG_9089.mov",
+    "video_sha256": "bd7d77a91707e9c65c1c148330898cb1f5c2d9c3cc5d1702dba45a5b91ab674b",
+    "video_duration_seconds": 35.1317,
+    "report": "docs/gpu-hardware-9089.md",
+    "user_confirmed_visible_image": true,
+    "user_confirmed_orientation": true,
+    "performance": "User reports very slow operation; no measured frame rate",
+    "gpu_sgfx_validated": false,
+    "mc_latch_note": "Read-only nonzero shared MC latch does not establish a continuing display failure; user confirms visible content",
+    "scope": "CPU portrait-pitch isolation is sufficient; next priority is native DC hardware rotation"
+  }
 }
