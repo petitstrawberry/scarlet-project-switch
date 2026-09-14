@@ -79,17 +79,21 @@ Sources are NVIDIA
 [GM20B framebuffer reset](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/mc/mc_gm20b.c#L340)
 and [common MM setup](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/mm/mm.c#L347).
 
-Production kernel/package build and all 12 package hashes pass, including 16
-firmware files, all 13 shader pairs and eight unchanged native applications.
-The follow-up is installed to the known FAT32 SD. All 12 file readbacks and
-38 protected-file hashes match, and the SD is ejected. Physical boot is
-pending. Its exact source, ELF/package hashes and preceding installed receipt are in
+The follow-up is package-verified and was installed with all 12 file readbacks
+and 38 protected-file hashes matching. [IMG_9105](gpu-hardware-9105.md) passes
+ELPG (`missing=0`), BAR1 backing/write/remap and private input visibility, then
+times out on the first PFIFO host push with GET 0, PUT 1, reference all ones
+and fence zero. At runlist-ready the PBDMA context is unloaded. Native DC
+publication passes independently. Exact tested identities remain in
 [gpu-elpg-9095-verification.json](gpu-elpg-9095-verification.json).
+
+The next [clock/PRIV ring prerequisite correction](gpu-prerequisites-9105.md)
+moves GPU-wide clock setup before MM, starts the PRIV ring using Nouveau's
+sequence and applies NVIDIA's FIFO clock-gating settings after reset. It
+adds physical GPCCLK measurement and concise scheduler/engine/context failure
+logs. Production build/package verification and a new physical boot are pending.
 DC register/rotation programming is unchanged. Actual PFIFO completion,
 authenticated GR, SGFX Ready and direct compatible GPU scanout remain unproven.
-Boot **Scarlet Switch SGFX Logs** and capture
-from `gm20b: memory elpg=... missing=...` through the first fault or both real
-`FIFO completion` lines and subsequent GR initialization.
 
 ## Execution path
 

@@ -7,7 +7,7 @@
   "source_files_sha256": {
     "drivers/gpu/nvidia-gm20b/src/gmmu.rs": "8bea5c8c6e620495a3a6c5b60887129256238f371288c845a32f8a6e8638b6df"
   },
-  "hardware_tested": false,
+  "hardware_tested": true,
   "hardware_validated": false,
   "installed_to_sd": true,
   "preceding_hardware_report": "docs/gpu-hardware-9095.md",
@@ -153,9 +153,9 @@
   "build_log": ".cache/gpu-elpg-9095-build.log",
   "build_log_sha256": "4bfbe3464d50d6a48d41da3926bdcf7c416ea17af2c85b46fc0c28f510b4321e",
   "limitations": [
-    "This candidate is installed to the known FAT32 SD with all 12 file readbacks and 38 protected-file hashes matching, then ejected; physical boot is pending",
-    "ELPG mask readback, BAR1 backing/remap, private-input visibility, both PFIFO completions and authenticated GR/SGFX admission still require a new physical boot",
-    "GPU-ready and copy-free presentation are not established; the existing intermediate DC storage upload remains"
+    "IMG_9105 passes ELPG, BAR1 backing/write/remap and private-input visibility, then times out on the first PFIFO host completion",
+    "Authenticated GR, real shader/draw/copy admission and SGFX Ready remain unproven",
+    "Direct GPU/DC presentation is not implemented; the existing intermediate storage upload remains"
   ],
   "preceding_installed_receipt": "docs/gpu-fifo-memory-verification.json",
   "sd_receipt": {
@@ -186,5 +186,20 @@
     "install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd",
     "ejected_at_utc": "2026-09-14T13:14:00.344603+00:00",
     "ejection_result": "Disk /Volumes/SWITCH SD ejected"
+  },
+  "hardware_report": "docs/gpu-hardware-9105.md",
+  "hardware_result": {
+    "video_sha256": "1ac6ac90987a30fdbcef7f2ad0d8c75e0eb69884216638fd4234a0d4645105c0",
+    "elpg_mask_readback_passed": true,
+    "bar1_backing_write_remap_passed": true,
+    "private_input_visibility_passed": true,
+    "first_host_completion_passed": false,
+    "first_host_get": 0,
+    "first_host_put": 1,
+    "first_host_reference": "0xffffffff",
+    "first_host_fence": "0x00000000",
+    "failure": "FIFO host-method completion timeout",
+    "gr_initialization_reached": false,
+    "sgfx_ready_observed": false
   }
 }

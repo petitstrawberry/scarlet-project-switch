@@ -145,11 +145,16 @@ impl Fifo {
 
     fn diagnose(&self) {
         scarlet::println!(
-            "gm20b: FIFO fault intr={:#010x} pbdma={:#010x}/{:#010x} channel={:#010x} runlist={:#010x}",
+            "gm20b: FIFO fault intr={:#010x} pbdma={:#010x}/{:#010x}",
             self.read(FIFO_INTR),
             self.read(PBDMA_INTR0),
-            self.read(PBDMA_INTR1),
-            self.read(CHANNEL),
+            self.read(PBDMA_INTR1)
+        );
+        let channel = self.read(CHANNEL);
+        scarlet::println!(
+            "gm20b: FIFO channel={:#010x} state={} runlist={:#010x}",
+            channel,
+            (channel >> 24) & 0xf,
             self.read(RUNLIST_STATUS)
         );
         let bind = self.read(FIFO_BIND_ERROR);
@@ -164,38 +169,63 @@ impl Fifo {
         };
         scarlet::println!("gm20b: FIFO bind={:#010x} reason={}", bind, reason);
         scarlet::println!(
-            "gm20b: FIFO context bar1={:#010x} inst={:#010x} sched={:#010x} chsw={:#010x}",
+            "gm20b: FIFO context bar1={:#010x} inst={:#010x}",
             self.read(FIFO_BAR1_BASE),
-            self.read(CHANNEL_INST),
+            self.read(CHANNEL_INST)
+        );
+        scarlet::println!(
+            "gm20b: FIFO sched-error={:#010x} chsw-error={:#010x}",
             self.read(FIFO_SCHED_ERROR),
             self.read(FIFO_CHSW_ERROR)
         );
         scarlet::println!(
-            "gm20b: FIFO scheduler disable={:#010x} fault-disable={:#010x} mc={:#010x} pbdma-enable={:#010x}",
+            "gm20b: FIFO scheduler disable={:#010x} fault-disable={:#010x}",
             self.read(SCHED_DISABLE),
-            self.read(ERROR_SCHED_DISABLE),
+            self.read(ERROR_SCHED_DISABLE)
+        );
+        scarlet::println!(
+            "gm20b: FIFO mc={:#010x} pbdma-enable={:#010x} map={:#010x}",
             self.read(MC_ENABLE),
-            self.read(PBDMA_ENABLE)
+            self.read(PBDMA_ENABLE),
+            self.read(PBDMA_MAP)
+        );
+        scarlet::println!(
+            "gm20b: FIFO engine0={:#010x} engine1={:#010x}",
+            self.read(0x2640),
+            self.read(0x2648)
         );
         let pbdma_context = self.read(PBDMA_CONTEXT);
+        let state = (pbdma_context >> 13) & 7;
         scarlet::println!(
-            "gm20b: FIFO PBDMA0 context={:#010x} state={} base={:#010x}:{:#010x} userd={:#010x}:{:#010x}",
+            "gm20b: FIFO PBDMA0 context={:#010x} state={}",
             pbdma_context,
-            (pbdma_context >> 13) & 7,
-            self.read(0x4004c),
-            self.read(0x40048),
-            self.read(0x4000c),
-            self.read(0x40008)
+            state
         );
-        scarlet::println!(
-            "gm20b: FIFO progress gp={}/{} pb={:#010x}:{:#010x} header={:#010x} method={:#010x}",
-            self.read(0x40014),
-            self.read(0x40000),
-            self.read(0x4001c),
-            self.read(0x40018),
-            self.read(0x40084),
-            self.read(0x400c0)
-        );
+        if pbdma_context != u32::MAX && matches!(state, 1 | 5 | 6 | 7) {
+            scarlet::println!(
+                "gm20b: FIFO base={:#010x}:{:#010x} userd={:#010x}:{:#010x}",
+                self.read(0x4004c),
+                self.read(0x40048),
+                self.read(0x4000c),
+                self.read(0x40008)
+            );
+            scarlet::println!(
+                "gm20b: FIFO progress gp={}/{} pb={:#010x}:{:#010x}",
+                self.read(0x40014),
+                self.read(0x40000),
+                self.read(0x4001c),
+                self.read(0x40018)
+            );
+            scarlet::println!(
+                "gm20b: FIFO header={:#010x} method={:#010x}",
+                self.read(0x40084),
+                self.read(0x400c0)
+            );
+        } else {
+            scarlet::println!(
+                "gm20b: FIFO PBDMA0 has no loaded context; pointers are not execution"
+            );
+        }
         scarlet::println!(
             "gm20b: FIFO USERD get={} put={} ref={:#010x} fence={:#010x}",
             self.userd(USERD_GP_GET),
@@ -324,31 +354,7 @@ impl Fifo {
     }
 
     fn enable(&self, reference_hz: u32) -> Result<(), &'static str> {
-        // nvgpu gm20b_init_clk_setup_hw: required DIV4 mode and 1:1 ratios.
-        // Select the reference bypass, keeping GPCPLL disabled. No PLL/DVFS,
-        // fuse, secure carveout or GR register is programmed in this stage.
-        for (reg, mask, value) in [
-            (0x137100, 1, 0),
-            (0x137250, 0x80003f3f, 0x80000000),
-            (0x137340, 1, 0),
-            (0x20160, 0x003f0000, 0),
-        ] {
-            let old = self.read(reg);
-            if old == u32::MAX {
-                return Err("FIFO clock register returned all ones");
-            }
-            self.write(reg, (old & !mask) | value);
-        }
-        if self.read(0x137100) & 1 != 0
-            || self.read(0x137250) & 0x80003f3f != 0x80000000
-            || self.read(0x137340) & 1 != 0
-        {
-            return Err("FIFO reference-bypass clock readback mismatch");
-        }
-        scarlet::println!(
-            "gm20b: FIFO reference bypass configured; PLL reference={}Hz (GPU rate unmeasured)",
-            reference_hz
-        );
+        // GPU-wide clock/ring initialization already preceded the GMMU.
         let enable = self.read(MC_ENABLE);
         if enable == u32::MAX || self.read(PBDMA_ENABLE) == u32::MAX {
             return Err("FIFO enable register returned all ones");
@@ -358,7 +364,33 @@ impl Fifo {
         delay_us(20);
         self.write(MC_ENABLE, enable | 0x100);
         let _ = self.read(MC_ENABLE);
+        delay_us(20); // nvgpu gm20b_mc_enable readback/settling delay.
+        // nvgpu resets FIFO, then programs its SLCG/BLCG settings. These
+        // vendor disable values keep clocks running during physical proof;
+        // no PMU-managed clock/power gating is admitted yet.
+        for (reg, value) in [(0x26ac, 0x1fffe), (0x26a4, 0)] {
+            if self.read(reg) == u32::MAX {
+                return Err("FIFO gating register returned all ones");
+            }
+            self.write(reg, value);
+        }
+        scarlet::println!(
+            "gm20b: FIFO gating slcg={:#010x} blcg={:#010x}",
+            self.read(0x26ac),
+            self.read(0x26a4)
+        );
         self.write(PBDMA_ENABLE, self.read(PBDMA_ENABLE) | 1);
+        let fifo_enable = self.read(MC_ENABLE);
+        let pbdma_enable = self.read(PBDMA_ENABLE);
+        if fifo_enable == u32::MAX
+            || pbdma_enable == u32::MAX
+            || fifo_enable & 0x100 == 0
+            || pbdma_enable & 1 == 0
+        {
+            self.diagnose();
+            return Err("FIFO/PBDMA enable readback mismatch");
+        }
+        crate::hardware::measure_clock(self.base, reference_hz);
         let map = self.read(PBDMA_MAP);
         if map == u32::MAX || map & 1 == 0 {
             scarlet::println!("gm20b: FIFO PBDMA0 runlist map={:#010x}", map);

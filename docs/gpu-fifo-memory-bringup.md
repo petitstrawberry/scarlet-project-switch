@@ -14,9 +14,10 @@ Exact source/build/SD identities are in
 
 Follow-up `01b9112` corrects the failed admission by using the GM20B ELPG
 framebuffer reset alone. It is built, package-verified and installed with all
-12 readbacks and 38 protected-file hashes matching, then ejected. Physical
-boot is pending; see [current GPU status](sgfx-bringup.md#current-gpu-iteration)
-and [follow-up build receipt](gpu-elpg-9095-verification.json).
+12 readbacks and 38 protected-file hashes matching, then ejected.
+[IMG_9105](gpu-hardware-9105.md) passes ELPG/BAR1/private inputs but stalls
+at the first PFIFO completion. See [current GPU status](sgfx-bringup.md#current-gpu-iteration)
+and [follow-up receipt](gpu-elpg-9095-verification.json).
 
 ## Corrections
 

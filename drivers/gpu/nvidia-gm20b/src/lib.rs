@@ -6,8 +6,8 @@
 //! the MC GPU client, checks a private GMMU/BAR1 address space and executes
 //! private PFIFO host semaphore/reference methods, then boots signed PMU/FECS
 //! firmware and ordinary GPCCS, and saves a private golden graphics context.
-//! Public address-space/channel management and SGFX
-//! command execution are not yet implemented or advertised.
+//! Ready execution is withheld until PFIFO, authenticated GR and every real
+//! shader/draw/copy admission check completes on the physical GPU.
 
 extern crate alloc;
 
@@ -25,6 +25,8 @@ mod gmmu;
 mod gr;
 #[cfg(target_os = "none")]
 mod graphics;
+#[cfg(target_os = "none")]
+mod hardware;
 #[cfg(target_os = "none")]
 mod method;
 #[cfg(target_os = "none")]

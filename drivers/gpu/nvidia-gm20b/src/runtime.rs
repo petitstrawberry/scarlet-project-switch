@@ -425,6 +425,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         scarlet::arch::mmio::write32(gpu_base + 0x144, 0);
     }
     let _ = read(0x144);
+    crate::hardware::initialize(gpu_base)?;
     // Transfer the allocation owner before any hardware address is published.
     // On failure Power isolates/drains the client before freeing its pages.
     power.dma = Some(Gmmu::allocate(gpu_base, bar1_base, mc_base)?);
