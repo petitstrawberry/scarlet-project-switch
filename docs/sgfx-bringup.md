@@ -26,17 +26,19 @@ admission are not reached. Varied CPU samples do not establish correct scanout:
 the user reports white/gray screens with input and possible edge garbage.
 
 [IMG_9089](gpu-hardware-9089.md) confirms correct visible content/orientation
-with portrait-pitch DC after CPU conversion, albeit slowly. The two direct
-column-scan candidates fail: [IMG_9091](gpu-hardware-9091.md) proves priority
-latched while A underflows continue. Following the user's request, the current
-[VIC candidate](dc-vic-rotation-verification.json) uses Hekate's actual 270-degree
-VIC conversion and the established DC pitch-2880 layout, for both ordinary CPU
-and retired GPU images. No per-frame CPU transpose, block-linear upload or
-GPU memory/runlist changes are included. [IMG_9092](gpu-hardware-9092.md)
-shows VIC first-composition timeout and failed native DC adoption. The later
-visible Shell is ordinary simple-framebuffer fallback with CPU rotation,
-not VIC or native double-buffer success. FIFO completion, authenticated GR
-boot and SGFX admission remain unverified. See [display implementation](display-bringup.md).
+with portrait-pitch DC after CPU conversion, albeit slowly. Earlier direct
+column candidates underflow continuously despite active readback and priority.
+[IMG_9092](gpu-hardware-9092.md) then shows VIC composition timeout and failed
+native adoption; its later visible Shell is ordinary simplefb fallback.
+
+The current [DC-only candidate](dc-linux-column-verification.json) follows
+Switchroot's hardware column rotation without VIC. It explicitly selects
+V-counter activation, disables uncompressed CDE, uses the NVIDIA inversion
+cursor, and rejects native adoption if new underflows persist during its
+initialization check. CPU and admitted GPU images are scanned directly.
+Its physical output and native address alternation are unverified. GM20B
+source is unchanged: first private FIFO completion, authenticated GR boot
+and SGFX admission remain unresolved. See [display implementation](display-bringup.md).
 
 ## Execution path
 
@@ -50,7 +52,7 @@ SWS / ScarletUI fixed SGFX IR
   -> GM20B GPFIFO, signed FECS context, Mesa Maxwell SASS
   -> PGRAPH QUERY_GET fence and complete channel retirement
   -> GPU-owned BGRA image, ordinary display presentation
-  -> VIC 270-degree portrait-pitch output, Tegra DC
+  -> Tegra DC column rotation and V-counter page flip
 ```
 
 There is no Switch-specific SWS renderer or console policy. Output scale remains
