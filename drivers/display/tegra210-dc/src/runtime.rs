@@ -34,7 +34,6 @@ use scarlet_driver_tegra210::{cell, delay_us};
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
 const STRIDE: u32 = WIDTH * 4;
-const PANEL_STRIDE: u32 = HEIGHT * 4;
 const STATE_ACCESS: usize = 0x40;
 const STATE_CONTROL: usize = 0x41;
 const HEADER: usize = 0x42;
@@ -46,15 +45,39 @@ const INT_MASK: usize = 0x38;
 const INT_ENABLE: usize = 0x39;
 const MEMFETCH_CONTROL: usize = 0x82b;
 const WIN_ENABLE: u32 = 1 << 30;
+const SCAN_COLUMN: u32 = 1 << 4;
+const H_DIRECTION: u32 = 1;
+const BUFFER_STRIDE: usize = 0x70b;
+const UV_BUFFER_STRIDE: usize = 0x70c;
 const ACT_REQ: u32 = 3; // GENERAL and window A.
 const VBLANK: u32 = 1 << 2;
 const WINDOW_A_FETCH_EVENTS: u32 = (1 << 8) | (1 << 14);
 const WINDOW_B_FETCH_EVENTS: u32 = (1 << 9) | (1 << 15);
 // T210 uses the gen2 blender at 0x716..0x719. NVIDIA window.c programs
 // DC_WIN_GLOBAL_ALPHA (0x715) only for gen1; do not manage or verify it here.
-const REGISTERS: [usize; 20] = [
-    OPTIONS, 0x702, 0x703, 0x704, 0x705, 0x706, 0x707, 0x708, 0x709, 0x70a, START, START_HI, 0x806,
-    0x808, 0x701, 0x70d, 0x716, 0x717, 0x718, 0x719,
+const REGISTERS: [usize; 22] = [
+    OPTIONS,
+    0x702,
+    0x703,
+    0x704,
+    0x705,
+    0x706,
+    0x707,
+    0x708,
+    0x709,
+    0x70a,
+    START,
+    START_HI,
+    0x806,
+    0x808,
+    0x701,
+    0x70d,
+    0x716,
+    0x717,
+    0x718,
+    0x719,
+    BUFFER_STRIDE,
+    UV_BUFFER_STRIDE,
 ];
 static REGISTERED: AtomicBool = AtomicBool::new(false);
 
@@ -73,7 +96,6 @@ struct Display {
     mc: usize,
     config: FramebufferConfig,
     buffers: Option<[ContiguousPages; 2]>,
-    cpu_scanout: Option<[ContiguousPages; 2]>,
     original: [u32; REGISTERS.len()],
     original_console_window: [u32; REGISTERS.len()],
     original_console_kind: u32,
@@ -142,13 +164,7 @@ impl Display {
         Ok(())
     }
 
-    fn flip(
-        &self,
-        paddr: u64,
-        stride: u32,
-        format: PixelFormat,
-        hardware_rotation: bool,
-    ) -> Result<(), &'static str> {
+    fn flip(&self, paddr: u64, stride: u32, format: PixelFormat) -> Result<(), &'static str> {
         let access = self.read(STATE_ACCESS);
         let header = self.read(HEADER);
         self.write(STATE_ACCESS, 0); // Read and write assembly state.
@@ -169,6 +185,10 @@ impl Display {
             self.write(0x708, 0);
             self.write(0x709, 0x10001000); // No scaling.
             self.write(0x70a, stride);
+            // Linux tegra_dc_setup_window clears these even for pitch
+            // surfaces. Do not inherit a firmware pixel/tile stride.
+            self.write(BUFFER_STRIDE, 0);
+            self.write(UV_BUFFER_STRIDE, 0);
             self.write(0x70d, 0); // Linear addressing, independent of firmware state.
             // SWS supplies the complete composited RGB frame. Linux's gen2
             // blender bypass avoids inherited per-pixel alpha/key state.
@@ -176,11 +196,13 @@ impl Display {
             self.write(0x80b, 0);
             self.write(START, paddr as u32);
             self.write(START_HI, (paddr >> 32) as u32);
-            // CPU presentation uses the inspected Hekate portrait/pitch
-            // fetch. Keep the unverified landscape GPU fetch separate so
-            // CPU frames can establish a display baseline before GR works.
-            let h_offset = if hardware_rotation { WIDTH * 4 - 1 } else { 0 };
-            let options = WIN_ENABLE | if hardware_rotation { (1 << 4) | 1 } else { 0 };
+            // NVIDIA window.c swaps prescaled axes for SCAN_COLUMN.
+            // Start at the final complete source pixel, as Linux's
+            // reflect_x calculation does: (width - 1) * bytes_per_pixel.
+            // Keep the source cursor pixel-aligned; the former last-byte
+            // offset was not Linux's reflect-X calculation.
+            let h_offset = (WIDTH - 1) * 4;
+            let options = WIN_ENABLE | SCAN_COLUMN | H_DIRECTION;
             self.write(0x806, h_offset);
             self.write(0x808, 0);
             self.write(OPTIONS, options);
@@ -214,6 +236,8 @@ impl Display {
                 (0x706, WIDTH << 16 | HEIGHT * 4),
                 (0x709, 0x10001000),
                 (0x70a, stride),
+                (BUFFER_STRIDE, 0),
+                (UV_BUFFER_STRIDE, 0),
                 (0x70d, 0),
                 (0x716, (1 << 24) | 255),
                 (0x80b, 0),
@@ -359,39 +383,13 @@ impl Display {
         let memory = buffers
             .get(index)
             .ok_or("invalid Tegra DC scanout buffer")?;
-        let scanout = &self.cpu_scanout.as_ref().unwrap()[index];
-        // This complete copy also preserves partial-damage frames. Userspace
-        // still sees the ordinary 1280x720 buffers and display controls.
-        // Finish posted writes to the DeviceBurstable render mapping before
-        // reading it through the kernel alias for conversion.
-        arch::io_mb();
-        let source = memory.as_vaddr();
-        let destination = scanout.as_vaddr();
-        for panel_y in 0..WIDTH {
-            let x = WIDTH - 1 - panel_y;
-            for panel_x in 0..HEIGHT {
-                let pixel = unsafe {
-                    core::ptr::read_volatile(
-                        (source + (panel_x * STRIDE + x * 4) as usize) as *const u32,
-                    )
-                };
-                unsafe {
-                    core::ptr::write_volatile(
-                        (destination + (panel_y * PANEL_STRIDE + panel_x * 4) as usize) as *mut u32,
-                        pixel,
-                    )
-                };
-            }
-        }
+        // Both aliases are Normal Non-cacheable, matching arm64 Linux's
+        // pgprot_writecombine. Publish CPU stores before DC fetches the
+        // actual application buffer; there is no rotated staging copy.
         arch::io_mb();
         state.changed = true;
         self.trace_frame(memory.as_paddr(), STRIDE, "CPU");
-        if let Err(error) = self.flip(
-            scanout.as_paddr(),
-            PANEL_STRIDE,
-            PixelFormat::BGRA8888,
-            false,
-        ) {
+        if let Err(error) = self.flip(memory.as_paddr(), STRIDE, PixelFormat::BGRA8888) {
             state.lost = true;
             return Err(error);
         }
@@ -446,11 +444,15 @@ impl Display {
         // These are fetch counters/status, not proof of correct physical
         // pixels. Read the shared MC error latch without acknowledging it.
         scarlet::println!(
-            "tegra-dc: scanout={} addr={:#x} pitch={} options={:#010x}",
+            "tegra-dc: scanout={} addr={:#x} pitch={} options={:#010x} offsets={}/{} buf-stride={}/{}",
             sequence,
             paddr,
             stride,
-            options
+            options,
+            self.read(0x806),
+            self.read(0x808),
+            self.read(BUFFER_STRIDE),
+            self.read(UV_BUFFER_STRIDE)
         );
         scarlet::println!(
             "tegra-dc: fetch uf={:#010x}/{:#010x} intr={:#010x} mc={:#010x} err={:#010x}/{:#010x}",
@@ -470,7 +472,6 @@ impl Drop for Display {
             // A failed flip may still become active. Retain every allocation
             // the controller could fetch, including the attempted GPU image.
             core::mem::forget(self.buffers.take());
-            core::mem::forget(self.cpu_scanout.take());
             core::mem::forget(self.state.get_mut().gpu_front.take());
             core::mem::forget(self.state.get_mut().pending_gpu.take());
             return;
@@ -541,7 +542,7 @@ impl GraphicsDevice for Display {
         Ok(self.buffers.as_ref().unwrap()[self.front.load(Ordering::Acquire) ^ 1].as_paddr())
     }
     fn framebuffer_memory_attribute(&self) -> MemoryAttribute {
-        MemoryAttribute::DeviceBurstable
+        MemoryAttribute::NonCacheable
     }
     fn scanout_buffer_count(&self) -> usize {
         2
@@ -647,7 +648,7 @@ impl GraphicsDevice for Display {
         state.pending_gpu = Some(resource);
         state.changed = true;
         self.trace_frame(paddr, stride, "GPU");
-        if let Err(error) = self.flip(paddr, stride, format, true) {
+        if let Err(error) = self.flip(paddr, stride, format) {
             state.lost = true;
             return Err(error);
         }
@@ -673,17 +674,19 @@ impl GraphicsDevice for Display {
         } else {
             unsafe {
                 earlyfb::replace_surface(
-                    self.cpu_scanout.as_ref().unwrap()[0].as_vaddr(),
-                    HEIGHT as usize,
+                    self.buffers.as_ref().unwrap()[0].as_vaddr(),
                     WIDTH as usize,
-                    PANEL_STRIDE as usize,
+                    HEIGHT as usize,
+                    STRIDE as usize,
                     false,
-                    true,
+                    false,
                 )
             }?
         };
         state.initialized = true;
-        scarlet::println!("tegra-dc: native scanout active; CPU portrait pitch, 1280x720 display");
+        scarlet::println!(
+            "tegra-dc: native scanout active; 1280x720, direct pitch, hardware rotation, Normal-NC"
+        );
         if self.keep_console {
             scarlet::println!("tegra-dc: keep_bootcon; boot logs remain visible in window B");
         }
@@ -794,13 +797,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         ContiguousPages::new((STRIDE as usize * HEIGHT as usize).div_ceil(4096))
             .ok_or("Tegra DC scanout allocation failed")?,
     ];
-    let mut cpu_scanout = [
-        ContiguousPages::new((PANEL_STRIDE as usize * WIDTH as usize).div_ceil(4096))
-            .ok_or("Tegra DC portrait scanout allocation failed")?,
-        ContiguousPages::new((PANEL_STRIDE as usize * WIDTH as usize).div_ceil(4096))
-            .ok_or("Tegra DC portrait scanout allocation failed")?,
-    ];
-    for (index, memory) in buffers.iter_mut().chain(cpu_scanout.iter_mut()).enumerate() {
+    for (index, memory) in buffers.iter_mut().enumerate() {
         if memory
             .as_paddr()
             .checked_add(u64::from(STRIDE) * u64::from(HEIGHT))
@@ -813,11 +810,11 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
             index,
             memory.as_paddr()
         );
-        memory.retag_memory_attribute(MemoryAttribute::DeviceBurstable)?;
+        memory.retag_memory_attribute(MemoryAttribute::NonCacheable)?;
     }
     scarlet::println!("tegra-dc: scanout buffers ready; preserving boot frame");
-    // Preserve the last boot frame in the ordinary landscape render buffer.
-    // CPU presentation converts it back to the known portrait pitch layout.
+    // Convert the inherited portrait boot frame once during adoption.
+    // All subsequent frames are scanned directly with DC hardware rotation.
     let boot = vm::addr::phys_to_virt(u64::from(original[10]));
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
@@ -843,7 +840,6 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         mc,
         config: FramebufferConfig::new(WIDTH, HEIGHT, PixelFormat::BGRA8888),
         buffers: Some(buffers),
-        cpu_scanout: Some(cpu_scanout),
         original,
         original_console_window,
         original_console_kind,
