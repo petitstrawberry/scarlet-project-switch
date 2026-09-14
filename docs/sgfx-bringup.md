@@ -31,14 +31,22 @@ column candidates underflow continuously despite active readback and priority.
 [IMG_9092](gpu-hardware-9092.md) then shows VIC composition timeout and failed
 native adoption; its later visible Shell is ordinary simplefb fallback.
 
-The current [DC-only candidate](dc-linux-column-verification.json) follows
-Switchroot's hardware column rotation without VIC. It explicitly selects
-V-counter activation, disables uncompressed CDE, uses the NVIDIA inversion
-cursor, and rejects native adoption if new underflows persist during its
-initialization check. CPU and admitted GPU images are scanned directly.
-Its physical output and native address alternation are unverified. GM20B
-source is unchanged: first private FIFO completion, authenticated GR boot
-and SGFX admission remain unresolved. See [display implementation](display-bringup.md).
+[IMG_9093](gpu-hardware-9093.md) confirms the guarded DC-only pitch image
+latches V-counter/CDE/cursor state but rejects native adoption after A
+underflow rises 3 to 4. The visible Shell again uses ordinary simplefb.
+The first private FIFO host push still times out before GR/SGFX admission.
+
+The new [block-linear DC candidate](dc-block-linear-verification.json)
+compares Tegra 16Bx2 storage with the same native fetch check. Applications
+remain on the ordinary linear swapchain; the driver uploads complete frames
+into two private block-linear DC buffers, and DC performs rotation. There is
+no VIC composition or per-frame CPU transpose. This intermediate upload
+adds traffic and may reduce performance; measured conversion time is logged.
+Direct GPU-produced block-linear presentation is a later integration goal,
+not implemented here. No universal pitch-column restriction is assumed.
+Physical output, native address alternation and performance are unverified.
+GM20B code and genuine Ready admission are unchanged. See
+[display implementation](display-bringup.md).
 
 ## Execution path
 
@@ -52,6 +60,7 @@ SWS / ScarletUI fixed SGFX IR
   -> GM20B GPFIFO, signed FECS context, Mesa Maxwell SASS
   -> PGRAPH QUERY_GET fence and complete channel retirement
   -> GPU-owned BGRA image, ordinary display presentation
+  -> intermediate linear-to-block-linear storage upload
   -> Tegra DC column rotation and V-counter page flip
 ```
 
@@ -171,6 +180,7 @@ Capture these lines, including their order and physical addresses:
 gm20b: submit=... ops=... draws=... objects=...
 gm20b: render=... addr=... 1280x720 pitch=... varied=.../921600 sample=...
 tegra-dc: frame=... GPU addr=... pitch=... varied=.../576 sample=...
+tegra-dc: upload=... src=... dst=... kind=0x42 ... elapsed=...us matched=576/576
 ```
 
 GPU rendering must retire before its pixels are inspected. Both producers use
@@ -182,13 +192,16 @@ submissions/presents and subsequent powers of two, and enabled only by
 
 - Draws with a completely uniform retired image point to rendering or its
   inputs; record the SWS logs and submitted draw count as well.
-- A varied GPU image followed by the same physical address, pitch and sample
-  hash at DC separates successful image production from a scanout problem.
+- A varied retired GPU image and matching input address/sample in the DC
+  frame diagnostic establish source agreement. The upload diagnostic then
+  compares source pixels with private block-linear storage; the actual DC
+  address is the private destination, not the linear GPU input address.
+  Agreement still requires physical panel confirmation.
 - CPU frame lines or an absent Ready backend require the preceding probe and
   facade-selection logs; a clear alone does not prove GPU composition.
 - Active-register mismatches report the register, expected value and observed
-  value. Window A programs and verifies byte swap, color depth, pitch, linear
-  addressing, rotation and opaque gen2 blend bypass. Window B and rollback
+  value. Window A programs and verifies byte swap, color depth, pitch, block-linear
+  kind, rotation and opaque gen2 blend bypass. Window B and rollback
   state are verified independently.
 
 This adds evidence for the next physical iteration; it does not establish that

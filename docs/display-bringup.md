@@ -1,165 +1,156 @@
 # Tegra210 native DC column rotation
 
-The current candidate uses DC itself to rotate ordinary 1280x720 images into
-the inherited 720x1280 DSI mode. It follows Switchroot Jammy/Noble's NVIDIA
-DC path: `SCAN_COLUMN | INVERT_H`, named 90 degrees in that driver. It does
-not start VIC or allocate portrait staging buffers. The experimental VIC
-implementation remains in source but is not linked into the DC runtime.
+[IMG_9093](gpu-hardware-9093.md) rejects the preceding direct-pitch native
+candidate: activation/CDE/cursor readbacks pass, but A underflow rises from
+3 to 4 during initialization. The later visible Shell is ordinary simplefb
+fallback. Earlier failures and exact installed identities remain recorded
+in [the direct-pitch receipt](dc-linux-column-verification.json).
 
-**Hardware validation of this candidate is pending.**
-[IMG_9092](gpu-hardware-9092.md) shows the preceding VIC image's first
-composition timing out, failed native adoption, and ordinary simplefb
-fallback. Its visible Shell was initially misattributed to native success.
-[IMG_9090](gpu-hardware-9090.md) and [IMG_9091](gpu-hardware-9091.md) document
-failed earlier direct-column images; latched addresses and priority values
-did not prevent continuing window-A underflows. The current change is not a
-claim that pitch-column rotation has now worked on hardware.
+The new [block-linear image](dc-block-linear-verification.json) is a
+comparative DC surface-layout candidate, **not yet physically tested**.
+It preserves Switchroot's `SCAN_COLUMN | INVERT_H`, named 90 degrees in that
+driver, into the inherited 720x1280 DSI mode. It changes storage layout;
+it does not perform a per-frame CPU transpose or start VIC. The experimental
+VIC source remains outside the linked DC runtime. GM20B code is unchanged.
 
-## Changes from the failed images
+## Image storage and application buffers
 
-- Force V-counter activation for owned windows in `DC_CMD_REG_ACT_CONTROL`
-  (`0x43`). Hekate leaves H-counter selectors set. A wait for a subsequent
-  VBlank did not change the earlier drivers' latch boundary. Follow NVIDIA's
-  UPDATE, activation-counter selection, ACT_REQ order. Verify active selectors
-  and restore their original owned fields only after rollback retirement.
-- Explicitly disable uncompressed-image CDE (`0x82f = 0`, `0x837 = 1`) for A
-  and diagnostic B. Save, verify and restore both banked registers.
-- Use the NVIDIA `INVERT_H` source cursor: width times bytes-per-pixel minus
-  one, **5119 bytes**, instead of the earlier 5116-byte pixel-start cursor.
-- Scan the two ordinary CPU buffers directly. Preserve Normal Non-cacheable
-  HHDM/mmap aliases, barriers, active-state verification, retirement waits,
-  and failed-rollback backing retention. Admitted GPU images are also scanned
-  directly, without a VIC conversion.
-- Before native registration, observe two additional VBlank boundaries.
-  Any new A underflow, or B underflow when diagnostic B is owned, rejects
-  adoption and rolls back to the firmware window. This is an initialization
-  check; it adds no wait to ordinary presentation. Zero observed underflows
-  still requires physical confirmation of pixels, orientation and updates.
+Applications and SWS keep their ordinary 1280x720 BGRA, pitch-5120 display
+swapchain. These two page-owned linear buffers are presentation sources,
+not the addresses fetched by DC. Two additional private DC front/back
+allocations contain uncompressed Tegra 16Bx2 block-linear storage:
 
-The activation and CDE changes follow
-[NVIDIA window.c](https://github.com/theofficialgman/switch-l4t-kernel-nvidia/blob/7d95822acda1f6dab3f3d1d099b43ff9e0d0e626/drivers/video/tegra/dc/window.c#L708).
-The inversion cursor is programmed at
-[line 819](https://github.com/theofficialgman/switch-l4t-kernel-nvidia/blob/7d95822acda1f6dab3f3d1d099b43ff9e0d0e626/drivers/video/tegra/dc/window.c#L819),
-and UPDATE/counter/ACT ordering at
-[line 970](https://github.com/theofficialgman/switch-l4t-kernel-nvidia/blob/7d95822acda1f6dab3f3d1d099b43ff9e0d0e626/drivers/video/tegra/dc/window.c#L970).
-Hekate's inherited activation selectors are set in
-[di.inl](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/display/di.inl#L22).
+- 64-byte by 8-row GOBs; 16 GOBs stacked vertically, block-height log2 4.
+- Pitch 5120; height padded to 768; 3,932,160 bytes per allocation.
+- 128-KiB-aligned, completely zeroed allocations, including padding.
+- DC `BUFFER_SURFACE_KIND = 2 | (4 << 4) = 0x42`. This register value is
+  distinct from a DRM modifier or the GPU page kind.
 
-## Adoption and buffers
+Each present uploads the complete visible linear frame into the inactive
+private buffer, preserving pixel coordinates and byte order. Consecutive
+16-byte destination sectors support sequential stores. DC performs the
+output rotation. A successful active-state latch and a subsequent VBlank
+retire the previous private front before it can be written again. CPU/GPU
+source owners remain retained until that presentation succeeds. Both HHDM
+and application aliases retain Normal Non-cacheable attributes and barriers.
+
+The layout follows
+[Linux drm_fourcc.h](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/include/uapi/drm/drm_fourcc.h#L974)
+and the historical primary
+[Chromium minigbm Tegra implementation](https://chromium.googlesource.com/chromiumos/platform/minigbm/+/bc4f023bfcc51cf9dcfcfec5bf4177b2e607dd68/tegra.c).
+The production upload was compared with the original minigbm C transfer
+functions for all 921,600 pixels and all padded bytes, with source pitches
+5120 and 5184. This verifies storage equivalence only; it does not test DC,
+panel pixels, underflows or frame rate.
+
+## Cost and intended direct GPU path
+
+The intermediate upload reads and writes 3,686,400 visible bytes per frame:
+7,372,800 bytes of added traffic, about 442 MB/s at 60 fps, before composition,
+DC fetches and transaction overhead. It may reduce performance; no physical
+FPS or latency result exists for this image. Damage regions remain validated,
+but the upload is currently a full-frame operation. Presentation is synchronous,
+without asynchronous render/present overlap.
+
+The first upload and sampled diagnostic uploads report elapsed microseconds,
+source and private destination addresses, kind/block height and 576 sampled
+pixel comparisons. This is conversion time, not total frame time. The later
+goal is for the GPU to produce compatible block-linear images for direct DC
+presentation, eliminating the upload. That resource/modifier integration is
+not implemented by this candidate; genuine GPU admission must also succeed.
+
+## Register programming and guarded adoption
 
 The in-memory DT marks only DC0 with `scarlet,boot-scanout = <1>`, removes
 its cold PMC pinctrl states and disables unclaimed DC1. Probe requires the
-inspected running DC clock/reset, continuous 720x1280 mode, BGRA portrait
-pitch 2880, surface kind pitch, and boot address `0xf5a00000`. Both Noble
-DC SWGROUP enables must be readable and clear. Unsupported inherited state
-leaves ordinary simplefb available. DC1, DSI/panel setup, regulators, global
-clocks, MC translation and EMC frequency/bandwidth policy are not programmed.
+inspected running DC clock/reset, continuous 720x1280 mode, inherited BGRA
+portrait pitch 2880, kind pitch, and address `0xf5a00000`. Noble DC SWGROUP
+enables must be clear, and window B must be unused. Unsupported state leaves
+ordinary simplefb available. Cold DSI/panel setup, regulators, global clocks,
+MC translation and EMC bandwidth/frequency policy are not reprogrammed.
 
-Two page-owned landscape BGRA buffers are exposed through ordinary
-`/dev/display0` swapchain ioctls. The boot image is converted once during
-adoption. Subsequent presents use no frame transpose or staging copy.
-The common earlyfb handoff uses the direct landscape surface until the first
-userspace present deactivates boot output. This selects no distribution or
-renderer policy.
+Window A uses output size `0x050002d0`, prescaled size `0x05000b40`, DDA
+`0x10001000`, pitch 5120, options `0x40000011`, H/V offsets `5119/0`, and
+block-linear kind `0x42`. Byte swap, host addressing, buffer/UV stride,
+uncompressed CDE (`0/1`) and gen2 opaque blend bypass are explicit. Fetch
+priority threshold `0x20` and timer 1 remain the NVIDIA/Linux policy.
 
-DC window A uses physical output size `0x050002d0`, prescaled size
-`0x05000b40`, DDA `0x10001000`, pitch 5120 for CPU frames, options
-`0x40000011`, H/V offsets `5119/0`, and pitch surface kind zero. Byte swap,
-host addressing, buffer/UV stride, uncompressed CDE and gen2 opaque blend
-bypass are explicit. Native priority threshold `0x20`/timer 1 remains the
-Linux policy; priority alone already failed in IMG_9091.
+UPDATE precedes clearing the owned H-counter selectors (`0x14`, A/B) in
+`DC_CMD_REG_ACT_CONTROL`, followed by ACT_REQ. Active window and policy
+values are verified. Waiting for a later VBlank cannot turn an H-counter
+latch into a V-counter flip; the selector is set explicitly. Both activation
+and subsequent retirement waits are bounded to 100 ms.
 
-SWS uses its ordinary display swapchain and advances the draw index after
-`DISPLAY_PRESENT_BUFFER` succeeds. The driver checks the active DC address
-and V-counter policy after activation, waits another VBlank before old
-storage can be reused, then advances the front index. Both waits are bounded
-to 100 ms. Presentation remains synchronous, with no asynchronous
-render/present overlap. Front/back separation is implemented; physical
-address alternation and performance of this candidate remain unverified.
+The original linear boot surface remains visible in B through initialization,
+so earlyfb can keep writing its actual linear reservation. It is not redirected
+into tiled storage. The first ordinary userspace present disables B with A's
+flip and deactivates boot output. `keep_bootcon` retains opaque B above A for
+diagnostics. This uses the common boot-console option and ordinary application
+path; it introduces no console-distribution or Switch-specific SWS policy.
 
-Failure restores saved A, owned diagnostic B, priority, CDE and activation
-policy. If activation/rollback cannot retire, all possibly referenced CPU
-and GPU allocations remain retained. The firmware boot reservation remains
-live. The original interrupt enable/mask bits are restored; event status is
-polled with CPU interrupts masked, without claiming a DC GIC interrupt.
+Before publishing native display, two further VBlanks must add no A/B
+underflows. This initialization check rejected the IMG_9093 image. Zero
+counter deltas alone still do not establish correct panel content. Failure
+restores saved A/B registers, kinds, priorities, CDE and owned activation
+fields. If rollback cannot retire, all possibly referenced allocations remain
+retained. Original event enable/mask bits are restored; status is polled with
+CPU IRQs masked, without claiming a DC GIC interrupt.
 
-The common AArch64 HHDM correction still uses 4-KiB leaves so retagging a
-framebuffer cannot remove the page table needed for a live block split;
-same-attribute metadata remains merged. See
-[PR #560](https://github.com/petitstrawberry/Scarlet/pull/560).
-Cold panel initialization, modesetting, HDMI, IRQ-driven flips and
-suspend/resume remain pending.
+The activation, CDE, cursor and block-linear kind programming follow
+[NVIDIA window.c](https://github.com/theofficialgman/switch-l4t-kernel-nvidia/blob/7d95822acda1f6dab3f3d1d099b43ff9e0d0e626/drivers/video/tegra/dc/window.c#L708),
+including its [inversion cursor](https://github.com/theofficialgman/switch-l4t-kernel-nvidia/blob/7d95822acda1f6dab3f3d1d099b43ff9e0d0e626/drivers/video/tegra/dc/window.c#L819)
+and [UPDATE/ACT ordering](https://github.com/theofficialgman/switch-l4t-kernel-nvidia/blob/7d95822acda1f6dab3f3d1d099b43ff9e0d0e626/drivers/video/tegra/dc/window.c#L970).
+Hekate's inherited selectors are set in
+[di.inl](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/display/di.inl#L22).
+
+The common HHDM correction retains 4-KiB leaves so framebuffer retagging
+cannot remove a page table needed for a live block split; same-attribute
+metadata remains merged. See [Scarlet #560](https://github.com/petitstrawberry/Scarlet/pull/560).
+Cold panel/HDMI modesetting, IRQ-driven flips and suspend/resume remain pending.
 
 ## Linux reference distinction
 
-The current mainline Tegra DRM driver exposes 0/180-degree plane rotation
-and X/Y reflection, not 90/270-degree rotation, in
-[dc.c](https://github.com/torvalds/linux/blob/704340f1cd0dcef829eb62f5b48ae95a2ce17bdf/drivers/gpu/drm/tegra/dc.c#L946).
-This does not describe the Switchroot Jammy/Noble display workaround. Its
-[actual build script](https://github.com/theofficialgman/l4t-kernel-build-scripts/blob/1fb0e92e10eaf452b71cbdf7fc7b06c27f6de121/l4t-linux-build.sh#L36)
-uses theofficialgman's NVIDIA fork, rather than the CTCaer fork used for the
-earlier register reference.
+The cited [mainline Tegra DRM driver](https://github.com/torvalds/linux/blob/704340f1cd0dcef829eb62f5b48ae95a2ce17bdf/drivers/gpu/drm/tegra/dc.c#L946)
+exposes 0/180-degree rotation and X/Y reflection, not 90/270 degrees.
+Switchroot Jammy/Noble instead uses theofficialgman's NVIDIA fork in its
+[actual build script](https://github.com/theofficialgman/l4t-kernel-build-scripts/blob/1fb0e92e10eaf452b71cbdf7fc7b06c27f6de121/l4t-linux-build.sh#L36).
+Its [ext/dev.c](https://github.com/theofficialgman/switch-l4t-kernel-nvidia/blob/7d95822acda1f6dab3f3d1d099b43ff9e0d0e626/drivers/video/tegra/dc/ext/dev.c#L432)
+forces SCAN_COLUMN + INVERT_H/V for panel rotation without VIC composition.
+The [maintainers](https://wiki.switchroot.org/wiki/common-issues) document DC
+rotation as their Jammy/Noble frame-pacing workaround.
 
-In that fork,
-[ext/dev.c](https://github.com/theofficialgman/switch-l4t-kernel-nvidia/blob/7d95822acda1f6dab3f3d1d099b43ff9e0d0e626/drivers/video/tegra/dc/ext/dev.c#L432)
-maps 90 degrees to SCAN_COLUMN + INVERT_H, and 270 degrees to SCAN_COLUMN +
-INVERT_V. Its flip path forces these flags from the panel rotation and swaps
-landscape output dimensions to physical portrait dimensions. This is DC
-rotation without a VIC composition. The
-[Switchroot maintainers](https://wiki.switchroot.org/wiki/common-issues)
-document kernel DC rotation as their Jammy/Noble workaround for Xorg rotation
-frame pacing. The fork's window register implementation is byte-identical to
-the cached CTCaer window.c. Its rotation override alone does not prove that
-Scarlet's surface layout, bandwidth and inherited state are equivalent. The
-new candidate additionally manages activation and uncompressed CDE state;
-physical testing must establish whether these changes resolve scanout.
+Those flags do not establish proprietary userspace allocation layout or
+bandwidth equivalence. The fork accepts both pitch and block-linear surface
+flags; no universal requirement for block-linear column input is asserted.
+The new layout must be compared on Scarlet hardware with the same fetch check.
 
-## GPU producer boundary
+## GPU boundary and physical iteration
 
-`DISPLAY_PRESENT_IMAGE` requires a retained GPU swapchain resource with one
-contiguous physical extent, 1280x720 packed 32-bit RGB, 64-byte-aligned pitch
-and address, and a bounded 34-bit DMA range. BGRA/XRGB and RGBA/XBGR use
-DC color-depth values 12 and 13 respectively. Rendering must have retired
-and published writes before presentation. Diagnostic inspection invalidates
-CPU aliases; it never cleans stale aliases over GPU-written pixels.
-The attempted and preceding fronts stay retained until a successful DC
-retirement, and both are retained on failed rollback.
+`DISPLAY_PRESENT_IMAGE` currently accepts retired, retained linear GPU
+swapchain resources: one contiguous extent, 1280x720 packed 32-bit RGB,
+64-byte-aligned pitch/address and bounded 34-bit range. BGRA/XRGB and
+RGBA/XBGR select DC depths 12 and 13. CPU aliases are invalidated before the
+storage upload and never cleaned over GPU-written pixels. Block-linear,
+compressed and segmented GPU resources are not accepted directly.
+The first private FIFO host-method completion and authenticated GR/SGFX
+admission remain physically unresolved; see [SGFX status](sgfx-bringup.md).
 
-Block-linear/compressed/segmented resources remain unsupported; no claim is
-made that Linux's proprietary userspace always allocates pitch surfaces.
-The GM20B source is unchanged in this iteration. The first private FIFO
-host-method completion and authenticated GR/SGFX admission are still
-physically unresolved; see [SGFX status](sgfx-bringup.md).
-
-## Physical iteration and artifacts
-
-The current source/build/SD identity is in
-[dc-linux-column-verification.json](dc-linux-column-verification.json).
-Scale remains 1.0, maxcpus 4, and existing input/RTC/cpufreq remain included.
+Scale remains 1.0 and maxcpus 4, with existing input/RTC/cpufreq included.
 Boot **More Configs → Scarlet Switch Console** for the ordinary Shell.
-**Scarlet Switch SGFX Logs** instead keeps the original portrait boot console
-in opaque window B above A and mirrors ordinary userspace logs. It covers the
-GUI while diagnosing the same distribution; it does not select framebuffer
-TTY policy.
-
-Native adoption requires both the DC success line and native source device
-registration as `fb0`; an address reused by simplefb after failed native
-adoption is not sufficient. Relevant new lines are:
+**Scarlet Switch SGFX Logs** retains opaque B above A and mirrors ordinary
+userspace logs while diagnosing the same distribution. New expected lines:
 
 ```text
-tegra-dc: inherited activation=... cde=.../...
-tegra-dc: layout kind=0x0 cde=0x0/0x1 activation=... vcounter-mask=...
+tegra-dc: upload=1 src=... dst=... kind=0x42 block-height=16 padded=3932160 elapsed=...us matched=576/576
+tegra-dc: layout kind=0x42 cde=0x0/0x1 activation=... vcounter-mask=0x14
 tegra-dc: adoption fetch A=...->... B=...->... delta=0/0
-tegra-dc: native scanout active; DC90, direct pitch=5120, buffers=2, V-counter, Normal-NC
+tegra-dc: native scanout active; DC90, block-linear kind=0x42, render/scanout=2/2, V-counter, Normal-NC
 ```
 
-Record physical content/orientation, sustained updates, input and CPU/timer
-startup. The diagnostic view also logs actual active address, pitch, offsets,
-underflow deltas and MC's untouched sticky error latch. A failed fetch check
-prints `DC column scanout underflows; keeping firmware framebuffer` and
-rejects native publication. Ordinary fallback may still display the Shell.
-
-Build, package CRC and SD readback checks do not validate physical rotation,
-DMA completion, native page flips, shader execution or suspend/resume.
-The preceding installed VIC image remains recorded separately in
-[dc-vic-rotation-verification.json](dc-vic-rotation-verification.json).
+Native success also requires native source-device registration as `fb0`,
+correct physical pixels/orientation and sustained updates. Record actual
+private DC address alternation, upload time and input latency. An address
+reused by simplefb after failed native admission is not native success.
+Build/package checks do not validate physical scanout, DMA completion,
+shader execution or suspend/resume. The new receipt currently records no SD
+installation and no physical test.
