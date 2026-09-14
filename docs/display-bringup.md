@@ -1,8 +1,9 @@
 # Tegra210 native scanout with VIC rotation
 
 The console distribution links `scarlet-driver-tegra210-dc` and exports the
-ordinary `/dev/display0` interface. SWS and ScarletUI render their normal
-1280x720 images. The current hardware path follows Hekate Nyx: VIC rotates
+ordinary `/dev/display0` interface on successful native adoption. SWS and
+ScarletUI render their normal 1280x720 images. The experimental hardware path
+follows Hekate Nyx: VIC rotates
 landscape pitch input by 270 degrees into a private portrait-pitch buffer,
 then DC scans 720x1280 at pitch 2880, offsets zero, with `WIN_ENABLE` only.
 
@@ -14,8 +15,12 @@ failed direct `SCAN_COLUMN` candidates. IMG_9091 proves native priority
 `0x2cd` despite 575/576 differing producer samples. B stays readable with zero
 underflows. Fetch priority alone did not fix the physical display. The user
 requests following Hekate's actual working path. Column-scan and unfinished
-block-linear proposals remain historical/held; further SGFX changes await this
-display gate.
+block-linear proposals remain historical/held. [IMG_9092](gpu-hardware-9092.md)
+now shows the VIC FCE initializing, but its first composition times out and
+native DC adoption fails. The later visible Shell uses ordinary
+simple-framebuffer fallback with CPU rotation into inherited Hekate scanout.
+The initial "でた。" report was incorrectly attributed to VIC; neither VIC/DC
+presentation nor native double-buffer switching is physically validated.
 
 The VIC configuration matches the compiled original Hekate C ABI byte for byte:
 size `0x610`, slots at `0x90`, slot size `0xb0`, surface at slot +`0x40`.
@@ -32,9 +37,11 @@ activation. This reads actual hardware output; it neither performs a CPU
 transpose nor proves physical panel pixels. A VIC failure isolates DMA and
 leaves the preceding DC front untouched. The new
 [VIC artifact receipt](dc-vic-rotation-verification.json) distinguishes build
-and package checks from a pending physical boot. The VIC image was installed
-to FAT32 SD disk8s1 with 12 readback hashes and 38 protected-file hashes
-verified, then ejected.
+and package checks from the failed physical VIC boot. The VIC image
+(board `b71de486`, ELF SHA-256 starting `3811e40f`) was installed to FAT32 SD
+disk8s1 with 12 readback hashes and 38 protected-file hashes verified, then
+ejected. IMG_9092 confirms fallback output after native initialization failure,
+not alternating native scanout addresses or successful VIC presentation.
 
 All CPU render and portrait-output allocations use Normal Non-cacheable in
 HHDM and display mmap aliases, matching arm64 Linux write-combine mappings.
@@ -80,6 +87,18 @@ portrait front with its existing rotated coordinate mapping until userspace
 presentation deactivates boot output. No distribution or renderer policy is
 introduced in the hardware driver.
 
+The ordinary SWS CPU path queries the two-buffer display swapchain, draws
+into the non-front source and advances its draw index only after
+`DISPLAY_PRESENT_BUFFER` returns successfully. The driver composes into
+`panel_front ^ 1`, verifies the active DC address after activation/retirement,
+then advances the logical and portrait front indices. Thus front/back
+separation exists in the implementation. Presentation is synchronous: SWS
+cannot start its next frame on that thread while VIC/DC waits run. No
+asynchronous queue or render/present overlap is implemented. IMG_9092 fails
+before this native swapchain is published. Its fallback instead exposes one
+landscape shadow buffer and copies damaged pixels by CPU rotation into the
+single inherited physical front; SWS CPU backbuffering is not a DC page flip.
+
 The current common AArch64 correction builds the HHDM with 4-KiB leaves
 before activation. This prevents a live block split from removing unrelated
 PMM storage, including the page table needed to publish its replacement.
@@ -110,6 +129,29 @@ state and waits for retirement before freeing storage. Failed rollback retains
 all potentially fetched storage. Boot/emergency output is handed to the new
 linear surface with the common earlyfb API; cursor and pixel channel order
 survive until ordinary userspace presentation disables the boot console.
+
+## Linux reference distinction
+
+The current mainline Tegra DRM driver exposes 0/180-degree plane rotation
+and X/Y reflection, not 90/270-degree rotation, in
+[dc.c](https://github.com/torvalds/linux/blob/704340f1cd0dcef829eb62f5b48ae95a2ce17bdf/drivers/gpu/drm/tegra/dc.c#L946).
+This does not describe the Switchroot Jammy/Noble display workaround. Its
+[actual build script](https://github.com/theofficialgman/l4t-kernel-build-scripts/blob/1fb0e92e10eaf452b71cbdf7fc7b06c27f6de121/l4t-linux-build.sh#L36)
+uses theofficialgman's NVIDIA fork, rather than the CTCaer fork used for the
+earlier register reference.
+
+In that fork,
+[ext/dev.c](https://github.com/theofficialgman/switch-l4t-kernel-nvidia/blob/7d95822acda1f6dab3f3d1d099b43ff9e0d0e626/drivers/video/tegra/dc/ext/dev.c#L432)
+maps 90 degrees to SCAN_COLUMN + INVERT_H, and 270 degrees to SCAN_COLUMN +
+INVERT_V. Its flip path forces these flags from the panel rotation and swaps
+landscape output dimensions to physical portrait dimensions. This is DC
+rotation without a VIC composition. The
+[Switchroot maintainers](https://wiki.switchroot.org/wiki/common-issues)
+document kernel DC rotation as their Jammy/Noble workaround for Xorg rotation
+frame pacing. The fork's window register implementation is byte-identical to
+the cached CTCaer window.c; the added userspace-flip override alone does not
+explain the failed Scarlet pitch-column candidates or prove that their
+surface layout, bandwidth and inherited state are equivalent.
 
 ## GPU producer boundary
 

@@ -32,9 +32,11 @@ latched while A underflows continue. Following the user's request, the current
 [VIC candidate](dc-vic-rotation-verification.json) uses Hekate's actual 270-degree
 VIC conversion and the established DC pitch-2880 layout, for both ordinary CPU
 and retired GPU images. No per-frame CPU transpose, block-linear upload or
-GPU memory/runlist changes are included. Physical VIC/DC presentation remains
-pending; FIFO completion, authenticated GR boot and SGFX admission are still
-unverified. See [display implementation](display-bringup.md).
+GPU memory/runlist changes are included. [IMG_9092](gpu-hardware-9092.md)
+shows VIC first-composition timeout and failed native DC adoption. The later
+visible Shell is ordinary simple-framebuffer fallback with CPU rotation,
+not VIC or native double-buffer success. FIFO completion, authenticated GR
+boot and SGFX admission remain unverified. See [display implementation](display-bringup.md).
 
 ## Execution path
 

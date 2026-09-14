@@ -15,7 +15,7 @@
   },
   "preceding_hardware_report": "docs/gpu-hardware-9091.md",
   "preceding_installed_image": "docs/dc-fetch-priority-verification.json",
-  "hardware_tested": false,
+  "hardware_tested": true,
   "hardware_validated": false,
   "installed_to_sd": true,
   "changes": [
@@ -147,8 +147,8 @@
     }
   },
   "limits": [
-    "Physical VIC composition and correct DC pixels/orientation/edges/sustained updates remain untested",
-    "Known portrait-pitch CPU baseline proves DC layout, not this new VIC implementation",
+    "IMG_9092 proves the first VIC composition times out and native DC adoption fails; the GUI uses ordinary simple-framebuffer fallback",
+    "Visible fallback output uses CPU rotation into inherited Hekate scanout; it does not validate VIC or native front/back switching",
     "576 output samples establish selected memory pixels only, not panel scanout or measured frame rate",
     "First private GPU FIFO host push still times out in IMG_9091; no new GPU fixes are included",
     "Inherited DSI/panel and host1x clocks; no cold modesetting, display IRQs or suspend/resume",
@@ -183,5 +183,28 @@
     "ejected_at_utc": "2026-09-14T06:04:05.243658+00:00"
   },
   "sd_install_log": ".cache/dc-vic-rotation-sd-install.log",
-  "sd_install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd"
+  "sd_install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd",
+  "display_output_user_confirmed": true,
+  "hardware_observations": {
+    "initial_user_report": "でた。",
+    "video": "/Users/petitstrawberry/Downloads/IMG_9092.mov",
+    "video_sha256": "e14c328ca037db485be9c55515be2ab09b16e7f07151c8d88cc15c660984343d",
+    "scope": "Visible ordinary simple-framebuffer fallback, not successful VIC/DC adoption",
+    "vic_fce_initialization_logged": true,
+    "vic_first_composition_completed": false,
+    "native_dc_probe_error": "VIC composition/parameter timeout",
+    "fallback_framebuffer_resource": "fb0",
+    "fallback_graphics_device_id": 10,
+    "fallback_logical_width": 1280,
+    "fallback_logical_height": 720,
+    "fallback_shadow_paddr": "0x17e8a7000",
+    "fallback_cpu_rotation": true,
+    "native_double_buffering_active": false,
+    "alternating_active_scanout_addresses_verified": false,
+    "frame_rate_measured": false,
+    "sgfx_admission_verified": false,
+    "correction": "The initial visible-output report was incorrectly attributed to VIC before the video established probe failure and fallback"
+  },
+  "hardware_report": "docs/gpu-hardware-9092.md",
+  "native_display_output_validated": false
 }
