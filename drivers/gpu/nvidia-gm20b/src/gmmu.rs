@@ -20,6 +20,8 @@ const VA_A: usize = PAGE;
 const VA_B: usize = 2 * PAGE;
 pub const VA_LIMIT: u32 = 64 * 1024 * 1024;
 const MC_ENABLE: usize = 0x200;
+const MC_ELPG_ENABLE: usize = 0x20c;
+const MEMORY_UNITS: u32 = 0x20100004; // HUB, PFB and XBAR, GM20B hw_mc.
 const BAR1_BLOCK: usize = 0x1704;
 const BIND_STATUS: usize = 0x1710;
 const MMU_CTRL: usize = 0x100c80;
@@ -278,9 +280,25 @@ impl Gmmu {
         if self.read(BAR1_BLOCK) & (1 << 31) != 0 {
             return Err("GPU BAR1 already has a virtual address space");
         }
-        let enable = self.read(MC_ENABLE) | 0x100008; // PFB and L2 only.
-        self.write(MC_ENABLE, enable);
-        let _ = self.read(MC_ENABLE);
+        // Nouveau nv50_mc_init enables the units before FIFO setup. Enable
+        // only our memory path here, leaving GR/PMU to authenticated boot.
+        // NVIDIA gm20b_mc_fb_reset also enables XBAR/PFB/HUB at 0x20c.
+        for (register, mask, name) in [
+            (MC_ENABLE, MEMORY_UNITS | 8, "enable"), // Include L2.
+            (MC_ELPG_ENABLE, MEMORY_UNITS, "elpg"),
+        ] {
+            let before = self.read(register);
+            if before == u32::MAX {
+                return Err("GPU memory enable register returned all ones");
+            }
+            self.write(register, before | mask);
+            let after = self.read(register);
+            scarlet::println!("gm20b: memory {}={:#010x}->{:#010x}", name, before, after);
+            if after == u32::MAX || after & mask != mask {
+                return Err("GPU memory unit enable readback mismatch");
+            }
+        }
+        delay_us(20);
         self.write(MMU_CTRL, self.read(MMU_CTRL) | (1 << 11));
 
         // Small-page PDE is the high word. Big-page PDE remains invalid.

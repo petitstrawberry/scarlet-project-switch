@@ -28,7 +28,10 @@ const PBDMA_MAP: usize = 0x2390;
 const FIFO_BIND_ERROR: usize = 0x252c;
 const FIFO_SCHED_ERROR: usize = 0x254c;
 const FIFO_CHSW_ERROR: usize = 0x256c;
+const ERROR_SCHED_DISABLE: usize = 0x262c;
+const SCHED_DISABLE: usize = 0x2630;
 const PREEMPT: usize = 0x2634;
+const PBDMA_CONTEXT: usize = 0x3080;
 const PBDMA_INTR0: usize = 0x40108;
 const PBDMA_INTR1: usize = 0x40148;
 const CHANNEL_INST: usize = 0x800000;
@@ -156,6 +159,22 @@ impl Fifo {
             self.read(FIFO_CHSW_ERROR)
         );
         scarlet::println!(
+            "gm20b: FIFO scheduler disable={:#010x} fault-disable={:#010x} mc={:#010x} pbdma-enable={:#010x}",
+            self.read(SCHED_DISABLE),
+            self.read(ERROR_SCHED_DISABLE),
+            self.read(MC_ENABLE),
+            self.read(PBDMA_ENABLE)
+        );
+        scarlet::println!(
+            "gm20b: FIFO PBDMA0 context={:#010x} state={} base={:#010x}:{:#010x} userd={:#010x}:{:#010x}",
+            self.read(PBDMA_CONTEXT),
+            (self.read(PBDMA_CONTEXT) >> 13) & 7,
+            self.read(0x4004c),
+            self.read(0x40048),
+            self.read(0x4000c),
+            self.read(0x40008)
+        );
+        scarlet::println!(
             "gm20b: FIFO progress gp={}/{} pb={:#010x}:{:#010x} header={:#010x} method={:#010x}",
             self.read(0x40014),
             self.read(0x40000),
@@ -165,8 +184,9 @@ impl Fifo {
             self.read(0x400c0)
         );
         scarlet::println!(
-            "gm20b: FIFO USERD get={} ref={:#010x} fence={:#010x}",
+            "gm20b: FIFO USERD get={} put={} ref={:#010x} fence={:#010x}",
             self.userd(USERD_GP_GET),
+            self.userd(USERD_GP_PUT),
             self.userd(USERD_REF),
             unsafe { arch::mmio::read32(self.bar1 + FENCE_VA) }
         );
@@ -181,6 +201,30 @@ impl Fifo {
         if self.read(FIFO_BAR1_BASE) != value {
             self.diagnose();
             return Err("FIFO USERD BAR1 base readback mismatch");
+        }
+        Ok(())
+    }
+
+    fn activate_runlist(&self) -> Result<(), &'static str> {
+        self.write(RUNLIST_BASE, (self.runlist.as_paddr() >> 12) as u32);
+        self.write(RUNLIST, 1); // Runlist zero, one plain channel.
+        self.wait(RUNLIST_STATUS, |value| value & (1 << 20) == 0)?;
+        let disabled = self.read(SCHED_DISABLE);
+        let fault = self.read(ERROR_SCHED_DISABLE);
+        if disabled == u32::MAX || fault == u32::MAX {
+            self.diagnose();
+            return Err("FIFO scheduler register returned all ones");
+        }
+        // Linux gk104_runl_allow explicitly unblocks the owned runlist.
+        // Never clear a hardware fault block to manufacture progress.
+        if fault & 1 != 0 || self.read(FIFO_INTR) & FIFO_ERRORS != 0 {
+            self.diagnose();
+            return Err("FIFO runlist zero is fault-blocked");
+        }
+        self.write(SCHED_DISABLE, disabled & !1);
+        if self.read(SCHED_DISABLE) & 1 != 0 {
+            self.diagnose();
+            return Err("FIFO runlist zero scheduler remained disabled");
         }
         Ok(())
     }
@@ -303,9 +347,13 @@ impl Fifo {
             0x80000000 | (self.instance.as_paddr() >> 12) as u32,
         );
         self.write(CHANNEL, (self.read(CHANNEL) & !0xc00) | 0x400);
-        self.write(RUNLIST_BASE, (self.runlist.as_paddr() >> 12) as u32);
-        self.write(RUNLIST, 1); // Runlist zero, one plain channel.
-        self.wait(RUNLIST_STATUS, |value| value & (1 << 20) == 0)
+        self.activate_runlist()?;
+        scarlet::println!(
+            "gm20b: FIFO runlist ready; scheduler={:#010x} pbdma-context={:#010x}",
+            self.read(SCHED_DISABLE),
+            self.read(PBDMA_CONTEXT)
+        );
+        Ok(())
     }
 
     fn submit(
@@ -322,8 +370,14 @@ impl Fifo {
                 sequence
             );
         }
+        // Match nvgpu_bar1_writel: commands precede the USERD notification.
+        arch::io_mb();
         unsafe { arch::mmio::write32(self.bar1 + USERD_VA + USERD_GP_PUT, gp_put) };
         arch::io_mb();
+        if self.userd(USERD_GP_PUT) != gp_put {
+            self.diagnose();
+            return Err("FIFO USERD GP_PUT readback mismatch");
+        }
         let deadline = time::current_time_ns().saturating_add(timeout_ns);
         for _ in 0..timeout_ns / 2_000 {
             let proof = Proof {
@@ -437,9 +491,7 @@ impl Fifo {
             0x80000000 | (self.instance.as_paddr() >> 12) as u32,
         );
         self.write(CHANNEL, (self.read(CHANNEL) & !0x000f0c00) | 0x400);
-        self.write(RUNLIST_BASE, (self.runlist.as_paddr() >> 12) as u32);
-        self.write(RUNLIST, 1);
-        self.wait(RUNLIST_STATUS, |v| v & (1 << 20) == 0)?;
+        self.activate_runlist()?;
         self.submit(1, sequence, GRAPHICS_TIMEOUT_NS, false)?;
         self.retire(GRAPHICS_TIMEOUT_NS)
     }
