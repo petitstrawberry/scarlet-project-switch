@@ -5,15 +5,27 @@ inspected Hekate DC0/DSI mode and exports normal `/dev/display0` controls,
 including two direct scanout buffers and GPU swapchain-image presentation.
 [IMG_9089](gpu-hardware-9089.md) establishes the visible portrait-pitch
 isolation baseline by user confirmation, with very slow operation. That isolation
-is complete. The current [direct-rotation candidate](dc-direct-rotation-verification.json)
-returns to DC hardware rotation before further SGFX work.
+is complete. [IMG_9090](gpu-hardware-9090.md) then records the failed direct
+column-scan candidate: the user reports a gray GUI, despite nonuniform CPU
+image samples, and A's underflow counter increases from `0x5` to `0x2cf`.
+The current [fetch-priority candidate](dc-fetch-priority-verification.json)
+keeps DC hardware rotation as the gate before further SGFX work.
 
 Window A directly reads the application's 1280x720 pitch-5120 buffer with
-SCAN_COLUMN and invert-H. The source cursor is pixel-aligned at 5116 bytes,
-following upstream Linux's reflect-X formula, and both pixel/tile buffer-stride
-registers are explicitly cleared and verified. NVIDIA's downstream invert-H
-formula uses 5119 instead; the effect of this correction requires physical
-validation. The portrait output remains 720x1280 with axis-swapped prescaling.
+SCAN_COLUMN and invert-H. The source cursor remains at 5116 bytes to isolate
+fetch-priority setup from the failed IMG_9090 geometry. Both pixel/tile
+buffer-stride registers remain explicitly cleared and verified. Upstream Linux's
+reflect-X formula does not establish 90-degree column-scan addressing; changing
+the cursor from NVIDIA's last byte to the last complete pixel did not fix the
+physical display. The portrait output remains 720x1280 with swapped prescaling.
+
+Hekate initializes DC memory priority controls `0x403`/`0x404` to zero.
+The driver now adopts Linux/NVIDIA's native threshold `0x20` and timer 1
+for claimed A, and B in the diagnostic view. Unclaimed windows and cursor
+fields are preserved; owned fields are saved, verified active and restored on
+rollback. This does not implement EMC frequency or MC bandwidth management.
+Inherited priority, underflow increments and read-only MC latency registers
+are logged for the next physical cycle.
 
 Framebuffer DRAM uses Normal Non-cacheable consistently in the HHDM and both
 normal display mmap interfaces, matching arm64 Linux write-combine mappings.
@@ -21,7 +33,8 @@ A barrier completes CPU stores before activation. No per-present conversion or
 private portrait scanout buffers remain. Build/package validation is separate
 from physical image validation.
 The FAT32 SD installation verified all 12 boot-file readbacks and 38 protected-file
-hashes before eject. Physical hardware rotation remains pending.
+hashes before eject. The previous direct candidate failed physical validation;
+the fetch-priority candidate still requires a physical boot.
 
 Hekate's working framebuffer is portrait 720x1280 with pitch 2880. The boot
 script exports that existing surface with `scarlet,rotation = <3>`; this
@@ -142,10 +155,14 @@ Boot **More Configs → Scarlet Switch Console** and record:
 - `tegra-dc: inherited addr=... options=... kind=... mode=... active=...`.
 - `tegra-dc: native scanout active; 1280x720, direct pitch, hardware rotation, Normal-NC`.
 - `tegra-dc: scanout=... pitch=5120 options=0x40000011 offsets=5116/0 buf-stride=0/0`.
+- `tegra-dc: inherited fetch ... priority=...` and subsequent `fetch ... delta=...`.
+- Priority `0x00200000/0x00010000` in normal Console; `0x00202000/0x00010100`
+  in the diagnostic view, plus any preserved unclaimed fields.
 - The ordinary Shell, colors/orientation, sustained updates, Joy-Con/touch,
   all CPU startup logs and timer/sleep wake.
 
 Report the exact last phase on a failure. The artifact/SD receipt is
+`dc-fetch-priority-verification.json`. IMG_9090 retains the failed installed
 `dc-direct-rotation-verification.json`. IMG_9089 retains its installed
 `dc-portrait-pitch-verification.json`; the image tested in IMG_9088 retains
 `gpu-fifo-bar1-gen2-verification.json`. The preceding BAR1-success/DC-failure
@@ -158,6 +175,7 @@ do not establish DMA, rotation, VBlank, GPU-image lifetime, or suspend/resume be
 Fetched with `gh`:
 
 - [Linux Tegra DC](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/tegra/dc.c).
+- [NVIDIA T210 native fetch priority](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/dc.c#L5533).
 - [NVIDIA rotation and T210 fetch reset](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/window.c) and [T210 window A rotation support](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/dc_config.c), re-fetched with `gh` after the IMG_9088 report.
 - [Linux arm64 write-combine mappings](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/arch/arm64/include/asm/pgtable.h#L692).
 - [Hekate scanout](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/display/di.inl) and [masked event polling](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/display/di.c).

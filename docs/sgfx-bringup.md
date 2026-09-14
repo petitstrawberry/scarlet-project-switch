@@ -28,10 +28,14 @@ the user reports white/gray screens with input and possible edge garbage.
 [IMG_9089](gpu-hardware-9089.md) confirms visible content and orientation in
 the portrait-pitch isolation image, with very slow operation. The immediate
 priority is now **DC hardware rotation**, before additional SGFX changes. The
-[direct-rotation candidate](dc-direct-rotation-verification.json) scans the
-ordinary landscape buffers directly with SCAN_COLUMN and Normal Non-cacheable
-RAM aliases. No GPU memory/runlist changes are included. FIFO completion,
-authenticated GR boot and SGFX admission remain physically unverified.
+[IMG_9090](gpu-hardware-9090.md) then records continuing A fetch underflows
+in the failed direct column-scan candidate, despite nonuniform CPU image
+samples. The current [fetch-priority candidate](dc-fetch-priority-verification.json)
+keeps the same ordinary pitch-linear landscape buffers, SCAN_COLUMN geometry
+and Normal-NC aliases while adding Linux/NVIDIA's native DC priority setup.
+No CPU transpose, block-linear upload or GPU memory/runlist changes are
+included. FIFO completion, authenticated GR boot and SGFX admission remain
+physically unverified.
 
 ## Execution path
 
