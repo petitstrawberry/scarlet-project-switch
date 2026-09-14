@@ -28,7 +28,10 @@ const PBDMA_MAP: usize = 0x2390;
 const FIFO_BIND_ERROR: usize = 0x252c;
 const FIFO_SCHED_ERROR: usize = 0x254c;
 const FIFO_CHSW_ERROR: usize = 0x256c;
+const ERROR_SCHED_DISABLE: usize = 0x262c;
+const SCHED_DISABLE: usize = 0x2630;
 const PREEMPT: usize = 0x2634;
+const PBDMA_CONTEXT: usize = 0x3080;
 const PBDMA_INTR0: usize = 0x40108;
 const PBDMA_INTR1: usize = 0x40148;
 const CHANNEL_INST: usize = 0x800000;
@@ -37,6 +40,18 @@ const FIFO_ERRORS: u32 = 0x10010101; // MMU, channel switch, scheduler, bind.
 const TIMEOUT_NS: u64 = 100_000_000;
 const GRAPHICS_TIMEOUT_NS: u64 = 2_000_000_000;
 const SEQUENCES: [u32; 2] = [0x53474631, 0x53474632];
+
+fn host_commands(sequence: u32) -> [u32; 7] {
+    [
+        (1 << 29) | (4 << 16) | (0x10 >> 2),
+        0, // Semaphore GPU VA upper word.
+        FENCE_VA as u32,
+        sequence,
+        2 | (1 << 20) | (1 << 24), // RELEASE, WFI disabled, four bytes.
+        (1 << 29) | (1 << 16) | (0x50 >> 2),
+        sequence, // SET_REFERENCE writes USERD_REF.
+    ]
+}
 
 pub struct Proof {
     pub gp_get: u32,
@@ -156,6 +171,23 @@ impl Fifo {
             self.read(FIFO_CHSW_ERROR)
         );
         scarlet::println!(
+            "gm20b: FIFO scheduler disable={:#010x} fault-disable={:#010x} mc={:#010x} pbdma-enable={:#010x}",
+            self.read(SCHED_DISABLE),
+            self.read(ERROR_SCHED_DISABLE),
+            self.read(MC_ENABLE),
+            self.read(PBDMA_ENABLE)
+        );
+        let pbdma_context = self.read(PBDMA_CONTEXT);
+        scarlet::println!(
+            "gm20b: FIFO PBDMA0 context={:#010x} state={} base={:#010x}:{:#010x} userd={:#010x}:{:#010x}",
+            pbdma_context,
+            (pbdma_context >> 13) & 7,
+            self.read(0x4004c),
+            self.read(0x40048),
+            self.read(0x4000c),
+            self.read(0x40008)
+        );
+        scarlet::println!(
             "gm20b: FIFO progress gp={}/{} pb={:#010x}:{:#010x} header={:#010x} method={:#010x}",
             self.read(0x40014),
             self.read(0x40000),
@@ -165,8 +197,9 @@ impl Fifo {
             self.read(0x400c0)
         );
         scarlet::println!(
-            "gm20b: FIFO USERD get={} ref={:#010x} fence={:#010x}",
+            "gm20b: FIFO USERD get={} put={} ref={:#010x} fence={:#010x}",
             self.userd(USERD_GP_GET),
+            self.userd(USERD_GP_PUT),
             self.userd(USERD_REF),
             unsafe { arch::mmio::read32(self.bar1 + FENCE_VA) }
         );
@@ -181,6 +214,30 @@ impl Fifo {
         if self.read(FIFO_BAR1_BASE) != value {
             self.diagnose();
             return Err("FIFO USERD BAR1 base readback mismatch");
+        }
+        Ok(())
+    }
+
+    fn activate_runlist(&self) -> Result<(), &'static str> {
+        self.write(RUNLIST_BASE, (self.runlist.as_paddr() >> 12) as u32);
+        self.write(RUNLIST, 1); // Runlist zero, one plain channel.
+        self.wait(RUNLIST_STATUS, |value| value & (1 << 20) == 0)?;
+        let disabled = self.read(SCHED_DISABLE);
+        let fault = self.read(ERROR_SCHED_DISABLE);
+        if disabled == u32::MAX || fault == u32::MAX {
+            self.diagnose();
+            return Err("FIFO scheduler register returned all ones");
+        }
+        // Linux gk104_runl_allow explicitly unblocks the owned runlist.
+        // Never clear a hardware fault block to manufacture progress.
+        if fault & 1 != 0 || self.read(FIFO_INTR) & FIFO_ERRORS != 0 {
+            self.diagnose();
+            return Err("FIFO runlist zero is fault-blocked");
+        }
+        self.write(SCHED_DISABLE, disabled & !1);
+        if self.read(SCHED_DISABLE) & 1 != 0 {
+            self.diagnose();
+            return Err("FIFO runlist zero scheduler remained disabled");
         }
         Ok(())
     }
@@ -209,15 +266,7 @@ impl Fifo {
         // Two immutable pushes are published before enabling DMA. Subchannel
         // zero uses host methods only; no graphics object is bound.
         for (index, sequence) in SEQUENCES.into_iter().enumerate() {
-            let commands = [
-                (1 << 29) | (4 << 16) | (0x10 >> 2),
-                0, // Semaphore GPU VA upper word.
-                FENCE_VA as u32,
-                sequence,
-                2 | (1 << 20) | (1 << 24), // RELEASE, WFI disabled, four bytes.
-                (1 << 29) | (1 << 16) | (0x50 >> 2),
-                sequence, // SET_REFERENCE writes USERD_REF.
-            ];
+            let commands = host_commands(sequence);
             for (word, value) in commands.into_iter().enumerate() {
                 store(&self.push, index * 8 + word, value);
             }
@@ -238,6 +287,40 @@ impl Fifo {
         ] {
             clean(memory);
         }
+    }
+
+    fn verify_host_inputs(&self) -> Result<(), &'static str> {
+        // Exercise the newly mapped private pages through BAR1 before CCSR
+        // binding enables USERD snooping or PBDMA can fetch a command. The
+        // earlier scratch proof does not cover these distinct allocations.
+        // This proves visibility only; execution still needs both real fences.
+        let check = |offset, expected| {
+            let actual = unsafe { arch::mmio::read32(self.bar1 + offset) };
+            if actual != expected {
+                scarlet::println!(
+                    "gm20b: FIFO BAR1 input offset={:#x} expected={:#010x} actual={:#010x}",
+                    offset,
+                    expected,
+                    actual
+                );
+                return Err("FIFO private input BAR1 readback mismatch");
+            }
+            Ok(())
+        };
+        check(USERD_VA + USERD_GP_GET, 0)?;
+        check(USERD_VA + USERD_GP_PUT, 0)?;
+        check(USERD_VA + USERD_REF, u32::MAX)?;
+        check(FENCE_VA, 0)?;
+        for (index, sequence) in SEQUENCES.into_iter().enumerate() {
+            let commands = host_commands(sequence);
+            check(RING_VA + index * 8, (PUSH_VA + index * 32) as u32)?;
+            check(RING_VA + index * 8 + 4, (commands.len() as u32) << 10)?;
+            for (word, expected) in commands.into_iter().enumerate() {
+                check(PUSH_VA + index * 32 + word * 4, expected)?;
+            }
+        }
+        scarlet::println!("gm20b: FIFO private USERD/ring/push inputs visible through BAR1");
+        Ok(())
     }
 
     fn enable(&self, reference_hz: u32) -> Result<(), &'static str> {
@@ -303,9 +386,13 @@ impl Fifo {
             0x80000000 | (self.instance.as_paddr() >> 12) as u32,
         );
         self.write(CHANNEL, (self.read(CHANNEL) & !0xc00) | 0x400);
-        self.write(RUNLIST_BASE, (self.runlist.as_paddr() >> 12) as u32);
-        self.write(RUNLIST, 1); // Runlist zero, one plain channel.
-        self.wait(RUNLIST_STATUS, |value| value & (1 << 20) == 0)
+        self.activate_runlist()?;
+        scarlet::println!(
+            "gm20b: FIFO runlist ready; scheduler={:#010x} pbdma-context={:#010x}",
+            self.read(SCHED_DISABLE),
+            self.read(PBDMA_CONTEXT)
+        );
+        Ok(())
     }
 
     fn submit(
@@ -322,8 +409,14 @@ impl Fifo {
                 sequence
             );
         }
+        // Match nvgpu_bar1_writel: commands precede the USERD notification.
+        arch::io_mb();
         unsafe { arch::mmio::write32(self.bar1 + USERD_VA + USERD_GP_PUT, gp_put) };
         arch::io_mb();
+        if self.userd(USERD_GP_PUT) != gp_put {
+            self.diagnose();
+            return Err("FIFO USERD GP_PUT readback mismatch");
+        }
         let deadline = time::current_time_ns().saturating_add(timeout_ns);
         for _ in 0..timeout_ns / 2_000 {
             let proof = Proof {
@@ -372,6 +465,7 @@ impl Fifo {
 
     pub fn initialize(&self, reference_hz: u32) -> Result<Proof, &'static str> {
         self.prepare();
+        self.verify_host_inputs()?;
         scarlet::println!(
             "gm20b: FIFO binding private channel inst={:#x} userd={:#x} runlist={:#x}",
             self.instance.as_paddr(),
@@ -437,9 +531,7 @@ impl Fifo {
             0x80000000 | (self.instance.as_paddr() >> 12) as u32,
         );
         self.write(CHANNEL, (self.read(CHANNEL) & !0x000f0c00) | 0x400);
-        self.write(RUNLIST_BASE, (self.runlist.as_paddr() >> 12) as u32);
-        self.write(RUNLIST, 1);
-        self.wait(RUNLIST_STATUS, |v| v & (1 << 20) == 0)?;
+        self.activate_runlist()?;
         self.submit(1, sequence, GRAPHICS_TIMEOUT_NS, false)?;
         self.retire(GRAPHICS_TIMEOUT_NS)
     }
