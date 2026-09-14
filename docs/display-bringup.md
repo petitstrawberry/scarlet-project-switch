@@ -1,67 +1,58 @@
-# Tegra210 native scanout
+# Tegra210 native scanout with VIC rotation
 
-The console distribution now links `scarlet-driver-tegra210-dc`. It adopts the
-inspected Hekate DC0/DSI mode and exports normal `/dev/display0` controls,
-including two direct scanout buffers and GPU swapchain-image presentation.
-[IMG_9089](gpu-hardware-9089.md) establishes the visible portrait-pitch
-isolation baseline by user confirmation, with very slow operation. That isolation
-is complete. [IMG_9090](gpu-hardware-9090.md) then records the failed direct
-column-scan candidate: the user reports a gray GUI, despite nonuniform CPU
-image samples, and A's underflow counter increases from `0x5` to `0x2cf`.
-The current [fetch-priority candidate](dc-fetch-priority-verification.json)
-keeps DC hardware rotation as the gate before further SGFX work.
+The console distribution links `scarlet-driver-tegra210-dc` and exports the
+ordinary `/dev/display0` interface. SWS and ScarletUI render their normal
+1280x720 images. The current hardware path follows Hekate Nyx: VIC rotates
+landscape pitch input by 270 degrees into a private portrait-pitch buffer,
+then DC scans 720x1280 at pitch 2880, offsets zero, with `WIN_ENABLE` only.
 
-Window A directly reads the application's 1280x720 pitch-5120 buffer with
-SCAN_COLUMN and invert-H. The source cursor remains at 5116 bytes to isolate
-fetch-priority setup from the failed IMG_9090 geometry. Both pixel/tile
-buffer-stride registers remain explicitly cleared and verified. Upstream Linux's
-reflect-X formula does not establish 90-degree column-scan addressing; changing
-the cursor from NVIDIA's last byte to the last complete pixel did not fix the
-physical display. The portrait output remains 720x1280 with swapped prescaling.
+[IMG_9089](gpu-hardware-9089.md) establishes visible content/orientation with
+that DC portrait-pitch layout after CPU conversion, although very slowly.
+[IMG_9090](gpu-hardware-9090.md) and [IMG_9091](gpu-hardware-9091.md) show the
+failed direct `SCAN_COLUMN` candidates. IMG_9091 proves native priority
+`0x00202000 / 0x00010100` latched, but A underflows still increase from 4 to
+`0x2cd` despite 575/576 differing producer samples. B stays readable with zero
+underflows. Fetch priority alone did not fix the physical display. The user
+requests following Hekate's actual working path. Column-scan and unfinished
+block-linear proposals remain historical/held; further SGFX changes await this
+display gate.
 
-Hekate initializes DC memory priority controls `0x403`/`0x404` to zero.
-The driver now adopts Linux/NVIDIA's native threshold `0x20` and timer 1
-for claimed A, and B in the diagnostic view. Unclaimed windows and cursor
-fields are preserved; owned fields are saved, verified active and restored on
-rollback. This does not implement EMC frequency or MC bandwidth management.
-Inherited priority, underflow increments and read-only MC latency registers
-are logged for the next physical cycle.
+The VIC configuration matches the compiled original Hekate C ABI byte for byte:
+size `0x610`, slots at `0x90`, slot size `0xb0`, surface at slot +`0x40`.
+Its exact 964-byte pinned FCE microcode is embedded separately from GM20B
+firmware. Source pitch and formats are validated; physical addresses are shifted
+before narrowing so allocations above 4 GiB are not truncated.
+Hekate's private-aperture FCE path does not require a host1x submission channel
+or a successful GM20B shader/FIFO bring-up.
 
-Framebuffer DRAM uses Normal Non-cacheable consistently in the HHDM and both
-normal display mmap interfaces, matching arm64 Linux write-combine mappings.
-A barrier completes CPU stores before activation. No per-present conversion or
-private portrait scanout buffers remain. Build/package validation is separate
-from physical image validation.
-The FAT32 SD installation verified all 12 boot-file readbacks and 38 protected-file
-hashes before eject. The previous direct candidate failed physical validation;
-the fetch-priority candidate still requires a physical boot.
+VIC parsing, surface setup and composition completion are each bounded to
+150 ms. The first output, and sampled diagnostic frames, compare 576 RGB
+pixels with the ready source at the expected 270-degree positions before DC
+activation. This reads actual hardware output; it neither performs a CPU
+transpose nor proves physical panel pixels. A VIC failure isolates DMA and
+leaves the preceding DC front untouched. The new
+[VIC artifact receipt](dc-vic-rotation-verification.json) distinguishes build
+and package checks from a pending physical boot.
 
-Hekate's working framebuffer is portrait 720x1280 with pitch 2880. The boot
-script exports that existing surface with `scarlet,rotation = <3>`; this
-metadata describes the CPU coordinate mapping and does not reprogram DC.
-DC0 window A supports SCAN_COLUMN according to the pinned NVIDIA T210 feature
-table. The current candidate configures this native landscape path in the Display
-driver. The previous CPU conversion is retained only as historical isolation evidence.
+All CPU render and portrait-output allocations use Normal Non-cacheable in
+HHDM and display mmap aliases, matching arm64 Linux write-combine mappings.
+CPU stores complete before VIC fetch; VIC finishes before DC activation.
+Native priority threshold `0x20`/timer 1 remains Linux policy, not a claimed fix.
+Only owned priority fields change, with active readback and rollback. No EMC
+frequency or MC bandwidth/translation policy is programmed.
 
-This is native window/scanout control with inherited panel initialization.
-Cold DSI/panel power-up, modesetting, HDMI, display IRQ handling and
-suspend/resume remain pending. The new [SGFX candidate](sgfx-bringup.md) renders
-into GPU-owned images and presents through this ordinary display interface;
-physical GPU-image presentation is still unverified.
+Panel power/DSI and the inherited host1x clock remain in place. VIC owns clock/
+reset 178 and PMC partition 23 under the shared CAR and power-command locks.
+The existing 408-MHz PLLP parent is verified without retuning. A newly powered
+partition uses Linux's safe-clock/clamp/reset/MBIST sequence, then Hekate's
+408-MHz steady-state source. Shutdown asserts reset, waits 2 ms and gates VIC
+before releasing DMA storage. Its original source and power state are restored;
+replaced inherited VIC firmware is not resurrected on rollback.
 
-[IMG_9087](gpu-hardware-9087.md) reaches DC activation and VBlank, then rejects
-native publication because legacy gen1 alpha register `0x715` reads zero rather
-than the incorrectly required `0xff`. T210 uses gen2 blending. The corrected
-candidate excludes that legacy register from writes and saved/active state,
-while retaining the gen2 blend and scanout checks. Production build and package
-inspection passed; the [record](gpu-fifo-bar1-gen2-verification.json)
-distinguishes that candidate from the image tested in IMG_9087. The corrected
-image was installed to the FAT32 SD with all 12 readbacks and 38 protected-file
-hashes verified, then ejected. IMG_9088 subsequently confirms native publication
-and continued window-B logs. It also confirms the post-initramfs GPU retry and
-initial FIFO runlist activation, followed by a host-method completion timeout
-before graphics execution. IMG_9089 later confirms the portrait-pitch baseline;
-hardware-rotated direct GUI pixels and GPU-image presentation remain unverified.
+Cold DSI/panel initialization, modesetting, HDMI, display IRQ handling and
+suspend/resume remain pending. Scale stays 1.0 and maxcpus stays 4. The
+[SGFX executor](sgfx-bringup.md) remains blocked physically at its first private
+FIFO host-method push, before GR admission.
 
 ## Adoption and ownership
 
@@ -78,13 +69,14 @@ buffer at `0xf5a00000`. Unsupported modes leave the ordinary simple-framebuffer
 fallback published. DC1 is not claimed. No global clock, DSI, panel, regulator,
 carveout, or MC translation configuration is changed.
 
-Two page-owned 1280x720 BGRA buffers are the actual CPU scanout buffers. Their
-kernel and application aliases use Normal Non-cacheable through the common PMM
-retagging and framebuffer/display mmap mechanisms. The initial buffer preserves
-the inherited boot frame with a one-time coordinate conversion. Subsequent CPU
-presents publish that buffer directly and use DC hardware rotation. The generic
-earlyfb handoff targets the same linear, noncacheable landscape allocation;
-no CPU renderer or console-distribution exception is introduced.
+Two page-owned 1280x720 BGRA buffers are the ordinary CPU render buffers.
+Two separate page-owned 720x1280 portrait buffers are DC's physical front/back.
+VIC writes only the inactive portrait buffer. The initial render buffer preserves
+the inherited boot frame with a one-time coordinate conversion; subsequent
+CPU and GPU presentation both use VIC. The common earlyfb API adopts the
+portrait front with its existing rotated coordinate mapping until userspace
+presentation deactivates boot output. No distribution or renderer policy is
+introduced in the hardware driver.
 
 The current common AArch64 correction builds the HHDM with 4-KiB leaves
 before activation. This prevents a live block split from removing unrelated
@@ -119,14 +111,16 @@ survive until ordinary userspace presentation disables the boot console.
 
 ## GPU producer boundary
 
-`DISPLAY_PRESENT_IMAGE` with the swapchain flag can directly scan a retained
-`GpuDisplayResource`: one contiguous extent, 1280x720, 64-byte-aligned pitch
-and address, 32-bit RGB format, and a bounded 34-bit DMA address range.
-Rendering must have completed and its writes must be published before present.
-The DC driver does not clean a stale CPU alias over GPU-written pixels.
-The displayed image owner remains retained through the next successful flip;
-an unsuccessfully activated image is also retained. Non-swapchain images,
-segmented backing and block-linear/compressed layouts are rejected for now.
+`DISPLAY_PRESENT_IMAGE` with the swapchain flag supplies a retained
+`GpuDisplayResource` as VIC input: one contiguous extent, 1280x720,
+64-byte-aligned pitch, 256-byte-aligned address, packed 32-bit RGB and a
+bounded 34-bit physical DMA range. Rendering must have completed and published
+its writes before VIC reads it. The display driver never cleans a stale CPU
+alias over GPU-written pixels. VIC converts BGRA/RGBA input to XRGB portrait
+output, and both producer/output owners remain retained through retirement.
+An attempted source is also retained after a failure; failed VIC isolation or
+DC rollback retains every potentially fetched allocation. Non-swapchain images,
+segmented backing and block-linear/compressed layouts remain unsupported.
 
 SWS and ScarletUI retain their ordinary renderer/backend selection. The current
 GM20B executor publishes a Ready `maxwell-sgfx-ops-v1` dialect only after its
@@ -138,7 +132,7 @@ GPU and DC logs are needed to identify the failing boundary.
 The current window programming explicitly clears byte-swap and tiled-address
 state and uses the T210 gen2 opaque blend bypass, following Linux/NVIDIA
 window.c. Active-state readback verifies the address, pitch, format, geometry,
-rotation and blend configuration after activation and retirement.
+portrait addressing and blend configuration after activation and retirement.
 
 The optional **Scarlet Switch SGFX Logs** entry retains the original boot
 surface in independent window B above window A. This is an opaque diagnostic
@@ -153,8 +147,10 @@ Boot **More Configs → Scarlet Switch Console** and record:
 
 - `gm20b: GMMU BAR1 read/write/remap passed; channels pending`.
 - `tegra-dc: inherited addr=... options=... kind=... mode=... active=...`.
-- `tegra-dc: native scanout active; 1280x720, direct pitch, hardware rotation, Normal-NC`.
-- `tegra-dc: scanout=... pitch=5120 options=0x40000011 offsets=5116/0 buf-stride=0/0`.
+- `tegra-vic: FCE active; rotation=270, pitch input/output, parameters=...`.
+- `tegra-vic: frame=... pitch=2880 rotation=270 completed=...us matched=576/576`.
+- `tegra-dc: native scanout active; VIC270, portrait pitch=2880, Normal-NC`.
+- `tegra-dc: scanout=... pitch=2880 options=0x40000000 offsets=0/0 buf-stride=0/0`.
 - `tegra-dc: inherited fetch ... priority=...` and subsequent `fetch ... delta=...`.
 - Priority `0x00200000/0x00010000` in normal Console; `0x00202000/0x00010100`
   in the diagnostic view, plus any preserved unclaimed fields.
@@ -162,6 +158,7 @@ Boot **More Configs → Scarlet Switch Console** and record:
   all CPU startup logs and timer/sleep wake.
 
 Report the exact last phase on a failure. The artifact/SD receipt is
+`dc-vic-rotation-verification.json`. IMG_9091 retains its failed installed
 `dc-fetch-priority-verification.json`. IMG_9090 retains the failed installed
 `dc-direct-rotation-verification.json`. IMG_9089 retains its installed
 `dc-portrait-pitch-verification.json`; the image tested in IMG_9088 retains
@@ -179,3 +176,6 @@ Fetched with `gh`:
 - [NVIDIA rotation and T210 fetch reset](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/window.c) and [T210 window A rotation support](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/dc_config.c), re-fetched with `gh` after the IMG_9088 report.
 - [Linux arm64 write-combine mappings](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/arch/arm64/include/asm/pgtable.h#L692).
 - [Hekate scanout](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/display/di.inl) and [masked event polling](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/display/di.c).
+
+- [Hekate Nyx VIC consumer](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/nyx/nyx_gui/frontend/gui.c#L90), [VIC implementation](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/display/vic.c#L394), and [portrait DC configuration](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/display/di.inl#L459).
+- [Linux VIC reset/clock retirement](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/tegra/vic.c#L306), [PMC partition sequencing](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/soc/tegra/pmc.c#L786), and [VIC MBIST workaround](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/clk/tegra/clk-tegra210.c#L683).

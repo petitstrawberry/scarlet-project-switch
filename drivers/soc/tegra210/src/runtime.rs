@@ -109,6 +109,17 @@ pub fn gpu_platform(provider: u32) -> Result<crate::GpuPlatform, &'static str> {
     let pmc = (*PMC.lock()).ok_or(PROBE_DEFER)?;
     crate::GpuPlatform::new(car, pmc)
 }
+/// VIC clock/reset changes share the peripheral CAR lock. Its PMC power
+/// partition is distinct from GPU clamps, CPU partitions and DSI supplies.
+pub fn vic_platform(provider: u32) -> Result<crate::VicPlatform, &'static str> {
+    let car = car()?;
+    if car.phandle != provider {
+        return Err("unexpected VIC clock provider");
+    }
+    let pmc = (*PMC.lock()).ok_or(PROBE_DEFER)?;
+    let vic = Mmio(scarlet::vm::ioremap(0x54340000, 0x4000)?);
+    crate::VicPlatform::new(car, pmc, vic)
+}
 pub fn gpio() -> Result<Arc<TegraGpio>, &'static str> {
     GPIO.lock().clone().ok_or(PROBE_DEFER)
 }

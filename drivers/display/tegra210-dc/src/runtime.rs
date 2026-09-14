@@ -31,9 +31,12 @@ use scarlet::{
 };
 use scarlet_driver_tegra210::{cell, delay_us};
 
+use crate::vic::Vic;
+
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
 const STRIDE: u32 = WIDTH * 4;
+const PANEL_STRIDE: u32 = HEIGHT * 4;
 const STATE_ACCESS: usize = 0x40;
 const STATE_CONTROL: usize = 0x41;
 const HEADER: usize = 0x42;
@@ -45,8 +48,6 @@ const INT_MASK: usize = 0x38;
 const INT_ENABLE: usize = 0x39;
 const MEMFETCH_CONTROL: usize = 0x82b;
 const WIN_ENABLE: u32 = 1 << 30;
-const SCAN_COLUMN: u32 = 1 << 4;
-const H_DIRECTION: u32 = 1;
 const BUFFER_STRIDE: usize = 0x70b;
 const UV_BUFFER_STRIDE: usize = 0x70c;
 const MEM_HIGH_PRIORITY: usize = 0x403;
@@ -88,6 +89,8 @@ struct State {
     changed: bool,
     lost: bool,
     front: usize,
+    panel_front: usize,
+    vic: Vic,
     gpu_front: Option<GpuDisplayResource>,
     pending_gpu: Option<GpuDisplayResource>,
     early_surface: Option<EarlyFramebufferSurface>,
@@ -98,6 +101,7 @@ struct Display {
     mc: usize,
     config: FramebufferConfig,
     buffers: Option<[ContiguousPages; 2]>,
+    panel_buffers: Option<[ContiguousPages; 2]>,
     original: [u32; REGISTERS.len()],
     original_console_window: [u32; REGISTERS.len()],
     original_console_kind: u32,
@@ -176,15 +180,16 @@ impl Display {
         (0x7f * windows, 0x3f * windows, 0x20 * windows, windows)
     }
 
-    fn flip(&self, paddr: u64, stride: u32, format: PixelFormat) -> Result<(), &'static str> {
+    fn flip(&self, paddr: u64) -> Result<(), &'static str> {
+        let stride = PANEL_STRIDE;
         let access = self.read(STATE_ACCESS);
         let header = self.read(HEADER);
         self.write(STATE_ACCESS, 0); // Read and write assembly state.
         self.write(HEADER, 1 << 4);
         let result = (|| {
-            // Hekate initializes both priority controls to zero. Adopt
-            // Linux/NVIDIA's native DC fetch threshold and timer instead
-            // of retaining bootloader FIFO policy for SCAN_COLUMN fetches.
+            // Retain Linux/NVIDIA's native DC threshold/timer. IMG_9091
+            // proved these latch but do not fix the column-scan fetch path;
+            // VIC now supplies the established portrait-pitch DC layout.
             let (priority_mask, timer_mask, priority, timer) = self.priority_fields();
             self.write(
                 MEM_HIGH_PRIORITY,
@@ -196,11 +201,7 @@ impl Display {
             );
             self.write(0x701, 0); // No byte swap.
             self.write(0x702, 0); // Host buffer, pitch-linear.
-            let color_depth = match format {
-                PixelFormat::BGRA8888 | PixelFormat::XRGB8888 => 12,
-                PixelFormat::RGBA8888 | PixelFormat::XBGR8888 => 13,
-                _ => return Err("Tegra DC requires a 32-bit RGB image"),
-            };
+            let color_depth = 12; // VIC output is always X8R8G8B8/BGRA.
             self.write(0x703, color_depth);
             self.write(0x704, 0);
             self.write(0x705, WIDTH << 16 | HEIGHT); // Physical portrait mode.
@@ -220,19 +221,17 @@ impl Display {
             self.write(0x80b, 0);
             self.write(START, paddr as u32);
             self.write(START_HI, (paddr >> 32) as u32);
-            // NVIDIA window.c swaps prescaled axes for SCAN_COLUMN.
-            // Keep the IMG_9090 source cursor unchanged while isolating
-            // fetch-priority setup. Upstream Linux's reflect-X formula
-            // does not itself establish 90-degree column-scan addressing.
-            let h_offset = (WIDTH - 1) * 4;
-            let options = WIN_ENABLE | SCAN_COLUMN | H_DIRECTION;
+            // Hekate _di_winA_pitch_vic and the working IMG_9089 baseline:
+            // portrait pitch, offsets zero, no DC transpose or reflection.
+            let h_offset = 0;
+            let options = WIN_ENABLE;
             self.write(0x806, h_offset);
             self.write(0x808, 0);
             self.write(OPTIONS, options);
             if self.keep_console {
                 // Keep the original portrait boot console in window B. It
                 // uses the inherited linear fetch, independently of window
-                // A's GPU image and SCAN_COLUMN landscape fetch. This is an
+                // A's VIC-produced image. This is an
                 // opt-in diagnostic display, not a console distribution policy.
                 self.write(HEADER, 1 << 5);
                 for (register, value) in REGISTERS.iter().zip(self.original) {
@@ -439,21 +438,104 @@ impl Display {
         let memory = buffers
             .get(index)
             .ok_or("invalid Tegra DC scanout buffer")?;
-        // Both aliases are Normal Non-cacheable, matching arm64 Linux's
-        // pgprot_writecombine. Publish CPU stores before DC fetches the
-        // actual application buffer; there is no rotated staging copy.
+        // Application/kernel aliases are Normal-NC. VIC rotates the ready
+        // landscape source into a private, non-front portrait buffer.
         arch::io_mb();
-        state.changed = true;
         self.trace_frame(memory.as_paddr(), STRIDE, "CPU");
-        if let Err(error) = self.flip(memory.as_paddr(), STRIDE, PixelFormat::BGRA8888) {
+        let panel = self.rotate_frame(state, memory.as_paddr(), STRIDE, PixelFormat::BGRA8888)?;
+        state.changed = true;
+        if let Err(error) = self.flip(self.panel_buffers.as_ref().unwrap()[panel].as_paddr()) {
             state.lost = true;
             return Err(error);
         }
         state.gpu_front = None;
         state.pending_gpu = None;
         state.front = index;
+        state.panel_front = panel;
         self.front.store(index, Ordering::Release);
         self.gpu_active.store(false, Ordering::Release);
+        Ok(())
+    }
+
+    fn rotate_frame(
+        &self,
+        state: &mut State,
+        source: u64,
+        stride: u32,
+        format: PixelFormat,
+    ) -> Result<usize, &'static str> {
+        let panel = state.panel_front ^ 1;
+        let destination = self.panel_buffers.as_ref().unwrap()[panel].as_paddr();
+        let result = state
+            .vic
+            .compose(source, destination, stride, format)
+            .and_then(|elapsed| {
+                self.inspect_vic_frame(source, destination, stride, format, elapsed)
+            });
+        if let Err(error) = result {
+            scarlet::println!("tegra-vic: presentation failed before DC flip: {}", error);
+            // A timed-out VIC can still reference its attempted source and
+            // destination. Isolate it now, retaining all owners in State/Display
+            // until shutdown succeeds. DC's preceding front stays untouched.
+            if let Err(shutdown) = state.vic.shutdown() {
+                scarlet::println!("tegra-vic: DMA shutdown failed: {}", shutdown);
+            }
+            state.lost = true;
+            return Err(error);
+        }
+        Ok(panel)
+    }
+
+    fn inspect_vic_frame(
+        &self,
+        source: u64,
+        destination: u64,
+        stride: u32,
+        format: PixelFormat,
+        elapsed_ns: u64,
+    ) -> Result<(), &'static str> {
+        let sequence = self.diagnostic_frames.load(Ordering::Relaxed);
+        if sequence != 1 && (!self.keep_console || (sequence > 8 && !sequence.is_power_of_two())) {
+            return Ok(());
+        }
+        // Read selected pixels after VIC retirement. This diagnoses the
+        // actual conversion output before DC activation; it does not draw or
+        // transpose a CPU frame, or prove physical panel pixels by itself.
+        let source = vm::addr::phys_to_virt(source);
+        let output = vm::addr::phys_to_virt(destination);
+        let mut matched = 0;
+        for gy in 0..18 {
+            for gx in 0..32 {
+                let x = gx * (WIDTH - 1) / 31;
+                let y = gy * (HEIGHT - 1) / 17;
+                let input = unsafe {
+                    core::ptr::read_volatile((source + (y * stride + x * 4) as usize) as *const u32)
+                } & 0x00ffffff;
+                let expected = match format {
+                    PixelFormat::RGBA8888 | PixelFormat::XBGR8888 => {
+                        ((input & 0xff) << 16) | (input & 0xff00) | ((input >> 16) & 0xff)
+                    }
+                    _ => input,
+                };
+                let pixel = unsafe {
+                    core::ptr::read_volatile(
+                        (output + ((WIDTH - 1 - x) * PANEL_STRIDE + y * 4) as usize) as *const u32,
+                    )
+                } & 0x00ffffff;
+                matched += u32::from(pixel == expected);
+            }
+        }
+        scarlet::println!(
+            "tegra-vic: frame={} dst={:#x} pitch={} rotation=270 completed={}us matched={}/576",
+            sequence,
+            destination,
+            PANEL_STRIDE,
+            elapsed_ns / 1000,
+            matched
+        );
+        if matched != 576 {
+            return Err("VIC portrait output differs from ready landscape pixels");
+        }
         Ok(())
     }
 
@@ -538,17 +620,21 @@ impl Display {
 
 impl Drop for Display {
     fn drop(&mut self) {
-        if self.state.get_mut().changed && self.restore().is_err() {
+        let vic_retired = self.state.get_mut().vic.shutdown().is_ok();
+        let dc_retired = !self.state.get_mut().changed || self.restore().is_ok();
+        if dc_retired {
+            if let Some(surface) = self.state.get_mut().early_surface.take() {
+                // The original firmware reservation remains live after rollback.
+                unsafe { earlyfb::restore_surface(surface) };
+            }
+        }
+        if !vic_retired || !dc_retired {
             // A failed flip may still become active. Retain every allocation
             // the controller could fetch, including the attempted GPU image.
             core::mem::forget(self.buffers.take());
+            core::mem::forget(self.panel_buffers.take());
             core::mem::forget(self.state.get_mut().gpu_front.take());
             core::mem::forget(self.state.get_mut().pending_gpu.take());
-            return;
-        }
-        if let Some(surface) = self.state.get_mut().early_surface.take() {
-            // The original firmware reservation remains live after rollback.
-            unsafe { earlyfb::restore_surface(surface) };
         }
     }
 }
@@ -676,7 +762,7 @@ impl GraphicsDevice for Display {
     ) -> Result<(), &'static str> {
         self.validate_region(region)?;
         if !options.is_swapchain_buffer() {
-            return Err("Tegra DC direct GPU scanout requires a swapchain image");
+            return Err("Tegra VIC presentation requires a GPU swapchain image");
         }
         let backing = resource
             .linear_backing()
@@ -688,7 +774,7 @@ impl GraphicsDevice for Display {
             || backing.stride() < STRIDE
             || backing.stride() > 0xffff
             || backing.stride() & 63 != 0
-            || backing.physical_addr() & 63 != 0
+            || backing.physical_addr() & 255 != 0
             || backing.allocation_size() < required
             || backing
                 .physical_addr()
@@ -716,12 +802,14 @@ impl GraphicsDevice for Display {
         // GPU-rendered frame. This controller only consumes the ready image.
         arch::io_mb();
         state.pending_gpu = Some(resource);
-        state.changed = true;
         self.trace_frame(paddr, stride, "GPU");
-        if let Err(error) = self.flip(paddr, stride, format) {
+        let panel = self.rotate_frame(&mut state, paddr, stride, format)?;
+        state.changed = true;
+        if let Err(error) = self.flip(self.panel_buffers.as_ref().unwrap()[panel].as_paddr()) {
             state.lost = true;
             return Err(error);
         }
+        state.panel_front = panel;
         state.gpu_front = state.pending_gpu.take();
         self.gpu_active.store(true, Ordering::Release);
         earlyfb::deactivate();
@@ -744,18 +832,18 @@ impl GraphicsDevice for Display {
         } else {
             unsafe {
                 earlyfb::replace_surface(
-                    self.buffers.as_ref().unwrap()[0].as_vaddr(),
-                    WIDTH as usize,
+                    self.panel_buffers.as_ref().unwrap()[state.panel_front].as_vaddr(),
                     HEIGHT as usize,
-                    STRIDE as usize,
+                    WIDTH as usize,
+                    PANEL_STRIDE as usize,
                     false,
-                    false,
+                    true,
                 )
             }?
         };
         state.initialized = true;
         scarlet::println!(
-            "tegra-dc: native scanout active; 1280x720, direct pitch, hardware rotation, Normal-NC"
+            "tegra-dc: native scanout active; VIC270, portrait pitch=2880, Normal-NC"
         );
         if self.keep_console {
             scarlet::println!("tegra-dc: keep_bootcon; boot logs remain visible in window B");
@@ -797,6 +885,19 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     }
     if (dc_asid | dc1_asid) & (1 << 31) != 0 {
         return Err("DC0 is attached to an inherited SMMU domain");
+    }
+    let vic_asid = read(mc, 0x284);
+    let vic_reset = read(mc, 0x200);
+    scarlet::println!(
+        "tegra-vic: MC asid={:#010x} hot-reset={:#010x}",
+        vic_asid,
+        vic_reset
+    );
+    if vic_asid == u32::MAX || vic_reset == u32::MAX {
+        return Err("VIC physical DMA contract is unreadable");
+    }
+    if vic_asid & (1 << 31) != 0 || vic_reset & (1 << 18) != 0 {
+        return Err("VIC is attached to SMMU or held in MC hot reset");
     }
     // Direct A/B underflow counters live beyond the window-selected bank.
     let base = vm::ioremap(resource.start, 0x4000)?;
@@ -880,7 +981,17 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         ContiguousPages::new((STRIDE as usize * HEIGHT as usize).div_ceil(4096))
             .ok_or("Tegra DC scanout allocation failed")?,
     ];
-    for (index, memory) in buffers.iter_mut().enumerate() {
+    let mut panel_buffers = [
+        ContiguousPages::new((PANEL_STRIDE as usize * WIDTH as usize).div_ceil(4096))
+            .ok_or("Tegra VIC portrait allocation failed")?,
+        ContiguousPages::new((PANEL_STRIDE as usize * WIDTH as usize).div_ceil(4096))
+            .ok_or("Tegra VIC portrait allocation failed")?,
+    ];
+    for (index, memory) in buffers
+        .iter_mut()
+        .chain(panel_buffers.iter_mut())
+        .enumerate()
+    {
         if memory
             .as_paddr()
             .checked_add(u64::from(STRIDE) * u64::from(HEIGHT))
@@ -896,8 +1007,8 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         memory.retag_memory_attribute(MemoryAttribute::NonCacheable)?;
     }
     scarlet::println!("tegra-dc: scanout buffers ready; preserving boot frame");
-    // Convert the inherited portrait boot frame once during adoption.
-    // All subsequent frames are scanned directly with DC hardware rotation.
+    // Preserve the boot frame in the ordinary landscape render buffer once.
+    // Every presentation then uses VIC, never a per-frame CPU transpose.
     let boot = vm::addr::phys_to_virt(u64::from(original[10]));
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
@@ -918,11 +1029,13 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         } else {
             0
         };
+    let vic = Vic::new(cell(device, "clocks", 0).ok_or("DC has no VIC clock provider")?)?;
     let display = Arc::new(Display {
         base,
         mc,
         config: FramebufferConfig::new(WIDTH, HEIGHT, PixelFormat::BGRA8888),
         buffers: Some(buffers),
+        panel_buffers: Some(panel_buffers),
         original,
         original_console_window,
         original_console_kind,
@@ -942,6 +1055,8 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
             changed: false,
             lost: false,
             front: 0,
+            panel_front: 1, // First presentation fills and activates panel buffer 0.
+            vic,
             gpu_front: None,
             pending_gpu: None,
             early_surface: None,

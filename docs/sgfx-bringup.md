@@ -25,17 +25,16 @@ host-method push still times out with GET/ref/fence unchanged; GR and SGFX
 admission are not reached. Varied CPU samples do not establish correct scanout:
 the user reports white/gray screens with input and possible edge garbage.
 
-[IMG_9089](gpu-hardware-9089.md) confirms visible content and orientation in
-the portrait-pitch isolation image, with very slow operation. The immediate
-priority is now **DC hardware rotation**, before additional SGFX changes. The
-[IMG_9090](gpu-hardware-9090.md) then records continuing A fetch underflows
-in the failed direct column-scan candidate, despite nonuniform CPU image
-samples. The current [fetch-priority candidate](dc-fetch-priority-verification.json)
-keeps the same ordinary pitch-linear landscape buffers, SCAN_COLUMN geometry
-and Normal-NC aliases while adding Linux/NVIDIA's native DC priority setup.
-No CPU transpose, block-linear upload or GPU memory/runlist changes are
-included. FIFO completion, authenticated GR boot and SGFX admission remain
-physically unverified.
+[IMG_9089](gpu-hardware-9089.md) confirms correct visible content/orientation
+with portrait-pitch DC after CPU conversion, albeit slowly. The two direct
+column-scan candidates fail: [IMG_9091](gpu-hardware-9091.md) proves priority
+latched while A underflows continue. Following the user's request, the current
+[VIC candidate](dc-vic-rotation-verification.json) uses Hekate's actual 270-degree
+VIC conversion and the established DC pitch-2880 layout, for both ordinary CPU
+and retired GPU images. No per-frame CPU transpose, block-linear upload or
+GPU memory/runlist changes are included. Physical VIC/DC presentation remains
+pending; FIFO completion, authenticated GR boot and SGFX admission are still
+unverified. See [display implementation](display-bringup.md).
 
 ## Execution path
 
@@ -48,7 +47,8 @@ SWS / ScarletUI fixed SGFX IR
   -> kernel validation and trusted B197 / 902D method templates
   -> GM20B GPFIFO, signed FECS context, Mesa Maxwell SASS
   -> PGRAPH QUERY_GET fence and complete channel retirement
-  -> GPU-owned BGRA image, ordinary display presentation, Tegra DC
+  -> GPU-owned BGRA image, ordinary display presentation
+  -> VIC 270-degree portrait-pitch output, Tegra DC
 ```
 
 There is no Switch-specific SWS renderer or console policy. Output scale remains

@@ -9,7 +9,7 @@
   },
   "preceding_hardware_report": "docs/gpu-hardware-9090.md",
   "preceding_installed_image": "docs/dc-direct-rotation-verification.json",
-  "hardware_tested": false,
+  "hardware_tested": true,
   "hardware_validated": false,
   "installed_to_sd": true,
   "changes": [
@@ -139,11 +139,21 @@
   "sd_install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd",
   "limits": [
     "Native DC priority controls were missing, but the exact cause of column-scan underflows is not yet established",
-    "Correct physical GUI pixels, orientation, edges and sustained updates require another hardware boot",
+    "Physical boot failed: priority latched, but continuing A column-scan underflows and gray GUI remain",
     "Source layout/cursor remain identical to failed IMG_9090 to isolate fetch-priority setup",
     "No EMC frequency or MC bandwidth/latency policy is changed",
     "Inherited panel initialization; no cold modesetting or suspend/resume",
     "Extra synchronous VBlank retirement remains; no measured frame rate is claimed",
     "Private GPU FIFO completion and genuine SGFX execution remain pending"
-  ]
+  ],
+  "hardware_report": "docs/gpu-hardware-9091.md",
+  "hardware_observations": {
+    "user_report": "gray GUI; unchanged failure",
+    "active_priority": "0x00202000 / 0x00010100",
+    "window_a_underflow_first_flip": "0x4",
+    "window_a_underflow_frame_8": "0x2cd",
+    "window_b_underflow": "0x0",
+    "frame_8_varied_samples": "575/576",
+    "gpu_host_method_completion": "timeout; GET 0, reference 0xffffffff, fence 0"
+  }
 }

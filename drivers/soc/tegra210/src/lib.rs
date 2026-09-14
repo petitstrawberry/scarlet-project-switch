@@ -16,6 +16,10 @@ pub mod packet;
 #[cfg(target_os = "none")]
 pub use gpu::{GpuPlatform, GpuPlatformState};
 #[cfg(target_os = "none")]
+mod vic;
+#[cfg(target_os = "none")]
+pub use vic::VicPlatform;
+#[cfg(target_os = "none")]
 mod runtime;
 #[cfg(target_os = "none")]
 pub use runtime::*;
