@@ -219,6 +219,30 @@ impl Vic {
         self.claimed = false;
         Ok(())
     }
+
+    pub(super) fn trace_failure(&self) {
+        // Read before reset/clock gating; private registers are not accessible
+        // after isolation. Keep parsed state for diagnosing a failed real frame.
+        if !self.claimed || self.isolated {
+            return;
+        }
+        scarlet::println!(
+            "tegra-vic: failed-frame idle={:#010x} params={:#010x}/{} input={:#010x} output={:#010x}",
+            self.registers().read(IDLE_STATE),
+            self.read_private(PARAMETER_BASE),
+            self.read_private(PARAMETER_SIZE),
+            self.read_private(INPUT_BASE),
+            self.read_private(OUTPUT_BASE)
+        );
+        scarlet::println!(
+            "tegra-vic: parsed slot={:#010x} cfg2={:#010x} src-size={:#010x} out-cfg={:#010x} out-size={:#010x}",
+            self.read_private(0x10b04),
+            self.read_private(0x10b0c),
+            self.read_private(0x10b10),
+            self.read_private(0x22c00),
+            self.read_private(0x22c04)
+        );
+    }
 }
 
 impl Drop for Vic {

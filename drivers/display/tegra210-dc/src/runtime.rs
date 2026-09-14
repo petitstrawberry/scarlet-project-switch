@@ -474,6 +474,16 @@ impl Display {
             });
         if let Err(error) = result {
             scarlet::println!("tegra-vic: presentation failed before DC flip: {}", error);
+            state.vic.trace_failure();
+            let mc_read = |offset| unsafe { arch::mmio::read32(self.mc + offset) };
+            scarlet::println!(
+                "tegra-vic: sticky-mc={:#010x} err={:#010x}/{:#010x} asid={:#010x} hot-reset={:#010x}",
+                mc_read(0),
+                mc_read(8),
+                mc_read(0xc),
+                mc_read(0x284),
+                mc_read(0x200)
+            );
             // A timed-out VIC can still reference its attempted source and
             // destination. Isolate it now, retaining all owners in State/Display
             // until shutdown succeeds. DC's preceding front stays untouched.
