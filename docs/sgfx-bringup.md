@@ -60,7 +60,7 @@ retains genuine rendering admission checks. See
 
 ## Current GPU iteration
 
-The installed [memory/runlist candidate](gpu-fifo-memory-bringup.md) was tested
+The preceding [memory/runlist candidate](gpu-fifo-memory-bringup.md) was tested
 in [IMG_9095](gpu-hardware-9095.md). Rootfs retry and GPU power work, but the
 added MC_ENABLE memory-bit assertion rejects unchanged `0xc0012024` readback
 before ELPG, BAR1 or PFIFO. Early probe deferral is therefore not permanent.
@@ -81,12 +81,13 @@ and [common MM setup](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae
 
 Production kernel/package build and all 12 package hashes pass, including 16
 firmware files, all 13 shader pairs and eight unchanged native applications.
-The follow-up is **not installed or physically tested**. Its exact source,
-ELF/package hashes and preceding installed receipt are in
+The follow-up is installed to the known FAT32 SD. All 12 file readbacks and
+38 protected-file hashes match, and the SD is ejected. Physical boot is
+pending. Its exact source, ELF/package hashes and preceding installed receipt are in
 [gpu-elpg-9095-verification.json](gpu-elpg-9095-verification.json).
 DC register/rotation programming is unchanged. Actual PFIFO completion,
 authenticated GR, SGFX Ready and direct compatible GPU scanout remain unproven.
-Boot **Scarlet Switch SGFX Logs** after installing the follow-up and capture
+Boot **Scarlet Switch SGFX Logs** and capture
 from `gm20b: memory elpg=... missing=...` through the first fault or both real
 `FIFO completion` lines and subsequent GR initialization.
 

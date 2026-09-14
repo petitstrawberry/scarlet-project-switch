@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-14T07:48:39.591903+00:00",
+  "generated_at_utc": "2026-09-14T13:14:00.344603+00:00",
   "purpose": "Use GM20B MC_ELPG_ENABLE framebuffer reset; remove the generic MC_ENABLE memory-bit admission that rejects IMG_9095",
   "board_source_revision": "01b9112b5df49382870d026de40c4571e92d6eec",
   "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
@@ -9,9 +9,8 @@
   },
   "hardware_tested": false,
   "hardware_validated": false,
-  "installed_to_sd": false,
+  "installed_to_sd": true,
   "preceding_hardware_report": "docs/gpu-hardware-9095.md",
-  "currently_installed_receipt": "docs/gpu-fifo-memory-verification.json",
   "display_register_programming_unchanged": true,
   "display_source_files_sha256": {
     "drivers/display/tegra210-dc/src/runtime.rs": "b353f0c1b6be2587dd8674077977322333ed84638f116226c5b3f209d23a3c39",
@@ -154,8 +153,38 @@
   "build_log": ".cache/gpu-elpg-9095-build.log",
   "build_log_sha256": "4bfbe3464d50d6a48d41da3926bdcf7c416ea17af2c85b46fc0c28f510b4321e",
   "limitations": [
-    "This candidate is built and package-verified but not installed; the SD currently holds board 57feee3 tested in IMG_9095",
+    "This candidate is installed to the known FAT32 SD with all 12 file readbacks and 38 protected-file hashes matching, then ejected; physical boot is pending",
     "ELPG mask readback, BAR1 backing/remap, private-input visibility, both PFIFO completions and authenticated GR/SGFX admission still require a new physical boot",
     "GPU-ready and copy-free presentation are not established; the existing intermediate DC storage upload remains"
-  ]
+  ],
+  "preceding_installed_receipt": "docs/gpu-fifo-memory-verification.json",
+  "sd_receipt": {
+    "device": "disk8s1",
+    "mount": "/Volumes/SWITCH SD",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "56f96e1cb454d3f431ace388c8cd56f048fb74696c892628235c01078425c39c",
+      "switchroot/scarlet-console/Image": "b41e330eb6eb71235cbd3c447ccf079624436df403ba452e19e7958949b85c6b",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "41dc156b5e2ee33b7a483e42f1afc056cd9ae65a1ecb127b8f6f968966ebdabd",
+      "switchroot/scarlet-console/initramfs": "7bb47a58f12655eb8d931c20624c75c8c7dc8da87393cccd7045fa52708b516e",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "cb77b9a3f59e0dfd305d5602cdb970a9b24847ec33ce72d391ac9956927dba12",
+      "switchroot/scarlet-console-logs/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console-logs/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console-logs/boot.scr": "43fd16bf4d0585ff1477343d4f93d5d2b630f4a881c7fb2b05e036a63a9da6cf",
+      "switchroot/scarlet-console-logs/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df"
+    },
+    "protected_files_verified": 38,
+    "raw_device_accessed": false,
+    "hardware_boot_validated": false,
+    "board_source_revision": "01b9112b5df49382870d026de40c4571e92d6eec",
+    "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+    "kernel_elf_sha256": "56877e9167141f33d5d41c0831ecc54b4c904c05202d41c3e343c8b730b58b3b",
+    "volume_uuid": "3B5C719E-AC1A-3190-902F-508C45D88F3E",
+    "install_log": ".cache/gpu-elpg-9095-sd-install.log",
+    "install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd",
+    "ejected_at_utc": "2026-09-14T13:14:00.344603+00:00",
+    "ejection_result": "Disk /Volumes/SWITCH SD ejected"
+  }
 }

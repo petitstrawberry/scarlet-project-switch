@@ -13,8 +13,9 @@ Exact source/build/SD identities are in
 [gpu-fifo-memory-verification.json](gpu-fifo-memory-verification.json).
 
 Follow-up `01b9112` corrects the failed admission by using the GM20B ELPG
-framebuffer reset alone. It is built and package-verified, but not installed
-or physically tested; see [current GPU status](sgfx-bringup.md#current-gpu-iteration)
+framebuffer reset alone. It is built, package-verified and installed with all
+12 readbacks and 38 protected-file hashes matching, then ejected. Physical
+boot is pending; see [current GPU status](sgfx-bringup.md#current-gpu-iteration)
 and [follow-up build receipt](gpu-elpg-9095-verification.json).
 
 ## Corrections
