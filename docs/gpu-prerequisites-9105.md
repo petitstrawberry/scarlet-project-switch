@@ -6,8 +6,10 @@ follow-up supplies missing Linux initialization steps. Hardware completion
 remains unproven until another physical boot. Source `8a2dcdc` passes the
 production Cortex-A57 release build and package inspection, including 12
 package hashes, 16 firmware files, 13 shader pairs and eight native apps
-identical to the preceding installed image. The correction is not installed;
-exact identities are in [the build receipt](gpu-prerequisites-9105-verification.json).
+identical to the preceding installed image. The correction is installed to the
+known FAT32 SD; all 12 readbacks and 38 protected-file hashes match, and the SD
+is ejected. Physical boot remains pending. Exact identities are in
+[the receipt](gpu-prerequisites-9105-verification.json).
 
 ## Implementation
 
