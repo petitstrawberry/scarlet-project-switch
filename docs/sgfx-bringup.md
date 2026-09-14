@@ -91,7 +91,13 @@ The next [clock/PRIV ring prerequisite correction](gpu-prerequisites-9105.md)
 moves GPU-wide clock setup before MM, starts the PRIV ring using Nouveau's
 sequence and applies NVIDIA's FIFO clock-gating settings after reset. It
 adds physical GPCCLK measurement and concise scheduler/engine/context failure
-logs. Production build/package verification and a new physical boot are pending.
+logs. Production build/package inspection passes: all 12 package hashes, 16
+firmware files, 13 shader pairs and eight unchanged native applications. The
+new source is `8a2dcdc`; its ELF SHA-256 is
+`510a1d5a3679c7ae9f26ad2ce2aaceb2c5f086b93df5356630e6e6272567f69d`.
+It is not installed or physically tested; the SD is currently ejected. Exact
+identities and checks are in
+[gpu-prerequisites-9105-verification.json](gpu-prerequisites-9105-verification.json).
 DC register/rotation programming is unchanged. Actual PFIFO completion,
 authenticated GR, SGFX Ready and direct compatible GPU scanout remain unproven.
 
