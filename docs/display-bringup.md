@@ -23,10 +23,12 @@ than the incorrectly required `0xff`. T210 uses gen2 blending. The corrected
 candidate excludes that legacy register from writes and saved/active state,
 while retaining the gen2 blend and scanout checks. Production build and package
 inspection passed; the [new record](gpu-fifo-bar1-gen2-verification.json)
-distinguishes that candidate from the installed image. Native publication,
-window-B diagnostics and genuine GPU-image presentation still require physical
-validation. The same recording confirms the post-initramfs GPU retry, followed
-by an initial FIFO bind failure before graphics execution.
+distinguishes this candidate from the image tested in IMG_9087. The corrected
+image was installed to the FAT32 SD with all 12 readbacks and 38 protected-file
+hashes verified, then ejected. Native publication, window-B diagnostics and
+genuine GPU-image presentation still require physical validation. The recording
+confirms the post-initramfs GPU retry, followed by an initial FIFO bind failure
+before graphics execution.
 
 ## Adoption and ownership
 

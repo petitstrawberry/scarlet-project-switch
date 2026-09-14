@@ -101,8 +101,9 @@ Targeted formatting, production release compilation and L4T package inspection
 passed. Kernel ELF SHA-256 is
 `a2005ed8554f922e0eb97da7ab2c68cc2b7cc912357b64752defb3ab7853e04b`.
 [gpu-fifo-bar1-gen2-verification.json](gpu-fifo-bar1-gen2-verification.json)
-records source and artifact hashes. This new candidate is not installed to SD
-and has not been tested on hardware. Scale remains 1.0 and `maxcpus=4`.
+records source and artifact hashes. This new candidate was installed to the
+FAT32 SD: all 12 file readbacks and 38 protected-file hashes matched, and the
+SD was ejected. Physical testing is pending. Scale remains 1.0 and `maxcpus=4`.
 
 The next physical milestones are native DC publication, the two private FIFO
 completions, authenticated firmware/GR initialization, shader admission, and

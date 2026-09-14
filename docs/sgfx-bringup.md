@@ -18,7 +18,9 @@ The next candidate publishes USERD BAR1 before binding either channel and
 manages only T210 gen2 blend state. It adds precise FIFO bind diagnostics.
 Production build and package inspection passed; see
 [gpu-fifo-bar1-gen2-verification.json](gpu-fifo-bar1-gen2-verification.json).
-This new image is not yet installed to SD or physically validated.
+This new image was installed to the FAT32 SD; all 12 file readbacks and 38
+protected-file hashes matched, and the SD was ejected. Physical validation
+is pending.
 
 ## Execution path
 
