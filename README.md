@@ -83,7 +83,11 @@ Use a sibling `../Scarlet` checkout at
 `8fc70e81a0b01acdcec0e4b09d811509571de193` or a compatible successor (native
 display adoption needs the common earlyfb handoff API and safe HHDM retagging).
 Boot-console diagnostics additionally require Scarlet
-`9aae7194` or a compatible successor. The local GPU client also includes the additive upstream API definitions from
+`f717b199` or a compatible successor, proposed in
+[PR #562](https://github.com/petitstrawberry/Scarlet/pull/562).
+Use the matching SGFX Maxwell facade from
+[SGFX PR #6](https://github.com/petitstrawberry/sgfx/pull/6).
+The local GPU client also includes the additive upstream API definitions from
 Scarlet `4b5257897e341a0d0d3136b37d47b0157b9985cd`, required by the matching
 SGFX checkout. The console preparation script uses sibling `../sgfx` alongside
 `../scarlet-ui` and overrides all shared library identities consistently.

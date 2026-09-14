@@ -1,20 +1,20 @@
 {
   "candidate": "GM20B SGFX + native DC with optional visible GPU/DC logs",
   "hardware_validated": false,
-  "kernel_source_revision": "9aae71948e02c99dd1f8acc04967b1d01cef5720",
-  "kernel_elf_sha256": "f126b67082cd6d5a3d69adfc11359d4be3897b153f61f6b15205d5fc21ac7cd2",
+  "kernel_source_revision": "f717b19911c74424451993e723e59de161502aaa",
+  "kernel_elf_sha256": "d8afc6b083ae8a08b3574bf90355107d56ba6c6eddca53ba88cb1bf3da84f2db",
   "board_parent_revision": "67ba96e567a0b814d5c4c82a6f3db56a95ccbe61",
   "graphics_source_tree_sha256": "c95cb2c8f276a6f3bbbefd998b4cd40d73d1da82ce3626464a95614ca4ea7c70",
-  "image_runtime_size": 17809408,
+  "image_runtime_size": 17805312,
   "package_sha256": {
     "bootloader/ini/L4T-scarlet-console.ini": "56f96e1cb454d3f431ace388c8cd56f048fb74696c892628235c01078425c39c",
-    "switchroot/scarlet-console/Image": "64785e68185eadf92476bfe254f1cee80d079c432a2b860e85acf97f1704c8c3",
+    "switchroot/scarlet-console/Image": "e819ee958011a3a31335cda8d5318e1001421b1b13cea832e5e0eee071800fcc",
     "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
     "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
     "switchroot/scarlet-console/boot.scr": "41dc156b5e2ee33b7a483e42f1afc056cd9ae65a1ecb127b8f6f968966ebdabd",
-    "switchroot/scarlet-console/initramfs": "0e13a14d814f206cf1795598b665eb79759e595b5f2a5a1617372a341547f14f",
+    "switchroot/scarlet-console/initramfs": "7bb47a58f12655eb8d931c20624c75c8c7dc8da87393cccd7045fa52708b516e",
     "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
-    "switchroot/scarlet-console/uImage": "bec97f6c96a85d7f4a955fdd46faf189187c21cf1e227580f7074311fddbd225",
+    "switchroot/scarlet-console/uImage": "2ef69a2a1e31c22177919f98c4168e5a2f7d87e4d27c234d5e79a23da1c59462",
     "switchroot/scarlet-console-logs/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
     "switchroot/scarlet-console-logs/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
     "switchroot/scarlet-console-logs/boot.scr": "43fd16bf4d0585ff1477343d4f93d5d2b630f4a881c7fb2b05e036a63a9da6cf",
@@ -25,8 +25,8 @@
     "linux_image_magic_verified": true,
     "legacy_kernel_ramdisk_crc_verified": true,
     "kernel_load_entry": "0x80200000",
-    "runtime_reservation": "0x10fc000",
-    "kernel_elf_sha256": "f126b67082cd6d5a3d69adfc11359d4be3897b153f61f6b15205d5fc21ac7cd2",
+    "runtime_reservation": "0x10fb000",
+    "kernel_elf_sha256": "d8afc6b083ae8a08b3574bf90355107d56ba6c6eddca53ba88cb1bf3da84f2db",
     "output_scale": 1.0,
     "maxcpus": 4,
     "firmware_files_verified": 16,
@@ -68,14 +68,14 @@
         "osabi": 83
       },
       "bin/sws": {
-        "size": 4467512,
-        "sha256": "000463bda9b0ddaa7253f154b6ec2df466d7aee2ec6a92d17cde83a056354320",
+        "size": 4467536,
+        "sha256": "86bff3544b47b4a84defec8980dcad27aebbb672b6bd9c569fbbe9d737bbcc92",
         "aarch64_elf": true,
         "osabi": 83
       },
       "bin/scarlet-shell": {
         "size": 10868192,
-        "sha256": "ae675737cba96eaebf9c83ee6d1b4a2890360c92045507bc4e06f004e7769cd9",
+        "sha256": "d6dc9a59c761b39c1abf415c4467038cdb7d8945d61ee09565885bde60794e36",
         "aarch64_elf": true,
         "osabi": 83
       },
@@ -112,7 +112,7 @@
     },
     "sws_maxwell_symbol_linked": true,
     "hardware_validated": false,
-    "kernel_source_revision": "9aae71948e02c99dd1f8acc04967b1d01cef5720",
+    "kernel_source_revision": "f717b19911c74424451993e723e59de161502aaa",
     "diagnostic_script_crc_verified": true,
     "diagnostic_shares_console_images": true,
     "journal_mirror_packaged": true,
@@ -120,8 +120,28 @@
     "diagnostic_view": "opaque original boot console in DC window B; GUI renders in window A"
   },
   "deployment": {
-    "written_by_assistant": false,
-    "reason": "SWITCH SD is not mounted; generated package is ready to install"
+    "device": "disk8s1",
+    "mount": "/Volumes/SWITCH SD",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "56f96e1cb454d3f431ace388c8cd56f048fb74696c892628235c01078425c39c",
+      "switchroot/scarlet-console/Image": "e819ee958011a3a31335cda8d5318e1001421b1b13cea832e5e0eee071800fcc",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "41dc156b5e2ee33b7a483e42f1afc056cd9ae65a1ecb127b8f6f968966ebdabd",
+      "switchroot/scarlet-console/initramfs": "7bb47a58f12655eb8d931c20624c75c8c7dc8da87393cccd7045fa52708b516e",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "2ef69a2a1e31c22177919f98c4168e5a2f7d87e4d27c234d5e79a23da1c59462",
+      "switchroot/scarlet-console-logs/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console-logs/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console-logs/boot.scr": "43fd16bf4d0585ff1477343d4f93d5d2b630f4a881c7fb2b05e036a63a9da6cf",
+      "switchroot/scarlet-console-logs/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df"
+    },
+    "protected_files_verified": 38,
+    "raw_device_accessed": false,
+    "hardware_boot_validated": false,
+    "written_by_assistant": true,
+    "ejected": true,
+    "completed_at": "2026-09-14T12:02:50.101399+09:00"
   },
   "previous_user_observation": {
     "candidate": "User self-installed and tested the SGFX candidate, not an older assistant deployment",
@@ -132,5 +152,13 @@
     "Scarlet Switch Console": "ordinary GUI with explicit DC blend/layout state",
     "Scarlet Switch SGFX Logs": "same GUI execution, opaque window B retains kernel and mirrored logd messages; compare retired GPU/DC samples"
   },
-  "usb_host_and_ssh_validated": false
+  "usb_host_and_ssh_validated": false,
+  "board_implementation_revision": "3d3b249fa695e30937e3e8b4a5487a2277f6ffb1",
+  "sgfx_facade_local_revision": "5109c8da570029d087f4c97cdfba2a742ac1fb4c",
+  "sgfx_facade_published_revision": "bd2181ac3f98712a88972a9cb29ca8a8e1f4a61a",
+  "pull_requests": {
+    "kernel": "https://github.com/petitstrawberry/Scarlet/pull/562",
+    "switch": "https://github.com/petitstrawberry/scarlet-project-switch/pull/1",
+    "sgfx": "https://github.com/petitstrawberry/sgfx/pull/6"
+  }
 }
