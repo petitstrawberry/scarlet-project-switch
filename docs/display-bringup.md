@@ -17,12 +17,16 @@ suspend/resume remain pending. The new [SGFX candidate](sgfx-bringup.md) renders
 into GPU-owned images and presents through this ordinary display interface;
 physical GPU-image presentation is still unverified.
 
-[IMG_9086](gpu-hardware-9086.md) shows a console GUI with SWS logs drawn over
-it, but does not establish native DC adoption or the intended opaque window-B
-diagnostic view. GPU discovery remains deferred in that installed image.
-The installed retry candidate adds a common post-initramfs retry; its
-[verification record](gpu-initramfs-retry-verification.json) distinguishes
-successful package checks and SD readback from pending hardware testing.
+[IMG_9087](gpu-hardware-9087.md) reaches DC activation and VBlank, then rejects
+native publication because legacy gen1 alpha register `0x715` reads zero rather
+than the incorrectly required `0xff`. T210 uses gen2 blending. The corrected
+candidate excludes that legacy register from writes and saved/active state,
+while retaining the gen2 blend and scanout checks. Production build and package
+inspection passed; the [new record](gpu-fifo-bar1-gen2-verification.json)
+distinguishes that candidate from the installed image. Native publication,
+window-B diagnostics and genuine GPU-image presentation still require physical
+validation. The same recording confirms the post-initramfs GPU retry, followed
+by an initial FIFO bind failure before graphics execution.
 
 ## Adoption and ownership
 

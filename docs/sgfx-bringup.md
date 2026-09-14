@@ -6,14 +6,19 @@ Production compilation succeeds. The user tested an earlier SGFX candidate
 and reported a uniform screen whose color changes with input. The subsequent
 diagnostic image is recorded in
 [gpu-sgfx-render-verification.json](gpu-sgfx-render-verification.json).
-[IMG_9086](gpu-hardware-9086.md) shows GPU discovery remaining deferred before
-initramfs mounting, followed by a visible console GUI and continuing SWS logs.
-It does not establish successful GPU rendering or native DC adoption. A new
-candidate retries the deferred queue after mounting; its build and package
-checks are recorded in
+[IMG_9087](gpu-hardware-9087.md) confirms that the installed post-initramfs
+retry works: firmware decoding, GPU power and BAR1 read/write/remap pass.
+Initial FIFO runlist activation then fails with BIND_ERROR, before any host
+push or GR execution. DC activation also fails its active readback of a gen1
+alpha register. The later visible GUI does not establish GPU rendering or
+native DC adoption. The tested image and SD hashes remain in
 [gpu-initramfs-retry-verification.json](gpu-initramfs-retry-verification.json).
-That candidate has been copied to the FAT32 SD, verified by file hashes and
-ejected. Physical testing of the retry candidate is pending.
+
+The next candidate publishes USERD BAR1 before binding either channel and
+manages only T210 gen2 blend state. It adds precise FIFO bind diagnostics.
+Production build and package inspection passed; see
+[gpu-fifo-bar1-gen2-verification.json](gpu-fifo-bar1-gen2-verification.json).
+This new image is not yet installed to SD or physically validated.
 
 ## Execution path
 
