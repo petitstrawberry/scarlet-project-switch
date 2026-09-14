@@ -14,13 +14,25 @@ alpha register. The later visible GUI does not establish GPU rendering or
 native DC adoption. The tested image and SD hashes remain in
 [gpu-initramfs-retry-verification.json](gpu-initramfs-retry-verification.json).
 
-The next candidate publishes USERD BAR1 before binding either channel and
+The image tested in IMG_9088 publishes USERD BAR1 before binding either channel and
 manages only T210 gen2 blend state. It adds precise FIFO bind diagnostics.
 Production build and package inspection passed; see
 [gpu-fifo-bar1-gen2-verification.json](gpu-fifo-bar1-gen2-verification.json).
-This new image was installed to the FAT32 SD; all 12 file readbacks and 38
-protected-file hashes matched, and the SD was ejected. Physical validation
-is pending.
+That image was installed to the FAT32 SD; all 12 file readbacks and 38
+protected-file hashes matched, and the SD was ejected. [IMG_9088](gpu-hardware-9088.md)
+confirms initial runlist activation and native DC publication. The first private
+host-method push still times out with GET/ref/fence unchanged; GR and SGFX
+admission are not reached. Varied CPU samples do not establish correct scanout:
+the user reports white/gray screens with input and possible edge garbage.
+
+DC display correctness is now the immediate priority. The next
+[CPU portrait-pitch candidate](dc-portrait-pitch-verification.json) preserves
+the normal distribution and 1280x720 rendering interface, but rotates CPU frames
+into private portrait buffers for the known Hekate linear fetch. It adds bounded
+DC underflow and read-only MC fault diagnostics. The production build/package
+checks pass; this candidate has not been installed or tested physically. The
+pending GPU memory/runlist investigation is not included in its image. Direct
+GPU landscape scanout remains unverified.
 
 ## Execution path
 

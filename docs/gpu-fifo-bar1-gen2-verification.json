@@ -182,5 +182,25 @@
     "board_source_revision": "093c11e35d7d6a040e61c4790f9576ac9e1cf644",
     "kernel_elf_sha256": "a2005ed8554f922e0eb97da7ab2c68cc2b7cc912357b64752defb3ab7853e04b",
     "ejected_at_utc": "2026-09-14T04:12:28.199077+00:00"
+  },
+  "hardware_observations": {
+    "video": "IMG_9088.mov",
+    "video_sha256": "c198737e9c2b76db34e0445728cb22b339cb2b30a3ae52adbdfa4429d7ed3012",
+    "duration_seconds": 37.5517,
+    "report": "docs/gpu-hardware-9088.md",
+    "tested_kernel_elf_sha256": "a2005ed8554f922e0eb97da7ab2c68cc2b7cc912357b64752defb3ab7853e04b",
+    "post_initramfs_retry_confirmed": true,
+    "firmware_decoding_confirmed": true,
+    "bar1_read_write_remap_confirmed": true,
+    "initial_runlist_activates": true,
+    "initial_bind_error_present": false,
+    "private_fifo_completion_confirmed": false,
+    "fifo_failure": "First host-method submission times out; GET=0, REF=0xffffffff, fence=0; FIFO/PBDMA/scheduler error registers are zero",
+    "native_dc_publication_confirmed": true,
+    "cpu_frame_sample_varied": true,
+    "correct_physical_pixels_confirmed": false,
+    "user_report": "Input changes the screen to white/gray; possible garbage at the display edge",
+    "gr_execution_confirmed": false,
+    "sgfx_hardware_admission_confirmed": false
   }
 }

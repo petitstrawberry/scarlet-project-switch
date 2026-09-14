@@ -3,13 +3,20 @@
 The console distribution now links `scarlet-driver-tegra210-dc`. It adopts the
 inspected Hekate DC0/DSI mode and exports normal `/dev/display0` controls,
 including two direct scanout buffers and GPU swapchain-image presentation.
-The candidate has passed production build, artifact inspection and FAT32 SD
-readback. `IMG_9081.mov` shows DC0/DC1 deferred before probe because the
-Noble binding requests PMC pinctrl states. Physical native scanout has not
-yet been validated. `IMG_9082.mov` reaches the inherited DC window snapshot
-and fails in the common AArch64 HHDM attribute-change path; see
-[the latest video reading](gpu-hardware-9082.md). The corrected candidate
-has passed production build and FAT32 SD readback and was ejected.
+[IMG_9088](gpu-hardware-9088.md) reaches native publication and varied CPU
+frame samples, but the user reports white/gray screens on input and possible
+garbage at the display edge. Active register checks do not establish correct
+physical pixels. DC correctness is the current priority, before GR/SGFX.
+
+The next [portrait-pitch candidate](dc-portrait-pitch-verification.json) keeps
+the normal 1280x720 CPU render buffers and converts complete frames into private
+720x1280 scanout buffers. Window A uses the inspected Hekate portrait pitch
+fetch, with no SCAN_COLUMN or inverted direction. Bounded logs report the
+actual scanout address, pitch/options, A/B underflow counters and read-only MC
+error latches. Production build and package inspection pass; SD installation
+and physical validation of this candidate are pending. The extra CPU copy is
+a display baseline, not proof of correct GPU direct scanout or a diagnosed
+root cause.
 
 This is native window/scanout control with inherited panel initialization.
 Cold DSI/panel power-up, modesetting, HDMI, display IRQ handling and
@@ -22,13 +29,14 @@ native publication because legacy gen1 alpha register `0x715` reads zero rather
 than the incorrectly required `0xff`. T210 uses gen2 blending. The corrected
 candidate excludes that legacy register from writes and saved/active state,
 while retaining the gen2 blend and scanout checks. Production build and package
-inspection passed; the [new record](gpu-fifo-bar1-gen2-verification.json)
-distinguishes this candidate from the image tested in IMG_9087. The corrected
+inspection passed; the [record](gpu-fifo-bar1-gen2-verification.json)
+distinguishes that candidate from the image tested in IMG_9087. The corrected
 image was installed to the FAT32 SD with all 12 readbacks and 38 protected-file
-hashes verified, then ejected. Native publication, window-B diagnostics and
-genuine GPU-image presentation still require physical validation. The recording
-confirms the post-initramfs GPU retry, followed by an initial FIFO bind failure
-before graphics execution.
+hashes verified, then ejected. IMG_9088 subsequently confirms native publication
+and continued window-B logs. It also confirms the post-initramfs GPU retry and
+initial FIFO runlist activation, followed by a host-method completion timeout
+before graphics execution. Correct GUI pixels and GPU-image presentation
+remain unverified.
 
 ## Adoption and ownership
 
@@ -45,11 +53,15 @@ buffer at `0xf5a00000`. Unsupported modes leave the ordinary simple-framebuffer
 fallback published. DC1 is not claimed. No global clock, DSI, panel, regulator,
 carveout, or MC translation configuration is changed.
 
-Two page-owned 1280x720 BGRA buffers replace the inherited scanout. Their CPU
+Two page-owned 1280x720 BGRA buffers provide the ordinary rendering interface. Their CPU
 and userspace aliases use the same DeviceBurstable attribute, through the
-common PMM retagging/mmap mechanisms. The last boot frame is rotated once into
-the initial buffer. Later presentation sets the source pitch, SCAN_COLUMN and
-invert-H directly in DC window A; the per-frame CPU rotation is removed.
+common PMM retagging/mmap mechanisms. The last boot frame is preserved in the
+initial render buffer. Each CPU presentation rotates the complete render frame
+into its own private 720x1280 pitch-2880 scanout buffer. These two additional
+buffers use the same memory attribute and remain owned through activation,
+retirement and failed rollback. The conversion adds about 7 MiB of storage and
+per-frame CPU overhead. The separate GPU presentation path still sets source
+pitch, SCAN_COLUMN and invert-H directly; that path remains physically unverified.
 
 The current common AArch64 correction builds the HHDM with 4-KiB leaves
 before activation. This prevents a live block split from removing unrelated
@@ -118,12 +130,14 @@ Boot **More Configs → Scarlet Switch Console** and record:
 
 - `gm20b: GMMU BAR1 read/write/remap passed; channels pending`.
 - `tegra-dc: inherited addr=... options=... kind=... mode=... active=...`.
-- `tegra-dc: native scanout active; 1280x720, two buffers, hardware rotation`.
+- `tegra-dc: native scanout active; CPU portrait pitch, 1280x720 display`.
+- `tegra-dc: scanout=... pitch=2880 options=0x40000000` and `tegra-dc: fetch uf=... mc=... err=...`.
 - The ordinary Shell, colors/orientation, sustained updates, Joy-Con/touch,
   all CPU startup logs and timer/sleep wake.
 
 Report the exact last phase on a failure. The artifact/SD receipt is
-`gpu-hhdm-display-verification.json`. The preceding BAR1-success/DC-failure
+`dc-portrait-pitch-verification.json`. The image tested in IMG_9088 retains
+`gpu-fifo-bar1-gen2-verification.json`. The preceding BAR1-success/DC-failure
 boot retains `gpu-selector-display-verification.json`; the earlier
 failed/deferred boot retains `gpu-gmmu-display-verification.json`. Build/readback
 do not establish DMA, rotation, VBlank, GPU-image lifetime, or suspend/resume behavior on hardware.
