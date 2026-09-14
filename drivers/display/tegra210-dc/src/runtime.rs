@@ -34,6 +34,7 @@ use scarlet_driver_tegra210::{cell, delay_us};
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
 const STRIDE: u32 = WIDTH * 4;
+const PANEL_STRIDE: u32 = HEIGHT * 4;
 const STATE_ACCESS: usize = 0x40;
 const STATE_CONTROL: usize = 0x41;
 const HEADER: usize = 0x42;
@@ -47,6 +48,8 @@ const MEMFETCH_CONTROL: usize = 0x82b;
 const WIN_ENABLE: u32 = 1 << 30;
 const ACT_REQ: u32 = 3; // GENERAL and window A.
 const VBLANK: u32 = 1 << 2;
+const WINDOW_A_FETCH_EVENTS: u32 = (1 << 8) | (1 << 14);
+const WINDOW_B_FETCH_EVENTS: u32 = (1 << 9) | (1 << 15);
 // T210 uses the gen2 blender at 0x716..0x719. NVIDIA window.c programs
 // DC_WIN_GLOBAL_ALPHA (0x715) only for gen1; do not manage or verify it here.
 const REGISTERS: [usize; 20] = [
@@ -67,14 +70,17 @@ struct State {
 
 struct Display {
     base: usize,
+    mc: usize,
     config: FramebufferConfig,
     buffers: Option<[ContiguousPages; 2]>,
+    cpu_scanout: Option<[ContiguousPages; 2]>,
     original: [u32; REGISTERS.len()],
     original_console_window: [u32; REGISTERS.len()],
     original_console_kind: u32,
     original_kind: u32,
-    original_vblank_enable: u32,
-    original_vblank_mask: u32,
+    event_mask: u32,
+    original_event_enable: u32,
+    original_event_mask: u32,
     state: Mutex<State>,
     front: AtomicUsize,
     gpu_active: AtomicBool,
@@ -112,10 +118,10 @@ impl Display {
     }
 
     fn activate(&self) -> Result<(), &'static str> {
-        // Hekate starts with event generation disabled. Enable VBlank status
-        // while leaving its CPU interrupt masked; no GIC IRQ is claimed.
-        self.write(INT_MASK, self.read(INT_MASK) & !VBLANK);
-        self.write(INT_ENABLE, self.read(INT_ENABLE) | VBLANK);
+        // Hekate starts with event generation disabled. Enable VBlank and
+        // fetch-error status while masking their CPU IRQs; no GIC is claimed.
+        self.write(INT_MASK, self.read(INT_MASK) & !self.event_mask);
+        self.write(INT_ENABLE, self.read(INT_ENABLE) | self.event_mask);
         // T210 window.c resets the fetch FIFO before updating a window.
         self.write(MEMFETCH_CONTROL, 1);
         if self.keep_console {
@@ -136,7 +142,13 @@ impl Display {
         Ok(())
     }
 
-    fn flip(&self, paddr: u64, stride: u32, format: PixelFormat) -> Result<(), &'static str> {
+    fn flip(
+        &self,
+        paddr: u64,
+        stride: u32,
+        format: PixelFormat,
+        hardware_rotation: bool,
+    ) -> Result<(), &'static str> {
         let access = self.read(STATE_ACCESS);
         let header = self.read(HEADER);
         self.write(STATE_ACCESS, 0); // Read and write assembly state.
@@ -164,12 +176,14 @@ impl Display {
             self.write(0x80b, 0);
             self.write(START, paddr as u32);
             self.write(START_HI, (paddr >> 32) as u32);
-            // Switchroot invert-H uses the last byte of the source row.
-            // With SCAN_COLUMN this fetches (1279-panel_y, panel_x), the
-            // same orientation as the former CPU rotation, without a copy.
-            self.write(0x806, WIDTH * 4 - 1);
+            // CPU presentation uses the inspected Hekate portrait/pitch
+            // fetch. Keep the unverified landscape GPU fetch separate so
+            // CPU frames can establish a display baseline before GR works.
+            let h_offset = if hardware_rotation { WIDTH * 4 - 1 } else { 0 };
+            let options = WIN_ENABLE | if hardware_rotation { (1 << 4) | 1 } else { 0 };
+            self.write(0x806, h_offset);
             self.write(0x808, 0);
-            self.write(OPTIONS, WIN_ENABLE | (1 << 4) | 1);
+            self.write(OPTIONS, options);
             if self.keep_console {
                 // Keep the original portrait boot console in window B. It
                 // uses the inherited linear fetch, independently of window
@@ -184,12 +198,15 @@ impl Display {
                 self.write(OPTIONS, WIN_ENABLE);
                 self.write(HEADER, 1 << 4);
             }
-            self.activate()?;
+            if let Err(error) = self.activate() {
+                self.trace_scanout(paddr, stride, options);
+                return Err(error);
+            }
             self.write(STATE_ACCESS, 1);
             let expected = [
                 (START, paddr as u32),
                 (START_HI, (paddr >> 32) as u32),
-                (OPTIONS, WIN_ENABLE | (1 << 4) | 1),
+                (OPTIONS, options),
                 (0x701, 0),
                 (0x702, 0),
                 (0x703, color_depth),
@@ -200,7 +217,7 @@ impl Display {
                 (0x70d, 0),
                 (0x716, (1 << 24) | 255),
                 (0x80b, 0),
-                (0x806, WIDTH * 4 - 1),
+                (0x806, h_offset),
                 (0x808, 0),
             ];
             if let Some(&(register, value)) = expected
@@ -234,12 +251,13 @@ impl Display {
                     return Err("Tegra DC diagnostic console readback mismatch");
                 }
             }
+            self.trace_scanout(paddr, stride, options);
             Ok(())
         })();
         self.write(HEADER, header);
         self.write(STATE_ACCESS, access);
         if result.is_ok() {
-            self.restore_vblank();
+            self.restore_events();
         }
         result
     }
@@ -288,20 +306,20 @@ impl Display {
         self.write(HEADER, header);
         self.write(STATE_ACCESS, access);
         if result.is_ok() {
-            self.restore_vblank();
+            self.restore_events();
         }
         result
     }
 
-    fn restore_vblank(&self) {
-        self.write(INT_STATUS, VBLANK);
+    fn restore_events(&self) {
+        self.write(INT_STATUS, self.event_mask);
         self.write(
             INT_ENABLE,
-            (self.read(INT_ENABLE) & !VBLANK) | self.original_vblank_enable,
+            (self.read(INT_ENABLE) & !self.event_mask) | self.original_event_enable,
         );
         self.write(
             INT_MASK,
-            (self.read(INT_MASK) & !VBLANK) | self.original_vblank_mask,
+            (self.read(INT_MASK) & !self.event_mask) | self.original_event_mask,
         );
     }
 
@@ -341,9 +359,39 @@ impl Display {
         let memory = buffers
             .get(index)
             .ok_or("invalid Tegra DC scanout buffer")?;
+        let scanout = &self.cpu_scanout.as_ref().unwrap()[index];
+        // This complete copy also preserves partial-damage frames. Userspace
+        // still sees the ordinary 1280x720 buffers and display controls.
+        // Finish posted writes to the DeviceBurstable render mapping before
+        // reading it through the kernel alias for conversion.
+        arch::io_mb();
+        let source = memory.as_vaddr();
+        let destination = scanout.as_vaddr();
+        for panel_y in 0..WIDTH {
+            let x = WIDTH - 1 - panel_y;
+            for panel_x in 0..HEIGHT {
+                let pixel = unsafe {
+                    core::ptr::read_volatile(
+                        (source + (panel_x * STRIDE + x * 4) as usize) as *const u32,
+                    )
+                };
+                unsafe {
+                    core::ptr::write_volatile(
+                        (destination + (panel_y * PANEL_STRIDE + panel_x * 4) as usize) as *mut u32,
+                        pixel,
+                    )
+                };
+            }
+        }
+        arch::io_mb();
         state.changed = true;
         self.trace_frame(memory.as_paddr(), STRIDE, "CPU");
-        if let Err(error) = self.flip(memory.as_paddr(), STRIDE, PixelFormat::BGRA8888) {
+        if let Err(error) = self.flip(
+            scanout.as_paddr(),
+            PANEL_STRIDE,
+            PixelFormat::BGRA8888,
+            false,
+        ) {
             state.lost = true;
             return Err(error);
         }
@@ -356,11 +404,8 @@ impl Display {
     }
 
     fn trace_frame(&self, paddr: u64, stride: u32, producer: &'static str) {
-        if !self.keep_console {
-            return;
-        }
         let sequence = self.diagnostic_frames.fetch_add(1, Ordering::Relaxed) + 1;
-        if sequence > 8 && !sequence.is_power_of_two() {
+        if !self.keep_console || (sequence > 8 && !sequence.is_power_of_two()) {
             return;
         }
         let address = vm::addr::phys_to_virt(paddr);
@@ -391,6 +436,32 @@ impl Display {
             hash
         );
     }
+
+    fn trace_scanout(&self, paddr: u64, stride: u32, options: u32) {
+        let sequence = self.diagnostic_frames.load(Ordering::Relaxed);
+        if sequence > 8 && !sequence.is_power_of_two() {
+            return;
+        }
+        let mc_read = |offset| unsafe { arch::mmio::read32(self.mc + offset) };
+        // These are fetch counters/status, not proof of correct physical
+        // pixels. Read the shared MC error latch without acknowledging it.
+        scarlet::println!(
+            "tegra-dc: scanout={} addr={:#x} pitch={} options={:#010x}",
+            sequence,
+            paddr,
+            stride,
+            options
+        );
+        scarlet::println!(
+            "tegra-dc: fetch uf={:#010x}/{:#010x} intr={:#010x} mc={:#010x} err={:#010x}/{:#010x}",
+            self.read(0xbca),
+            self.read(0xdca),
+            self.read(INT_STATUS),
+            mc_read(0),
+            mc_read(8),
+            mc_read(0xc)
+        );
+    }
 }
 
 impl Drop for Display {
@@ -399,6 +470,7 @@ impl Drop for Display {
             // A failed flip may still become active. Retain every allocation
             // the controller could fetch, including the attempted GPU image.
             core::mem::forget(self.buffers.take());
+            core::mem::forget(self.cpu_scanout.take());
             core::mem::forget(self.state.get_mut().gpu_front.take());
             core::mem::forget(self.state.get_mut().pending_gpu.take());
             return;
@@ -575,7 +647,7 @@ impl GraphicsDevice for Display {
         state.pending_gpu = Some(resource);
         state.changed = true;
         self.trace_frame(paddr, stride, "GPU");
-        if let Err(error) = self.flip(paddr, stride, format) {
+        if let Err(error) = self.flip(paddr, stride, format, true) {
             state.lost = true;
             return Err(error);
         }
@@ -601,19 +673,17 @@ impl GraphicsDevice for Display {
         } else {
             unsafe {
                 earlyfb::replace_surface(
-                    self.buffers.as_ref().unwrap()[0].as_vaddr(),
-                    WIDTH as usize,
+                    self.cpu_scanout.as_ref().unwrap()[0].as_vaddr(),
                     HEIGHT as usize,
-                    STRIDE as usize,
+                    WIDTH as usize,
+                    PANEL_STRIDE as usize,
                     false,
-                    false,
+                    true,
                 )
             }?
         };
         state.initialized = true;
-        scarlet::println!(
-            "tegra-dc: native scanout active; 1280x720, two buffers, hardware rotation"
-        );
+        scarlet::println!("tegra-dc: native scanout active; CPU portrait pitch, 1280x720 display");
         if self.keep_console {
             scarlet::println!("tegra-dc: keep_bootcon; boot logs remain visible in window B");
         }
@@ -655,7 +725,8 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     if (dc_asid | dc1_asid) & (1 << 31) != 0 {
         return Err("DC0 is attached to an inherited SMMU domain");
     }
-    let base = vm::ioremap(resource.start, 0x2100)?;
+    // Direct A/B underflow counters live beyond the window-selected bank.
+    let base = vm::ioremap(resource.start, 0x4000)?;
     let dc_read = |r| read(base, r * 4);
     let dc_write = |r, v| unsafe {
         arch::mmio::write32(base + r * 4, v);
@@ -723,7 +794,13 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         ContiguousPages::new((STRIDE as usize * HEIGHT as usize).div_ceil(4096))
             .ok_or("Tegra DC scanout allocation failed")?,
     ];
-    for (index, memory) in buffers.iter_mut().enumerate() {
+    let mut cpu_scanout = [
+        ContiguousPages::new((PANEL_STRIDE as usize * WIDTH as usize).div_ceil(4096))
+            .ok_or("Tegra DC portrait scanout allocation failed")?,
+        ContiguousPages::new((PANEL_STRIDE as usize * WIDTH as usize).div_ceil(4096))
+            .ok_or("Tegra DC portrait scanout allocation failed")?,
+    ];
+    for (index, memory) in buffers.iter_mut().chain(cpu_scanout.iter_mut()).enumerate() {
         if memory
             .as_paddr()
             .checked_add(u64::from(STRIDE) * u64::from(HEIGHT))
@@ -739,8 +816,8 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         memory.retag_memory_attribute(MemoryAttribute::DeviceBurstable)?;
     }
     scarlet::println!("tegra-dc: scanout buffers ready; preserving boot frame");
-    // Preserve the last boot frame once. Subsequent frames are scanned out
-    // directly in landscape layout; there is no per-present CPU rotation.
+    // Preserve the last boot frame in the ordinary landscape render buffer.
+    // CPU presentation converts it back to the known portrait pitch layout.
     let boot = vm::addr::phys_to_virt(u64::from(original[10]));
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
@@ -754,16 +831,26 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
             };
         }
     }
+    let event_mask = VBLANK
+        | WINDOW_A_FETCH_EVENTS
+        | if earlyfb::keep_boot_console() {
+            WINDOW_B_FETCH_EVENTS
+        } else {
+            0
+        };
     let display = Arc::new(Display {
         base,
+        mc,
         config: FramebufferConfig::new(WIDTH, HEIGHT, PixelFormat::BGRA8888),
         buffers: Some(buffers),
+        cpu_scanout: Some(cpu_scanout),
         original,
         original_console_window,
         original_console_kind,
         original_kind: kind,
-        original_vblank_enable: dc_read(INT_ENABLE) & VBLANK,
-        original_vblank_mask: dc_read(INT_MASK) & VBLANK,
+        event_mask,
+        original_event_enable: dc_read(INT_ENABLE) & event_mask,
+        original_event_mask: dc_read(INT_MASK) & event_mask,
         front: AtomicUsize::new(0),
         gpu_active: AtomicBool::new(false),
         keep_console: earlyfb::keep_boot_console(),
