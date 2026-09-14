@@ -119,6 +119,12 @@ bare-channel runlist words (channel ID, zero) with the existing CCSR-bound
 instance. It also saves active runlist/instance/PBDMA status and splits failure
 lines to retain their trailing values in captured logs. This reference difference
 is established; its causal role in the failed first push remains unproven.
+Source `a9976f0` passes the production Cortex-A57 release build/package
+inspection: all 12 hashes, 16 firmware files and 13 linked shader pairs;
+the eight native executables match the preceding installed image. Its ELF
+SHA-256 is `35d11eb221d2d2d87d3eaf36fa6e0f6205276d9c0442135e4476cb906c9f7773`.
+The new candidate is not installed or physically tested; evidence is in
+[gpu-runlist-0915-verification.json](gpu-runlist-0915-verification.json).
 
 ## Execution path
 

@@ -5,6 +5,14 @@ visibility, but its first host push leaves the enabled channel pending and
 PBDMA invalid. This candidate changes the runlist representation to match the
 Switch Linux vendor's GM20B HAL. Its physical effect is not yet known.
 
+Source `a9976f0` passes the production Cortex-A57 release build, all 12 package
+hashes, 16 firmware files and 13 linked shader pairs. All eight native
+executables match the preceding installed image. The new ELF SHA-256 is
+`35d11eb221d2d2d87d3eaf36fa6e0f6205276d9c0442135e4476cb906c9f7773`;
+runtime reservation remains `0x1101000`. The candidate is not installed or
+physically tested. Exact build/package evidence is in
+[gpu-runlist-0915-verification.json](gpu-runlist-0915-verification.json).
+
 ## Reference difference
 
 The Switchroot nvgpu GM20B HAL selects `gk20a_get_ch_runlist_entry` and
@@ -51,5 +59,7 @@ Read with `gh api` at pinned commits; Git blob hashes are verified in
   and [GM20B CCSR bind](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/gm20b/fifo_gm20b.c#L46).
 - [GM20B channel/runlist fields](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/include/nvgpu/hw/gm20b/hw_ram_gm20b.h#L415)
   and [CCSR enable/status](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/include/nvgpu/hw/gm20b/hw_ccsr_gm20b.h#L99).
+- [Active runlist base](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/include/nvgpu/hw/gm20b/hw_fifo_gm20b.h#L107)
+  and [raw PBDMA status](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/include/nvgpu/hw/gm20b/hw_pbdma_gm20b.h#L311).
 - [Nouveau GM200 FIFO selectors](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/fifo/gm200.c#L40)
   and [gm107 instance-pointer runlist](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/fifo/gm107.c#L45).

@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-14T16:18:59.888480+00:00",
+  "purpose": "Match the Switch Linux GM20B vendor bare-channel runlist representation after the September 15 failed first host push",
+  "board_source_revision": "a9976f0c93fe0634d3c20c0935bf969c14fd0ff0",
+  "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+  "source_files_sha256": {
+    "drivers/gpu/nvidia-gm20b/src/fifo.rs": "6834e242efbf1271df1e0e7c35bd7113cc55755ea6e0cb30f2fe6c356c016419",
+    "drivers/gpu/nvidia-gm20b/src/hardware.rs": "6a2c63b50c6944ef1fa5e9b336ced66e616cff7b29912dac0813fd1e29d990c9",
+    "drivers/gpu/nvidia-gm20b/src/gmmu.rs": "0983bbb6d04097a42cba3ca0071f2c6fe2661006c7169feccf61df467c5dd699",
+    "drivers/gpu/nvidia-gm20b/src/runtime.rs": "e0cf743ead94f6db3695e996118dc5138c13901fbaa174696ef712e18fab48af"
+  },
+  "hardware_tested": false,
+  "hardware_validated": false,
+  "installed_to_sd": false,
+  "preceding_hardware_report": "docs/gpu-hardware-0915.md",
+  "preceding_installed_receipt": "docs/gpu-memory-host-9106-verification.json",
+  "inspection": {
+    "package_hashes_verified": 12,
+    "linux_image_magic_verified": true,
+    "legacy_kernel_ramdisk_crc_verified": true,
+    "kernel_load_entry": "0x80200000",
+    "runtime_reservation": "0x1101000",
+    "kernel_elf_sha256": "35d11eb221d2d2d87d3eaf36fa6e0f6205276d9c0442135e4476cb906c9f7773",
+    "output_scale": 1.0,
+    "maxcpus": 4,
+    "firmware_files_verified": 16,
+    "firmware_revision": "46a6999a2d14a5f2239e7e712e5bbcf543f59034",
+    "sw_method_init_sha256": "6372e2f6f547d7bd086beb066ce46ac379795f95c38eeeedd9e13c7b32515b24",
+    "shader_binaries_and_headers_linked": {
+      "fs_solid.bin": true,
+      "fs_solid.header.bin": true,
+      "fs_texture_alpha_mask.bin": true,
+      "fs_texture_alpha_mask.header.bin": true,
+      "fs_texture_rgb_ignore_alpha.bin": true,
+      "fs_texture_rgb_ignore_alpha.header.bin": true,
+      "fs_texture_rgba.bin": true,
+      "fs_texture_rgba.header.bin": true,
+      "fs_texture_vertex_color_rgba.bin": true,
+      "fs_texture_vertex_color_rgba.header.bin": true,
+      "fs_vertex_color.bin": true,
+      "fs_vertex_color.header.bin": true,
+      "vs_stride16_pos2.bin": true,
+      "vs_stride16_pos2.header.bin": true,
+      "vs_stride16_pos2_uv2.bin": true,
+      "vs_stride16_pos2_uv2.header.bin": true,
+      "vs_stride24_pos4_uv2.bin": true,
+      "vs_stride24_pos4_uv2.header.bin": true,
+      "vs_stride28_pos4_color3.bin": true,
+      "vs_stride28_pos4_color3.header.bin": true,
+      "vs_stride40_pos4.bin": true,
+      "vs_stride40_pos4.header.bin": true,
+      "vs_stride40_pos4_color4.bin": true,
+      "vs_stride40_pos4_color4.header.bin": true,
+      "vs_stride40_pos4_color4_uv2.bin": true,
+      "vs_stride40_pos4_color4_uv2.header.bin": true
+    },
+    "native_executables": {
+      "init": {
+        "size": 113304,
+        "sha256": "0fa66d1dc2d32e075ec78fe5c98793308de0b034bb29ac2b0a090664924b1a42",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/sws": {
+        "size": 4467536,
+        "sha256": "86bff3544b47b4a84defec8980dcad27aebbb672b6bd9c569fbbe9d737bbcc92",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/scarlet-shell": {
+        "size": 10868192,
+        "sha256": "d6dc9a59c761b39c1abf415c4467038cdb7d8945d61ee09565885bde60794e36",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/cpufreqctl": {
+        "size": 147272,
+        "sha256": "c33f3df672bc4930949feecde7163e26b472516c10a322b12136a7b57752c0f0",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/gpu-info": {
+        "size": 147848,
+        "sha256": "544e953a134ad93342025742a1887b7450ab201fcd3abf9da59e7cd8cd93a066",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/logctl": {
+        "size": 167688,
+        "sha256": "c3774d1ab777a3ab803184a57624faf3558987295998b3123b5dcee9cd536130",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/logd": {
+        "size": 173160,
+        "sha256": "8d628132c0be60c5dfa3616d731fbdb7a09bb4bea663013af7352f0f3694bd94",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/stemd": {
+        "size": 458848,
+        "sha256": "b0c5cb2944635151ff17dac7ac289e6b9ade8a85f54f76e68013b5ac71f4f050",
+        "aarch64_elf": true,
+        "osabi": 83
+      }
+    },
+    "sws_maxwell_symbol_linked": true,
+    "hardware_validated": false,
+    "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+    "diagnostic_script_crc_verified": true,
+    "diagnostic_shares_console_images": true,
+    "journal_mirror_packaged": true,
+    "diagnostic_console_option": "keep_bootcon",
+    "diagnostic_view": "opaque original boot console in DC window B; GUI renders in window A"
+  },
+  "package_manifest": {
+    "hardware_validated": false,
+    "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+    "kernel_elf_sha256": "35d11eb221d2d2d87d3eaf36fa6e0f6205276d9c0442135e4476cb906c9f7773",
+    "boot_directory": "scarlet-console",
+    "entry_file": "L4T-scarlet-console.ini",
+    "diagnostic_directory": "scarlet-console-logs",
+    "initramfs_size": 72419160,
+    "kernel_load": "0x80200000",
+    "kernel_entry": "0x80200000",
+    "text_offset": "0x200000",
+    "image_runtime_size": 17829888,
+    "dtb_selection_buffer": "0x8d000000",
+    "initramfs_load_buffer": "0x92000000",
+    "initramfs_payload_start": "0x92000040",
+    "initramfs_format": "uncompressed CPIO newc in a legacy RAMDisk header",
+    "uboot_fdt_initrd_relocation": false,
+    "entry_contract": "Linux arm64 Image; x0=physical DTB; EL1/EL2; MMU off; DAIF masked",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "56f96e1cb454d3f431ace388c8cd56f048fb74696c892628235c01078425c39c",
+      "switchroot/scarlet-console/Image": "d2c5664b496886c9c8fefbd7d2a790a0be06d35f7d42c40132acec60b9713c0c",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "41dc156b5e2ee33b7a483e42f1afc056cd9ae65a1ecb127b8f6f968966ebdabd",
+      "switchroot/scarlet-console/initramfs": "c1af42be7ed9c2d721d247e0cb03f91d2b70aac127efb092b414d1b9fb76a459",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "7901ee4c59ace532a6a1875ad7b940a08c3c253c6a46f742be444bbb6f16aeff",
+      "switchroot/scarlet-console-logs/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console-logs/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console-logs/boot.scr": "43fd16bf4d0585ff1477343d4f93d5d2b630f4a881c7fb2b05e036a63a9da6cf",
+      "switchroot/scarlet-console-logs/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df"
+    }
+  },
+  "native_applications_identical_to_preceding_installed_image": true,
+  "display_register_programming_unchanged": true,
+  "display_source_files_sha256": {
+    "drivers/display/tegra210-dc/src/runtime.rs": "b353f0c1b6be2587dd8674077977322333ed84638f116226c5b3f209d23a3c39",
+    "drivers/display/tegra210-dc/src/lib.rs": "c57860a6272ce8e87a6873f1e6cf0eab49c5ab4f35747d902783040b5fad96f7",
+    "drivers/display/tegra210-dc/src/block_linear.rs": "1841b783fc6af0146f6a206903897c1514f9cecb231c9f778818788efd0c388b"
+  },
+  "vendor_bare_channel_runlist": {
+    "channel_id": 0,
+    "words": [
+      0,
+      0
+    ],
+    "instance_pointer_published_through_ccsr": true,
+    "aperture_target": "Tegra video aperture with physical backing",
+    "automatic_fallback": false,
+    "nouveau_gm107_reference_emits_instance_pointer_in_second_word": true,
+    "causal_role_in_preceding_failure_proven": false
+  },
+  "saved_failure_registers": {
+    "active_runlist_base": "0x2280",
+    "ccsr_instance": "0x800000",
+    "pbdma_status": "0x40100",
+    "captured_before_gpu_reset": true,
+    "raw_values_are_diagnostic_only": true
+  },
+  "diagnostic_failure_hold": {
+    "option": "keep_bootcon",
+    "copies": 2,
+    "hold_per_copy_us": 500000,
+    "ordinary_boot_copies": 1,
+    "ordinary_boot_hold_us": 0,
+    "expanded_saved_and_backing_lines_checked_with_full_u32_values_fit_columns": 60,
+    "cpu_backing_inspected_only_after_gpu_isolation_and_successful_mc_drain": true
+  },
+  "build_log": ".cache/gpu-runlist-0915-build.log",
+  "build_log_sha256": "6c0cd0dfb6990ccb01481405de63ca0b56270d264aa816f401ead4f01cf5fc7d",
+  "new_diagnostic_markers_linked_in_candidate_elf": true,
+  "targeted_rustfmt_check_passed": true,
+  "git_diff_check_passed": true,
+  "additional_host_tests_added": false,
+  "source_references": {
+    "fifo-gk20a": {
+      "url": "https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/gk20a/fifo_gk20a.c",
+      "git_blob_sha": "072f1777f9023785057fdf6824145fda305ebd29",
+      "sha256": "5593dcf771262ad4c6db510fff5107dd5cde69cdeb0caf10b7f0238fdae8133f"
+    },
+    "ram": {
+      "url": "https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/include/nvgpu/hw/gm20b/hw_ram_gm20b.h",
+      "git_blob_sha": "2414abf04f24584136a0b58757654e7163f5bfc2",
+      "sha256": "7ff867a62cbebce0676387db81fc1c2e9d5c366e32a7d7e8dd5a33128dac0df8"
+    },
+    "ccsr": {
+      "url": "https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/include/nvgpu/hw/gm20b/hw_ccsr_gm20b.h",
+      "git_blob_sha": "adfce72378f361471a357cc5ad455c2d95364912",
+      "sha256": "627c20d54b999ecc7072706d4a0cbf7ace8f4e4432f0f800fe2935d3da19b8da"
+    },
+    "fifo-gm20b": {
+      "url": "https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/gm20b/fifo_gm20b.c",
+      "git_blob_sha": "f866b6bb894cb53016d6e40551bb51b0d58ec893",
+      "sha256": "dcdd1d1d8d9921efe46203927789689122aa733495c085effbd4ce675a22e4ff"
+    },
+    "hal": {
+      "url": "https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/gm20b/hal_gm20b.c",
+      "git_blob_sha": "31edf69f74bafed04a96f58b1b3f8875f3119d03",
+      "sha256": "52c0efeed2dfac8941ba3db1a88c012ffb3ed7c8f2e5cc62debfe3fa7aabe0ca"
+    },
+    "nouveau-gm107": {
+      "url": "https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/fifo/gm107.c",
+      "git_blob_sha": "5ba60021b510edae74e6d1e17ca880cae04ade35",
+      "sha256": "5f931394bbf314d65119713936468c5e5d9bd7181f6ea622721014a4ffa4e621"
+    },
+    "nouveau-gm200": {
+      "url": "https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/fifo/gm200.c",
+      "git_blob_sha": "d92d1ac391917be9abeec412254c872b423b25a4",
+      "sha256": "3c2a61d966f4c23abc102397d183d9ad7e7733370ff37bc307fa17ee2e96e256"
+    },
+    "fifo-regs": {
+      "url": "https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/include/nvgpu/hw/gm20b/hw_fifo_gm20b.h",
+      "git_blob_sha": "d32506dd43360d9a1735ca1e392e65fc33f74e74",
+      "sha256": "de89017598ced7536dbccde80f284c8ad808f2df1df436e905f7822f11ec5e9b"
+    },
+    "pbdma-regs": {
+      "url": "https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/include/nvgpu/hw/gk20a/hw_pbdma_gk20a.h",
+      "git_blob_sha": "2c8f48d6df970f8a6d71f6ed1b20cc743067ecbf",
+      "sha256": "11596ecc797faec8f8cd428d853e589346c2d2a5406be8d93c1e04cc86ab0ba4"
+    }
+  },
+  "build_lock_cleanup": {
+    "bsp_dependency_packages_unchanged": true,
+    "generated_native_dependency_packages": 588,
+    "native_generated_graph_matches_preceding_audited_build": true,
+    "patch_unused_order_normalized_for_comparison": true,
+    "baseline_locks_restored_after_graph_audit": true,
+    "bsp_restored_sha256": "d7726b7d45a3395eb8bd93a33ac3bd293648fdb2fb5d8eb658d37a8f388a9db8",
+    "kernel_native_restored_sha256": "b5b18722f5c7bbb0dff7c55a824629b054039a11b11795b19e7e72173a1748bb",
+    "project_lock_difference": "single generated initramfs hash; all layer and dependency records unchanged",
+    "project_initramfs_hash_before": "sha256:a73a4db12954712a848adbed9051649e389a667ad215605a172e8c2d7975bb7d",
+    "project_initramfs_hash_after": "sha256:6fbf9458d5cee3496d446644653803b7542df18f05f99a23f6cce0708136fad9",
+    "generated_project_hash_retained": true
+  },
+  "limitations": [
+    "Built/package-verified; the new runlist correction is not installed or physically tested",
+    "Both Linux runlist representations are documented; selecting the exact GM20B vendor representation is not proof of the hardware root cause",
+    "Private BAR1 input visibility and saved register/backing snapshots do not replace both genuine host completions and complete retirement",
+    "Authenticated GR, real graphics admission and direct compatible GPU/DC presentation remain unvalidated"
+  ]
+}
