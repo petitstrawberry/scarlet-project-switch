@@ -369,7 +369,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     let bus = DeviceManager::get_manager()
         .get_i2c_bus(node_phandle(&i2c).ok_or("missing GPU I2C5 phandle")?)
         .ok_or(PROBE_DEFER)?;
-    // Complete provider checks and mappings before making any power changes.
+    // Complete provider checks before making any power changes.
     let bar1 = device
         .get_resources()
         .iter()
@@ -380,12 +380,15 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     if bar1.size()? < 0x01000000 {
         return Err("truncated GM20B BAR1 aperture");
     }
+    // This probe performs hardware bring-up immediately, unlike Chromebook's
+    // lazy backend. Wait for the global initramfs VFS before mapping registers
+    // or acquiring power so deferred attempts do not leave MMIO mappings.
+    // Task-local ABI path aliases are not used.
+    let firmware = Firmware::load()?;
+    scarlet::println!("gm20b: firmware loaded; initializing hardware");
     let gpu_base = vm::ioremap(gpu.start, 0x801000)?;
     let bar1_base = vm::ioremap(bar1.start, 0x7000)?;
     let mc_base = vm::ioremap(0x70019000, 0x1000)?;
-    // Wait for the global initramfs VFS before acquiring power, following
-    // the Chromebook GPU driver. Task-local ABI path aliases are not used.
-    let firmware = Firmware::load()?;
     let mut power = Power::acquire(platform, Rail { bus })?;
     scarlet::println!(
         "gm20b: powering GPU; rail={}uV ref={}Hz pwr=204000000Hz",
