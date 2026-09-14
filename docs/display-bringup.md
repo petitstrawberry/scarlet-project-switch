@@ -12,8 +12,10 @@ and fails in the common AArch64 HHDM attribute-change path; see
 has passed production build and FAT32 SD readback and was ejected.
 
 This is native window/scanout control with inherited panel initialization.
-There is no cold DSI/panel power sequence, modesetting, HDMI, display IRQ
-handler, suspend/resume, or GPU rendering implementation in this stage.
+Cold DSI/panel power-up, modesetting, HDMI, display IRQ handling and
+suspend/resume remain pending. The new [SGFX candidate](sgfx-bringup.md) renders
+into GPU-owned images and presents through this ordinary display interface;
+physical GPU-image presentation is still unverified.
 
 ## Adoption and ownership
 
@@ -78,9 +80,24 @@ The displayed image owner remains retained through the next successful flip;
 an unsuccessfully activated image is also retained. Non-swapchain images,
 segmented backing and block-linear/compressed layouts are rejected for now.
 
-SWS and ScarletUI retain their ordinary renderer/backend selection. The GM20B
-control endpoint still advertises no SGFX execution dialect. This display
-boundary does not claim to make SGFX rendering work.
+SWS and ScarletUI retain their ordinary renderer/backend selection. The current
+GM20B executor publishes a Ready `maxwell-sgfx-ops-v1` dialect only after its
+physical shader/copy checks pass. Build success alone does not establish that
+this boundary successfully scans an SWS-rendered image. The user tested the
+SGFX candidate and reported a uniform screen with input-dependent color changes;
+GPU and DC logs are needed to identify the failing boundary.
+
+The current window programming explicitly clears byte-swap and tiled-address
+state and uses the T210 gen2 opaque blend bypass, following Linux/NVIDIA
+window.c. Active-state readback verifies the address, pitch, format, geometry,
+rotation and blend configuration after activation and retirement.
+
+The optional **Scarlet Switch SGFX Logs** entry retains the original boot
+surface in independent window B above window A. This is an opaque diagnostic
+view of the same running distribution, not a framebuffer TTY; it covers the
+GUI while preserving kernel and mirrored SWS logs. GPU/DC images are sampled
+using the same grid and hash after producer retirement. Both windows' active
+state and rollback are checked. See [visible diagnostics](sgfx-bringup.md#visible-gpu-and-dc-diagnostics).
 
 ## Physical iteration
 

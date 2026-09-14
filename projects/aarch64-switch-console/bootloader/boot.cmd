@@ -113,6 +113,9 @@ fdt rm /host1x/dc@54200000 pinctrl-4
 fdt rm /host1x/dc@54200000 pinctrl-5
 fdt set /host1x/dc@54240000 status disabled
 setenv bootargs "init=/init init.console=/dev/null maxcpus=4 scarlet.switch=1"
+if test "${scarlet_keep_bootcon}" = 1; then
+    setenv bootargs "${bootargs} keep_bootcon"
+fi
 echo Launching Scarlet ${scarlet_boot_mode} at 0x80200000
 bootm ${kernload} ${initaddr} ${fdtraddr}
 echoe Scarlet bootm returned

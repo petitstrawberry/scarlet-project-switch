@@ -5,14 +5,12 @@
 use alloc::{boxed::Box, sync::Arc, vec};
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use crate::firmware::Firmware;
 use crate::gmmu::Gmmu;
 use scarlet::{
     device::{
         fdt::FdtManager,
-        gpu::{
-            GPU_EXECUTION_SUPPORT_NONE, GpuBackend, GpuBackendInfo, GpuDeviceInfo, GpuDeviceState,
-            register_gpu_control_device,
-        },
+        gpu::{GpuBackend, register_gpu_control_device},
         i2c::{I2cAddress, I2cBus, I2cMessage},
         manager::{DeviceManager, DriverPriority, PROBE_DEFER},
         platform::{
@@ -161,13 +159,13 @@ impl Rail {
 
 /// On success the backend retains the powered device. Failed initialization
 /// isolates it before restoring its rail and only GPU-owned platform fields.
-struct Power {
-    platform: GpuPlatform,
+pub(super) struct Power {
+    pub(super) platform: GpuPlatform,
     rail: Rail,
     platform_before: GpuPlatformState,
     rail_before: RailState,
     changed: bool,
-    dma: Option<Gmmu>,
+    pub(super) dma: Option<Gmmu>,
 }
 
 impl Power {
@@ -222,22 +220,6 @@ impl Drop for Power {
         if let Err(error) = self.platform.restore(self.platform_before) {
             scarlet::println!("gm20b: {}", error);
         }
-    }
-}
-
-struct Backend {
-    _power: Power,
-    snapshot: [u8; 48],
-}
-
-impl GpuBackend for Backend {
-    fn query_info(&self) -> GpuBackendInfo {
-        GpuBackendInfo::new(
-            GpuDeviceInfo::new(GpuDeviceState::Unavailable, GPU_EXECUTION_SUPPORT_NONE, 0),
-            0,
-            b"nvidia-gm20b",
-            &self.snapshot,
-        )
     }
 }
 
@@ -398,9 +380,12 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     if bar1.size()? < 0x01000000 {
         return Err("truncated GM20B BAR1 aperture");
     }
-    let gpu_base = vm::ioremap(gpu.start, 0x101000)?;
-    let bar1_base = vm::ioremap(bar1.start, 0x3000)?;
+    let gpu_base = vm::ioremap(gpu.start, 0x801000)?;
+    let bar1_base = vm::ioremap(bar1.start, 0x7000)?;
     let mc_base = vm::ioremap(0x70019000, 0x1000)?;
+    // Wait for the global initramfs VFS before acquiring power, following
+    // the Chromebook GPU driver. Task-local ABI path aliases are not used.
+    let firmware = Firmware::load()?;
     let mut power = Power::acquire(platform, Rail { bus })?;
     scarlet::println!(
         "gm20b: powering GPU; rail={}uV ref={}Hz pwr=204000000Hz",
@@ -431,7 +416,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     scarlet::println!("gm20b: reading MC_ENABLE/interrupt status");
     let stall = read(0x100);
     let nonstall = read(0x104);
-    // No execution engine or interrupt handler exists in this first stage.
+    // The private FIFO probe polls completion; no GPU interrupt handler exists.
     unsafe {
         scarlet::arch::mmio::write32(gpu_base + 0x140, 0);
         scarlet::arch::mmio::write32(gpu_base + 0x144, 0);
@@ -441,11 +426,22 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     // On failure Power isolates/drains the client before freeing its pages.
     power.dma = Some(Gmmu::allocate(gpu_base, bar1_base, mc_base)?);
     power.dma.as_ref().unwrap().initialize()?;
+    let _fifo = power
+        .dma
+        .as_ref()
+        .unwrap()
+        .initialize_fifo(power.platform.reference_hz())?;
+    let gr = power.dma.as_mut().unwrap().initialize_gr(firmware)?;
+    let _graphics = power
+        .dma
+        .as_mut()
+        .unwrap()
+        .initialize_graphics(gr.context_size)?;
     let enable = read(0x200);
     scarlet::println!("gm20b: interrupt masks disabled; registering control endpoint");
     let before = power.platform_before;
     let words = [
-        2,
+        6,
         boot0,
         enable,
         stall,
@@ -457,15 +453,16 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         power.platform.reference_hz(),
         204_000_000,
         1, // Private BAR1 physical read/write and TLB remap completed.
+        1, // Private FIFO completed both pushes and retired its channel.
+        gr.context_size,
+        gr.zcull_size,
+        gr.golden_checksum,
     ];
-    let mut snapshot = [0; 48];
+    let mut snapshot = [0; 64];
     for (bytes, word) in snapshot.chunks_exact_mut(4).zip(words) {
         bytes.copy_from_slice(&word.to_le_bytes());
     }
-    let backend: Arc<dyn GpuBackend> = Arc::new(Backend {
-        _power: power,
-        snapshot,
-    });
+    let backend: Arc<dyn GpuBackend> = Arc::new(crate::executor::Backend::new(power, snapshot));
     let (_, name) = register_gpu_control_device(backend)?;
     REGISTERED.store(true, Ordering::Release);
     scarlet::println!(
@@ -476,7 +473,9 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         nonstall,
         name
     );
-    scarlet::println!("gm20b: private GMMU ready; GR firmware/queues pending; execution support=0");
+    scarlet::println!(
+        "gm20b: SGFX shader draw/readback passed; maxwell-sgfx-ops-v1 queues ready; native linear presentation"
+    );
     Ok(())
 }
 
@@ -493,8 +492,8 @@ fn register() {
     )
     .with_probe_options(PlatformProbeOptions {
         deassert_resets: false,
-        // Identity/power bring-up performs no DMA and creates no address
-        // space. The MC is validated above; GPU GMMU must precede queues.
+        // Private physical DMA uses the GPU GMMU with selector bit34 clear;
+        // it does not request a shared MC SMMU domain or reconfigure one.
         resolve_iommu: false,
         resolve_dma: false,
     });

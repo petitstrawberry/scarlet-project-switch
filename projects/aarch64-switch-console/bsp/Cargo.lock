@@ -62,6 +62,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "maxwell-shader-pack"
+version = "0.1.0"
+
+[[package]]
+name = "maxwell-submit-wire"
+version = "0.1.0"
+dependencies = [
+ "maxwell-shader-pack",
+]
+
+[[package]]
 name = "scarlet"
 version = "1.0.1"
 dependencies = [
@@ -98,6 +109,8 @@ name = "scarlet-driver-nvidia-gm20b"
 version = "0.1.0"
 dependencies = [
  "fdt",
+ "maxwell-shader-pack",
+ "maxwell-submit-wire",
  "scarlet",
  "scarlet-driver-tegra210",
 ]

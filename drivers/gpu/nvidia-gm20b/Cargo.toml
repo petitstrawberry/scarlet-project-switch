@@ -8,3 +8,5 @@ license = "GPL-2.0-only"
 scarlet = { path = "../../../../Scarlet/kernel", default-features = false, features = ["network"] }
 scarlet-driver-tegra210 = { path = "../../soc/tegra210" }
 fdt = "0.1.5"
+maxwell-shader-pack = { path = "../../../shared/maxwell-shader-pack" }
+maxwell-submit-wire = { path = "../../../shared/maxwell-submit-wire" }

@@ -7,14 +7,18 @@
 //! GPU addresses with bit 34 set select Tegra SMMU translation. This private
 //! address space only publishes PMM physical backing below that selector.
 
+use alloc::{collections::BTreeMap, sync::Arc};
 use scarlet::{arch, mem::page::ContiguousPages, time};
 use scarlet_driver_tegra210::delay_us;
+
+use crate::fifo::{Fifo, Proof};
+use crate::{firmware::Firmware, gr::Gr};
 
 const PAGE: usize = 4096;
 const IOMMU_SELECTOR: u64 = 1 << 34;
 const VA_A: usize = PAGE;
 const VA_B: usize = 2 * PAGE;
-const VA_LIMIT: u32 = 16 * 1024 * 1024;
+pub const VA_LIMIT: u32 = 64 * 1024 * 1024;
 const MC_ENABLE: usize = 0x200;
 const BAR1_BLOCK: usize = 0x1704;
 const BIND_STATUS: usize = 0x1710;
@@ -25,6 +29,8 @@ const FLUSH: usize = 0x70000;
 
 pub struct Gmmu {
     pub mc_base: usize,
+    pub(super) retained: BTreeMap<usize, Arc<crate::executor::Memory>>,
+    pub(super) objects: BTreeMap<u64, Arc<crate::executor::Memory>>,
     base: usize,
     bar1: usize,
     directory: ContiguousPages,
@@ -36,9 +42,12 @@ pub struct Gmmu {
     flush: ContiguousPages,
     debug_read: ContiguousPages,
     debug_write: ContiguousPages,
+    fifo: Fifo,
+    gr: Option<Gr>,
+    graphics: Option<crate::graphics::Graphics>,
 }
 
-fn pages(count: usize) -> Result<ContiguousPages, &'static str> {
+pub(super) fn pages(count: usize) -> Result<ContiguousPages, &'static str> {
     let memory = ContiguousPages::new(count).ok_or("GMMU allocation failed")?;
     if memory
         .as_paddr()
@@ -50,12 +59,12 @@ fn pages(count: usize) -> Result<ContiguousPages, &'static str> {
     Ok(memory)
 }
 
-fn store(memory: &ContiguousPages, word: usize, value: u32) {
+pub(super) fn store(memory: &ContiguousPages, word: usize, value: u32) {
     // All offsets are fixed private structure fields or checked PTE indices.
     unsafe { core::ptr::write_volatile((memory.as_vaddr() as *mut u32).add(word), value) };
 }
 
-fn clean(memory: &ContiguousPages) {
+pub(super) fn clean(memory: &ContiguousPages) {
     arch::clean_dcache_to_poc_range(memory.as_vaddr(), memory.len() * PAGE);
 }
 
@@ -63,6 +72,8 @@ impl Gmmu {
     pub fn allocate(base: usize, bar1: usize, mc_base: usize) -> Result<Self, &'static str> {
         Ok(Self {
             mc_base,
+            retained: BTreeMap::new(),
+            objects: BTreeMap::new(),
             base,
             bar1,
             directory: pages(1)?,
@@ -72,6 +83,9 @@ impl Gmmu {
             flush: pages(1)?,
             debug_read: pages(1)?,
             debug_write: pages(1)?,
+            fifo: Fifo::allocate(base, bar1)?,
+            gr: None,
+            graphics: None,
         })
     }
 
@@ -113,6 +127,126 @@ impl Gmmu {
         store(&self.table, word, ((paddr >> 12) as u32) << 4 | 1);
         // Pitch kind, video aperture (Tegra DRAM), volatile: bypass GPU L2.
         store(&self.table, word + 1, 1);
+    }
+
+    fn instance_pdb(&self, instance: &ContiguousPages) {
+        let pdb = self.directory.as_paddr();
+        store(instance, 128, (pdb as u32 & 0xfffff000) | 4 | (1 << 11));
+        store(instance, 129, (pdb >> 32) as u32);
+        store(instance, 130, (VA_LIMIT - 1) & !0xfff);
+        store(instance, 131, 0);
+    }
+
+    pub fn initialize_fifo(&self, reference_hz: u32) -> Result<Proof, &'static str> {
+        for (va, memory) in self.fifo.mappings() {
+            self.map_private(va, memory)?;
+        }
+        self.instance_pdb(self.fifo.instance());
+        self.invalidate()?;
+        self.fifo.initialize(reference_hz)
+    }
+
+    pub(super) fn map_private(
+        &self,
+        va: usize,
+        memory: &ContiguousPages,
+    ) -> Result<(), &'static str> {
+        let size = memory
+            .len()
+            .checked_mul(PAGE)
+            .ok_or("private GPU mapping size overflow")?;
+        if va < 3 * PAGE
+            || !va.is_multiple_of(PAGE)
+            || va
+                .checked_add(size)
+                .is_none_or(|end| end > VA_LIMIT as usize)
+            || memory
+                .as_paddr()
+                .checked_add(size as u64)
+                .is_none_or(|end| end > IOMMU_SELECTOR)
+        {
+            return Err("private GPU mapping outside retained address space");
+        }
+        for page in 0..memory.len() {
+            let address = va + page * PAGE;
+            let word = address / PAGE * 2;
+            if unsafe { core::ptr::read_volatile((self.table.as_vaddr() as *const u32).add(word)) }
+                & 1
+                != 0
+            {
+                return Err("private GPU mapping would replace a valid PTE");
+            }
+            self.map_scratch(address, memory.as_paddr() + (page * PAGE) as u64);
+        }
+        Ok(())
+    }
+
+    pub fn initialize_gr(&mut self, firmware: Firmware) -> Result<crate::gr::Proof, &'static str> {
+        self.gr = Some(Gr::allocate(self.base, firmware)?);
+        let gr = self.gr.as_ref().unwrap();
+        for (va, memory) in gr.mappings() {
+            self.map_private(va, memory)?;
+        }
+        for instance in gr.instances() {
+            self.instance_pdb(instance);
+            clean(instance);
+        }
+        self.invalidate()?;
+        gr.initialize()
+    }
+
+    pub fn initialize_graphics(&mut self, context_size: u32) -> Result<u32, &'static str> {
+        self.graphics = Some(crate::graphics::Graphics::allocate()?);
+        for (va, mem) in self.graphics.as_ref().unwrap().mappings() {
+            self.map_private(va, mem)?;
+        }
+        self.invalidate_all()?;
+        let gr = self.gr.as_ref().ok_or("GR missing")?;
+        self.graphics.as_ref().unwrap().prepare(gr, context_size)?;
+        self.graphics.as_mut().unwrap().verify(&self.fifo, gr)
+    }
+    pub fn execute_graphics(
+        &mut self,
+        operations: &[[u32; 64]],
+    ) -> Result<(), scarlet::device::gpu::GpuBackendSubmitError> {
+        use scarlet::device::gpu::GpuBackendSubmitError;
+        self.graphics
+            .as_mut()
+            .ok_or(GpuBackendSubmitError::DeviceLost("graphics engine missing"))?
+            .execute(
+                &self.fifo,
+                self.gr
+                    .as_ref()
+                    .ok_or(GpuBackendSubmitError::DeviceLost("GR missing"))?,
+                operations,
+            )
+    }
+    pub fn invalidate_all(&self) -> Result<(), &'static str> {
+        clean(&self.table);
+        self.wait(MMU_CTRL, |v| v & 0x00ff0000 != 0)?;
+        self.write(
+            INVALIDATE_PDB,
+            ((self.directory.as_paddr() >> 12) as u32) << 4,
+        );
+        self.write(INVALIDATE, 0x80000001); // PAGE_ALL, every engine; caller serializes/retire DMA
+        self.wait(MMU_CTRL, |v| v & (1 << 15) != 0)?;
+        Ok(())
+    }
+    pub fn unmap(&self, va: usize, count: usize) -> Result<(), &'static str> {
+        if va < 0x500000
+            || !va.is_multiple_of(PAGE)
+            || va
+                .checked_add(count * PAGE)
+                .is_none_or(|end| end > VA_LIMIT as usize)
+        {
+            return Err("public GPU unmap range invalid");
+        }
+        for page in 0..count {
+            let word = (va / PAGE + page) * 2;
+            store(&self.table, word, 0);
+            store(&self.table, word + 1, 0);
+        }
+        self.invalidate_all()
     }
 
     fn invalidate(&self) -> Result<(), &'static str> {
@@ -158,14 +292,7 @@ impl Gmmu {
         self.map_scratch(VA_A, self.scratch.as_paddr());
         self.map_scratch(VA_B, self.scratch.as_paddr() + PAGE as u64);
         let pdb = self.directory.as_paddr();
-        store(
-            &self.instance,
-            128,
-            (pdb as u32 & 0xfffff000) | 4 | (1 << 11),
-        );
-        store(&self.instance, 129, (pdb >> 32) as u32);
-        store(&self.instance, 130, (VA_LIMIT - 1) & !0xfff);
-        store(&self.instance, 131, 0);
+        self.instance_pdb(&self.instance);
         store(&self.scratch, 0, 0x53474131);
         store(&self.scratch, PAGE / 4, 0x53474232);
         for memory in [

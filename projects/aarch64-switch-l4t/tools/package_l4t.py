@@ -61,9 +61,10 @@ def main():
     parser.add_argument("--project", type=Path, default=PROJECT)
     parser.add_argument("--boot-directory", default="scarlet")
     parser.add_argument("--entry-file", default="L4T-scarlet.ini")
+    parser.add_argument("--diagnostic-directory", help="optional firmware/script directory sharing the main image")
     args = parser.parse_args()
     project = args.project.resolve()
-    for name in (args.boot_directory, args.entry_file):
+    for name in (args.boot_directory, args.entry_file, *([args.diagnostic_directory] if args.diagnostic_directory else [])):
         if not name or name in (".", "..") or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_." for c in name):
             parser.error("boot directory and entry file must be simple names")
     elf = project / f"bsp/target/aarch64-switch-none-elf/{args.profile}/scarlet"
@@ -100,6 +101,16 @@ def main():
         (boot / "boot.scr").write_bytes(legacy_image(struct.pack(">II", len(script), 0) + script, 6, "Scarlet L4T boot", arch=2))
         for name in pins["files"]:
             shutil.copyfile(stack / name, boot / name)
+        if args.diagnostic_directory:
+            diagnostic = tmp / "switchroot" / args.diagnostic_directory
+            diagnostic.mkdir(parents=True)
+            for name in pins["files"]:
+                shutil.copyfile(stack / name, diagnostic / name)
+            diagnostic_script = (project / "bootloader/boot-logs.cmd").read_bytes()
+            (diagnostic / "boot.scr").write_bytes(legacy_image(
+                struct.pack(">II", len(diagnostic_script), 0) + diagnostic_script,
+                6, "Scarlet SGFX logs", arch=2,
+            ))
         ini = tmp / "bootloader/ini" / args.entry_file
         ini.parent.mkdir(parents=True)
         shutil.copyfile(project / "bootloader" / args.entry_file, ini)
@@ -115,6 +126,7 @@ def main():
             "kernel_elf_sha256": hashlib.sha256(elf.read_bytes()).hexdigest(),
             "boot_directory": args.boot_directory,
             "entry_file": args.entry_file,
+            "diagnostic_directory": args.diagnostic_directory,
             "initramfs_size": initrd.stat().st_size,
             "kernel_load": hex(LOAD), "kernel_entry": hex(LOAD),
             "text_offset": "0x200000", "image_runtime_size": image_size,

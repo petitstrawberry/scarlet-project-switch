@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare NVIDIA's pinned GM20B firmware for later GR/ACR bring-up."""
+"""Prepare NVIDIA's pinned GM20B firmware, including WHENCE links."""
 
 import argparse
 import base64
@@ -31,15 +31,23 @@ def prepare(source=None, download=False):
         ):
             raise ValueError(f"unexpected GPU firmware path: {name}")
         destination = OUTPUT / "lib/firmware" / path
+        # WHENCE at the pinned revision defines this generated distribution
+        # link. The git tree contains its GM200 target, not the GM20B link.
+        source_name = expected.get("source", name)
+        if source_name != name and (name, source_name) != (
+            "nvidia/gm20b/gr/sw_method_init.bin",
+            "nvidia/gm200/gr/sw_method_init.bin",
+        ):
+            raise ValueError(f"unexpected WHENCE firmware source: {source_name}")
         if destination.is_file() and matches(destination.read_bytes(), expected):
             continue
         if source is not None:
-            blob = (source / path).read_bytes()
+            blob = (source / source_name).read_bytes()
         elif download:
             # gh returns JSON/base64 so binary firmware never passes through
             # terminal text decoding. Request only the pinned public source.
             entry = json.loads(subprocess.check_output([
-                "gh", "api", f"repos/{pins['repository']}/contents/{name}?ref={pins['revision']}",
+                "gh", "api", f"repos/{pins['repository']}/contents/{source_name}?ref={pins['revision']}",
             ]))
             if entry.get("encoding") != "base64":
                 raise ValueError(f"unexpected download encoding: {name}")

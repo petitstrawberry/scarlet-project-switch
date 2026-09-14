@@ -1,0 +1,13 @@
+[package]
+name = "sgfx-codegen-maxwell"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-only"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+maxwell-shader-pack = { path = "../../shared/maxwell-shader-pack" }
+maxwell-submit-wire = { path = "../../shared/maxwell-submit-wire" }
+sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "a18b5a585616f05cf5df0fa5be1977752ceca1ea", default-features = false }

@@ -1,0 +1,551 @@
+//! Context-local GPU resources and immutable image layouts.
+
+use alloc::{rc::Rc, sync::Arc, vec::Vec};
+use core::{
+    ptr,
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+use gpu_raw::{
+    GPU_BUFFER_FLAG_CPU_VISIBLE, GPU_IMAGE_FORMAT_BGRA8_UNORM, GPU_IMAGE_FORMAT_DEPTH32_FLOAT,
+    GPU_IMAGE_MODIFIER_LINEAR, GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT,
+    GPU_IMAGE_USAGE_PRESENTABLE, GPU_IMAGE_USAGE_RENDER_TARGET, GPU_IMAGE_USAGE_SAMPLED,
+    GPU_IMAGE_USAGE_TRANSFER_DST, GPU_IMAGE_USAGE_TRANSFER_SRC, GpuBuffer, GpuImage,
+    GpuImageLayout,
+};
+#[cfg(feature = "std")]
+use scarlet_os::handle::capability::memory_mapping::{MemoryMappingOps, flags, prot};
+#[cfg(not(feature = "std"))]
+use std::handle::capability::memory_mapping::{MemoryMappingOps, flags, prot};
+
+use crate::Handle;
+use crate::{ContextInner, HandleError, HandleResult, Image, IrSubmitError, ir};
+
+pub(crate) struct RawImage {
+    pub(crate) raw: GpuImage,
+    pub(crate) attachment_token: u64,
+    pub(crate) layout: GpuImageLayout,
+    pub(crate) logical_format: ir::TextureFormat,
+    context_id: i32,
+    context: Arc<ContextInner>,
+    attached: AtomicBool,
+}
+
+impl RawImage {
+    pub(crate) fn create_present(
+        context: &Arc<ContextInner>,
+        width: u32,
+        height: u32,
+    ) -> HandleResult<Self> {
+        if width == 0 || height == 0 {
+            return Err(HandleError::InvalidParameter);
+        }
+        let usage = GPU_IMAGE_USAGE_RENDER_TARGET
+            | GPU_IMAGE_USAGE_PRESENTABLE
+            | GPU_IMAGE_USAGE_SAMPLED
+            | GPU_IMAGE_USAGE_TRANSFER_SRC;
+        let raw = context.device.gpu.create_image_with_format_and_usage(
+            GPU_IMAGE_FORMAT_BGRA8_UNORM,
+            width,
+            height,
+            usage,
+        )?;
+        Self::finish_create(context, raw, ir::TextureFormat::Bgra8Unorm, width, height)
+    }
+
+    fn create_logical(
+        context: &Arc<ContextInner>,
+        descriptor: ir::TextureDesc,
+    ) -> HandleResult<Self> {
+        let width = descriptor.extent().width();
+        let height = descriptor.extent().height();
+        let (format, usage) = image_create_parameters(descriptor)?;
+        let raw = context
+            .device
+            .gpu
+            .create_image_with_format_and_usage(format, width, height, usage)?;
+        Self::finish_create(context, raw, descriptor.format(), width, height)
+    }
+
+    fn import_sampled(
+        context: &Arc<ContextInner>,
+        handle: Handle,
+        descriptor: ir::TextureDesc,
+    ) -> HandleResult<Self> {
+        if descriptor.format() != ir::TextureFormat::Bgra8Unorm
+            || !descriptor.usage().contains(ir::TextureUsage::SAMPLED)
+            || descriptor.usage().contains(ir::TextureUsage::PRESENT)
+        {
+            return Err(HandleError::InvalidParameter);
+        }
+        let raw = GpuImage::from_handle(handle)?;
+        let info = raw.query()?;
+        let width = descriptor.extent().width();
+        let height = descriptor.extent().height();
+        if info.format != GPU_IMAGE_FORMAT_BGRA8_UNORM
+            || info.usage & GPU_IMAGE_USAGE_SAMPLED == 0
+            || info.width != width
+            || info.height != height
+        {
+            return Err(HandleError::InvalidParameter);
+        }
+        Self::finish_create(context, raw, ir::TextureFormat::Bgra8Unorm, width, height)
+    }
+
+    fn finish_create(
+        context: &Arc<ContextInner>,
+        raw: GpuImage,
+        logical_format: ir::TextureFormat,
+        width: u32,
+        height: u32,
+    ) -> HandleResult<Self> {
+        let layout = raw.query_layout()?;
+        validate_image_layout(&layout, width, height, logical_format)?;
+        let attachment_token = context.raw.attach_image(&raw)?;
+        if attachment_token == 0 {
+            return Err(HandleError::InvalidParameter);
+        }
+        Ok(Self {
+            raw,
+            attachment_token,
+            layout,
+            logical_format,
+            context_id: context.raw.as_handle().as_raw(),
+            context: Arc::clone(context),
+            attached: AtomicBool::new(true),
+        })
+    }
+
+    pub(crate) fn allocation_size(&self) -> u64 {
+        self.layout.total_size
+    }
+
+    pub(crate) fn belongs_to(&self, context: &ContextInner) -> bool {
+        self.context_id == context.raw.as_handle().as_raw()
+    }
+
+    fn detach(&self) -> HandleResult<()> {
+        if self.attached.swap(false, Ordering::AcqRel) {
+            if let Err(error) = self.context.raw.detach_image(&self.raw) {
+                self.attached.store(true, Ordering::Release);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for RawImage {
+    fn drop(&mut self) {
+        let _ = self.detach();
+    }
+}
+
+pub(crate) struct RawBuffer {
+    pub(crate) raw: GpuBuffer,
+    pub(crate) attachment_token: u64,
+    pub(crate) logical_size: u64,
+    context: Arc<ContextInner>,
+    attached: AtomicBool,
+    mapping_address: usize,
+    mapping_len: usize,
+}
+
+impl RawBuffer {
+    pub(crate) fn create(context: &Arc<ContextInner>, logical_size: u64) -> HandleResult<Self> {
+        if logical_size == 0 {
+            return Err(HandleError::InvalidParameter);
+        }
+        let raw = context
+            .device
+            .gpu
+            .create_buffer(logical_size, GPU_BUFFER_FLAG_CPU_VISIBLE)?;
+        if !raw.cpu_visible() || raw.allocated_size() < logical_size {
+            return Err(HandleError::Unsupported);
+        }
+        let mapping_len =
+            usize::try_from(raw.allocated_size()).map_err(|_| HandleError::InvalidParameter)?;
+        let mapping = raw.as_handle().as_memory_mapping()?;
+        // SAFETY: This creates a fresh mapping. RawBuffer retains the allocation,
+        // bounds CPU accesses to it and owns the mapping until teardown.
+        let mapping_address =
+            unsafe { mapping.mmap(0, mapping_len, prot::READ | prot::WRITE, flags::SHARED, 0) }
+                .map_err(|_| HandleError::SystemError(-1))?;
+        let attachment_token = match context.raw.attach_buffer(&raw) {
+            Ok(token) => token,
+            Err(error) => {
+                // SAFETY: Attachment failed before any buffer access was exposed.
+                let _ = unsafe { MemoryMappingOps::munmap(mapping_address, mapping_len) };
+                return Err(error);
+            }
+        };
+        if attachment_token == 0 {
+            let _ = context.raw.detach_buffer(&raw);
+            // SAFETY: The failed attachment was detached and no CPU view escaped.
+            let _ = unsafe { MemoryMappingOps::munmap(mapping_address, mapping_len) };
+            return Err(HandleError::InvalidParameter);
+        }
+        Ok(Self {
+            raw,
+            attachment_token,
+            logical_size,
+            context: Arc::clone(context),
+            attached: AtomicBool::new(true),
+            mapping_address,
+            mapping_len,
+        })
+    }
+
+    pub(crate) fn write(&self, offset: u64, bytes: &[u8]) -> HandleResult<()> {
+        let byte_len = u64::try_from(bytes.len()).map_err(|_| HandleError::InvalidParameter)?;
+        let end = offset
+            .checked_add(byte_len)
+            .ok_or(HandleError::InvalidParameter)?;
+        if bytes.is_empty() || end > self.logical_size {
+            return Err(HandleError::InvalidParameter);
+        }
+        let destination_offset =
+            usize::try_from(offset).map_err(|_| HandleError::InvalidParameter)?;
+
+        // SAFETY: `create` retains a writable mapping of `mapping_len` bytes
+        // for the complete RawBuffer lifetime. The checked logical range above
+        // is no larger than that backing allocation and the source slice
+        // remains valid for this copy.
+        unsafe {
+            ptr::copy_nonoverlapping(
+                bytes.as_ptr(),
+                (self.mapping_address as *mut u8).add(destination_offset),
+                bytes.len(),
+            );
+        }
+        Ok(())
+    }
+
+    fn detach(&self) -> HandleResult<()> {
+        if self.attached.swap(false, Ordering::AcqRel) {
+            if let Err(error) = self.context.raw.detach_buffer(&self.raw) {
+                self.attached.store(true, Ordering::Release);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Drop for RawBuffer {
+    fn drop(&mut self) {
+        let _ = self.detach();
+        // The mapping must be retired before the capability-backed allocation
+        // is dropped. Teardown cannot report an error, and the kernel still
+        // revokes the address space when the process exits.
+        // SAFETY: RawBuffer owns this CPU mapping and no borrowed CPU view can
+        // outlive it. Kernel-held GPU backing is independent of the CPU mapping.
+        let _ = unsafe { MemoryMappingOps::munmap(self.mapping_address, self.mapping_len) };
+    }
+}
+
+pub(crate) struct ContextResources {
+    pub(crate) resources: Rc<ir::ResourceTable>,
+    pub(crate) context: Arc<ContextInner>,
+    pub(crate) images: Vec<Option<Arc<RawImage>>>,
+    pub(crate) buffers: Vec<Option<Arc<RawBuffer>>>,
+    scratch: Option<RawBuffer>,
+    pub(crate) async_arenas: Vec<Arc<crate::asynchronous::UploadArena>>,
+}
+
+impl ContextResources {
+    pub(crate) fn new(
+        resources: Rc<ir::ResourceTable>,
+        context: Arc<ContextInner>,
+    ) -> Result<Self, IrSubmitError> {
+        Ok(Self {
+            resources,
+            context,
+            images: empty_slots(ir::MAX_TEXTURES)?,
+            buffers: empty_slots(ir::MAX_BUFFERS)?,
+            scratch: None,
+            async_arenas: Vec::new(),
+        })
+    }
+
+    pub(crate) fn map_present_image(
+        &mut self,
+        texture: ir::TextureId,
+        image: Arc<Image>,
+    ) -> Result<(), IrSubmitError> {
+        let reference = self.resources.texture_ref(texture)?;
+        self.validate_present_image(reference, &image)?;
+        let slot = reference.slot();
+        if self
+            .images
+            .get(slot)
+            .ok_or(IrSubmitError::ResourceTableMismatch)?
+            .is_some()
+        {
+            return Err(IrSubmitError::TextureAlreadyMapped);
+        }
+        if self
+            .images
+            .iter()
+            .flatten()
+            .any(|candidate| Arc::ptr_eq(candidate, &image.raw))
+        {
+            return Err(IrSubmitError::ImageAlreadyMapped);
+        }
+        self.images[slot] = Some(Arc::clone(&image.raw));
+        Ok(())
+    }
+
+    fn validate_present_image(
+        &self,
+        reference: ir::TextureRef<'_>,
+        image: &Image,
+    ) -> Result<(), IrSubmitError> {
+        let descriptor = self.resources.texture(reference)?;
+        if !descriptor.usage().contains(ir::TextureUsage::PRESENT) {
+            return Err(IrSubmitError::Unsupported(
+                crate::UnsupportedIrFeature::ResourceState,
+            ));
+        }
+        if image.raw.context_id != self.context_id() {
+            return Err(IrSubmitError::ContextMismatch);
+        }
+        if descriptor.extent().width() != image.width
+            || descriptor.extent().height() != image.height
+        {
+            return Err(IrSubmitError::TargetExtentMismatch);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn import_sampled_image(
+        &mut self,
+        texture: ir::TextureId,
+        handle: Handle,
+    ) -> Result<(), IrSubmitError> {
+        let reference = self.resources.texture_ref(texture)?;
+        let descriptor = self.resources.texture(reference)?;
+        let slot = reference.slot();
+        if self
+            .images
+            .get(slot)
+            .ok_or(IrSubmitError::ResourceTableMismatch)?
+            .is_some()
+        {
+            return Err(IrSubmitError::TextureAlreadyMapped);
+        }
+        let image = Arc::new(RawImage::import_sampled(&self.context, handle, descriptor)?);
+        if self
+            .images
+            .iter()
+            .flatten()
+            .any(|candidate| candidate.attachment_token == image.attachment_token)
+        {
+            let _ = image.detach();
+            return Err(IrSubmitError::ImageAlreadyMapped);
+        }
+        self.images[slot] = Some(image);
+        Ok(())
+    }
+
+    pub(crate) fn release_imported_image(
+        &mut self,
+        texture: ir::TextureId,
+    ) -> Result<(), IrSubmitError> {
+        self.drain_async()?;
+        let reference = self.resources.texture_ref(texture)?;
+        let descriptor = self.resources.texture(reference)?;
+        if descriptor.usage().contains(ir::TextureUsage::PRESENT) {
+            return Err(IrSubmitError::Unsupported(
+                crate::UnsupportedIrFeature::ResourceState,
+            ));
+        }
+        let slot = reference.slot();
+        let image = self
+            .images
+            .get_mut(slot)
+            .ok_or(IrSubmitError::ResourceTableMismatch)?
+            .take()
+            .ok_or(IrSubmitError::ImageNotMapped)?;
+        if let Err(error) = image.detach() {
+            self.images[slot] = Some(image);
+            return Err(error.into());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn texture(
+        &mut self,
+        reference: ir::TextureRef<'_>,
+    ) -> Result<Arc<RawImage>, IrSubmitError> {
+        if !reference.belongs_to(&self.resources) {
+            return Err(IrSubmitError::ResourceTableMismatch);
+        }
+        let slot = reference.slot();
+        if let Some(image) = self.images.get(slot).and_then(Option::as_ref) {
+            return Ok(Arc::clone(image));
+        }
+        let descriptor = self.resources.texture(reference)?;
+        if descriptor.usage().contains(ir::TextureUsage::PRESENT) {
+            return Err(IrSubmitError::ImageNotMapped);
+        }
+        let image = Arc::new(RawImage::create_logical(&self.context, descriptor)?);
+        let entry = self
+            .images
+            .get_mut(slot)
+            .ok_or(IrSubmitError::ResourceTableMismatch)?;
+        *entry = Some(Arc::clone(&image));
+        Ok(image)
+    }
+
+    pub(crate) fn buffer(
+        &mut self,
+        reference: ir::BufferRef<'_>,
+    ) -> Result<&RawBuffer, IrSubmitError> {
+        let slot = reference.slot();
+        if slot >= self.buffers.len() {
+            return Err(IrSubmitError::ResourceTableMismatch);
+        }
+        if self.buffers[slot].is_none() {
+            let descriptor = self.resources.buffer(reference)?;
+            self.buffers[slot] = Some(Arc::new(RawBuffer::create(
+                &self.context,
+                descriptor.size(),
+            )?));
+        }
+        self.buffers[slot]
+            .as_deref()
+            .ok_or(IrSubmitError::ResourceTableMismatch)
+    }
+
+    pub(crate) fn write_buffer(
+        &mut self,
+        reference: ir::BufferRef<'_>,
+        offset: u64,
+        bytes: &[u8],
+    ) -> Result<(), IrSubmitError> {
+        self.buffer(reference)?.write(offset, bytes)?;
+        Ok(())
+    }
+
+    pub(crate) fn scratch(&mut self, required_size: u64) -> Result<&RawBuffer, IrSubmitError> {
+        let needs_replacement = self
+            .scratch
+            .as_ref()
+            .is_none_or(|scratch| scratch.logical_size < required_size);
+        if needs_replacement {
+            let allocation = required_size
+                .checked_next_power_of_two()
+                .ok_or(IrSubmitError::OutOfMemory)?;
+            let replacement = RawBuffer::create(&self.context, allocation)?;
+            if let Some(previous) = self.scratch.take() {
+                if let Err(error) = previous.detach() {
+                    // Preserve the already-live scratch on failure and discard the
+                    // newly attached replacement. The original detachment failure
+                    // remains authoritative if cleanup also fails.
+                    let _ = replacement.detach();
+                    self.scratch = Some(previous);
+                    return Err(error.into());
+                }
+            }
+            self.scratch = Some(replacement);
+        }
+        self.scratch.as_ref().ok_or(IrSubmitError::OutOfMemory)
+    }
+
+    pub(crate) fn context_id(&self) -> i32 {
+        self.context.raw.as_handle().as_raw()
+    }
+}
+
+fn image_create_parameters(descriptor: ir::TextureDesc) -> HandleResult<(u32, u32)> {
+    let mut usage = 0;
+    if descriptor.format() == ir::TextureFormat::Depth32Float {
+        if !descriptor
+            .usage()
+            .contains(ir::TextureUsage::RENDER_ATTACHMENT)
+        {
+            return Err(HandleError::InvalidParameter);
+        }
+        usage |= GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT;
+    } else {
+        if descriptor
+            .usage()
+            .contains(ir::TextureUsage::RENDER_ATTACHMENT)
+        {
+            usage |= GPU_IMAGE_USAGE_RENDER_TARGET;
+        }
+        if descriptor.usage().contains(ir::TextureUsage::PRESENT) {
+            usage |= GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_TRANSFER_SRC;
+        }
+        if descriptor.usage().contains(ir::TextureUsage::SAMPLED)
+            || descriptor.usage().contains(ir::TextureUsage::COPY_SRC)
+        {
+            usage |= GPU_IMAGE_USAGE_SAMPLED;
+        }
+        if descriptor.usage().contains(ir::TextureUsage::COPY_DST) {
+            usage |= GPU_IMAGE_USAGE_TRANSFER_DST;
+        }
+    }
+    if usage == 0 {
+        return Err(HandleError::InvalidParameter);
+    }
+    let format = if descriptor.format() == ir::TextureFormat::Depth32Float {
+        GPU_IMAGE_FORMAT_DEPTH32_FLOAT
+    } else {
+        GPU_IMAGE_FORMAT_BGRA8_UNORM
+    };
+    Ok((format, usage))
+}
+
+fn validate_image_layout(
+    layout: &GpuImageLayout,
+    width: u32,
+    height: u32,
+    logical_format: ir::TextureFormat,
+) -> HandleResult<()> {
+    if layout.plane_count != 1
+        || layout.total_size == 0
+        || layout.alignment == 0
+        || !layout.alignment.is_power_of_two()
+    {
+        return Err(HandleError::Unsupported);
+    }
+    let plane = layout.planes[0];
+    let physical_bytes_per_pixel = 4u32;
+    let minimum_pitch = width
+        .checked_mul(physical_bytes_per_pixel)
+        .ok_or(HandleError::InvalidParameter)?;
+    let plane_end = plane
+        .offset
+        .checked_add(plane.size)
+        .ok_or(HandleError::InvalidParameter)?;
+    if plane_end > layout.total_size
+        || plane.block_width != 1
+        || plane.block_height != 1
+        || u32::from(plane.bytes_per_block) != physical_bytes_per_pixel
+    {
+        return Err(HandleError::Unsupported);
+    }
+    let minimum_size = u64::from(plane.row_pitch)
+        .checked_mul(u64::from(height))
+        .ok_or(HandleError::InvalidParameter)?;
+    if logical_format == ir::TextureFormat::Depth32Float
+        || layout.modifier != GPU_IMAGE_MODIFIER_LINEAR
+        || plane.row_pitch < minimum_pitch
+        || plane.size < minimum_size
+    {
+        return Err(HandleError::Unsupported);
+    }
+
+    Ok(())
+}
+
+fn empty_slots<T>(length: usize) -> Result<Vec<Option<T>>, IrSubmitError> {
+    let mut slots = Vec::new();
+    slots
+        .try_reserve_exact(length)
+        .map_err(|_| IrSubmitError::OutOfMemory)?;
+    slots.resize_with(length, || None);
+    Ok(slots)
+}

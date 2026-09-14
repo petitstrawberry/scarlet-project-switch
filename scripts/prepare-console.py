@@ -53,6 +53,7 @@ def flatten(path):
 
 
 def main():
+    subprocess.run([sys.executable, str(ROOT / "scripts/verify-maxwell-shaders.py")], check=True)
     subprocess.run([sys.executable, str(ROOT / "scripts/prepare-gm20b-firmware.py")], check=True)
     cache = PROJECT / ".scarlet/cache"
     cargo_home = cache / "cargo-home"
@@ -71,6 +72,13 @@ def main():
                  "scarlet-sys", "gpu-raw", "sws-client", "sws-protocol", "sws-remote-protocol"):
         path = SCARLET / "user/lib" / ("std" if name == "scarlet-std" else name)
         config.append(f"{name} = {{ path = {value(str(path))} }}")
+    config.append('\n[patch."https://github.com/petitstrawberry/sgfx"]')
+    sgfx = ROOT.parent / "sgfx"
+    for path in sorted((sgfx / "crates").glob("*/Cargo.toml")):
+        name = tomllib.loads(path.read_text())["package"]["name"]
+        config.append(f"{name} = {{ path = {value(str(path.parent))} }}")
+    config.append('\n[patch."https://github.com/petitstrawberry/scarlet-project-switch"]')
+    config.append(f'sgfx-backend-scarlet-maxwell = {{ path = {value(str(ROOT / "userspace/sgfx-backend-scarlet-maxwell"))} }}')
     config.extend(['\n[target.aarch64-unknown-scarlet]',
                    'rustflags = ["-C", "target-cpu=cortex-a57", "-C", "target-feature=-lse", "--cfg", "getrandom_backend=\\\"custom\\\""]'])
     (cargo_home / "config.toml").write_text("\n".join(config) + "\n")

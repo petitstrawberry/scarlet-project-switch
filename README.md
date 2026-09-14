@@ -62,28 +62,31 @@ through the common governors and `cpufreqctl`. The boot video shows one
 completed transition requesting 710400 kHz; repeated switching
 remains pending. See [CPU frequency bring-up](docs/cpufreq-bringup.md).
 
-The next hardware stage adds GM20B power/identity bring-up through the ordinary
-GPU control API and prepares pinned NVIDIA firmware. After the MC wait fix,
-`IMG_9079.mov` shows an inaccessible GPU identity register and a later
-asynchronous SError. With GPIO6's missing push-pull configuration corrected,
-`IMG_9080.mov` shows a valid GM20B identity read in 15 µs, `/dev/gpu0`, and normal
-Scarlet Shell startup without that fault. `IMG_9076.mov` shows four schedulers
-online. The current candidate adds private GMMU/BAR1 read/write/remap validation
-and native Tegra DC scanout through the ordinary display API. `IMG_9081.mov`
-rejects the original SMMU guard and defers DC probe. The corrected GPU address
-selector and firmware pad handoff candidate passes BAR1 read/write/remap on
-hardware in `IMG_9082.mov`, then faults during native-display buffer retagging.
-The corrected AArch64 HHDM candidate has passed production build and SD
-readback; its receipt is `docs/gpu-hhdm-display-verification.json`.
-Physical native scanout validation and SGFX rendering remain pending; see
-[GPU bring-up](docs/gpu-bringup.md) and [display bring-up](docs/display-bringup.md).
-Prepare its firmware once before building:
+The GM20B power/identity stage passed physically in `IMG_9080.mov` and
+private BAR1 read/write/remap passed in `IMG_9082.mov`. The HHDM correction was
+subsequently reported to appear working. The new candidate implements signed
+ACR/PMU/FECS boot, golden contexts, real Maxwell shader rendering, GPU-owned
+images and queues, and automatic SGFX negotiation in the ordinary SWS facade.
+Its production build passes; the current receipt is
+[GPU SGFX verification](docs/gpu-sgfx-render-verification.json).
+The user tested that SGFX candidate and reported a uniform screen whose color
+changes with input. The current package adds explicit DC blend/layout setup,
+GPU/DC image diagnostics, and a separate **Scarlet Switch SGFX Logs** entry
+that keeps boot and SWS logs visible while the same GUI runs behind them.
+The exact failing hardware boundary remains unresolved. See
+[SGFX bring-up](docs/sgfx-bringup.md), [GPU bring-up](docs/gpu-bringup.md), and
+[display bring-up](docs/display-bringup.md). Prepare pinned firmware once with
 `python3 scripts/prepare-gm20b-firmware.py --download`.
 
 Supported development hosts: Apple Silicon macOS, AArch64 Linux, x86-64 Linux.
 Use a sibling `../Scarlet` checkout at
 `8fc70e81a0b01acdcec0e4b09d811509571de193` or a compatible successor (native
 display adoption needs the common earlyfb handoff API and safe HHDM retagging).
+Boot-console diagnostics additionally require Scarlet
+`9aae7194` or a compatible successor. The local GPU client also includes the additive upstream API definitions from
+Scarlet `4b5257897e341a0d0d3136b37d47b0157b9985cd`, required by the matching
+SGFX checkout. The console preparation script uses sibling `../sgfx` alongside
+`../scarlet-ui` and overrides all shared library identities consistently.
 The SDK and toolchain revisions are recorded in `flake.lock`.
 The hardware-tested kernel changes are committed locally as `99c65035`
 (Linux framebuffer diagnostics) and `e2ecbecb` (generic ECAM host selection).

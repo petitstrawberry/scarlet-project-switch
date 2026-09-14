@@ -14,8 +14,9 @@ The Files resident service uses the normal desktop service configuration.
 
 ## Build and install
 
-Use sibling `../Scarlet` and `../scarlet-ui` checkouts, the latter matching the
-local ScarletUI development setup used by `aarch64-limine-console`.
+Use sibling `../Scarlet`, `../sgfx` and `../scarlet-ui` checkouts matching the
+local console development setup. The [GM20B SGFX candidate](sgfx-bringup.md)
+uses the existing fixed IR facade; it adds no special shell presentation policy.
 Import the pinned Noble firmware with `scripts/prepare-bootstack.py` first.
 
 ```sh
