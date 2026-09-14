@@ -3,6 +3,7 @@
 //! RAMFC/runlist ordering follows Linux Nouveau v6.12 fifo/gk104, gk110,
 //! gm107, gm200, gk208 and gf100. GM20B fields follow Switchroot nvgpu
 //! 1ae0167d360287ca78f5a2572f0de42594140312 hw_{fifo,pbdma,ram,ccsr,trim}.
+//! Bare-channel runlists follow that vendor's GM20B HAL and CCSR binding.
 //! The 906f host semaphore and SET_REFERENCE methods execute in PFIFO.
 
 use scarlet::{arch, mem::page::ContiguousPages, sync::Mutex, time};
@@ -25,6 +26,7 @@ const FIFO_INTR: usize = 0x2100;
 const FIFO_BAR1_BASE: usize = 0x2254;
 const RUNLIST_BASE: usize = 0x2270;
 const RUNLIST: usize = 0x2274;
+const RUNLIST_ACTIVE_BASE: usize = 0x2280;
 const RUNLIST_STATUS: usize = 0x2284;
 const PBDMA_MAP: usize = 0x2390;
 const FIFO_BIND_ERROR: usize = 0x252c;
@@ -34,6 +36,7 @@ const ERROR_SCHED_DISABLE: usize = 0x262c;
 const SCHED_DISABLE: usize = 0x2630;
 const PREEMPT: usize = 0x2634;
 const PBDMA_CONTEXT: usize = 0x3080;
+const PBDMA_STATUS: usize = 0x40100;
 const PBDMA_INTR0: usize = 0x40108;
 const PBDMA_INTR1: usize = 0x40148;
 const CHANNEL_INST: usize = 0x800000;
@@ -68,6 +71,9 @@ struct FailureSnapshot {
     channel: u32,
     context: u32,
     runlist: u32,
+    runlist_base: u32,
+    instance: u32,
+    pbdma_status: u32,
     bind: u32,
     scheduler: u32,
     fault_disable: u32,
@@ -79,20 +85,32 @@ struct FailureSnapshot {
 impl FailureSnapshot {
     fn report(&self) {
         scarlet::println!(
-            "gm20b: FIFO saved intr={:#010x} pbdma={:#010x}/{:#010x}",
+            "gm20b: FIFO saved intr={:#010x} bind={:#010x}",
             self.fifo,
+            self.bind
+        );
+        scarlet::println!(
+            "gm20b: FIFO saved dma-intr={:#010x}/{:#010x}",
             self.pbdma[0],
             self.pbdma[1]
         );
         scarlet::println!(
-            "gm20b: FIFO saved chan={:#010x} ctx={:#010x} runlist={:#010x}",
+            "gm20b: FIFO saved chan={:#010x} ctx={:#010x}",
             self.channel,
-            self.context,
-            self.runlist
+            self.context
         );
         scarlet::println!(
-            "gm20b: FIFO saved bind={:#010x} sched={:#010x} fault={:#010x}",
-            self.bind,
+            "gm20b: FIFO saved runlist={:#010x} base={:#010x}",
+            self.runlist,
+            self.runlist_base
+        );
+        scarlet::println!(
+            "gm20b: FIFO saved inst={:#010x} dma-stat={:#010x}",
+            self.instance,
+            self.pbdma_status
+        );
+        scarlet::println!(
+            "gm20b: FIFO saved sched={:#010x} fault={:#010x}",
             self.scheduler,
             self.fault_disable
         );
@@ -102,9 +120,12 @@ impl FailureSnapshot {
             self.engines[1]
         );
         scarlet::println!(
-            "gm20b: FIFO saved get={} put={} ref={:#010x} fence={:#010x}",
+            "gm20b: FIFO saved get={} put={}",
             self.userd[0],
-            self.userd[1],
+            self.userd[1]
+        );
+        scarlet::println!(
+            "gm20b: FIFO saved ref={:#010x} fence={:#010x}",
             self.userd[2],
             self.fence
         );
@@ -209,6 +230,9 @@ impl Fifo {
             channel: self.read(CHANNEL),
             context: self.read(PBDMA_CONTEXT),
             runlist: self.read(RUNLIST_STATUS),
+            runlist_base: self.read(RUNLIST_ACTIVE_BASE),
+            instance: self.read(CHANNEL_INST),
+            pbdma_status: self.read(PBDMA_STATUS),
             bind: self.read(FIFO_BIND_ERROR),
             scheduler: self.read(SCHED_DISABLE),
             fault_disable: self.read(ERROR_SCHED_DISABLE),
@@ -235,6 +259,7 @@ impl Fifo {
         );
         let bind = self.read(FIFO_BIND_ERROR);
         let reason = match bind & 0xff {
+            0x00 => "NONE",
             0x01 => "BIND_NOT_UNBOUND",
             0x02 => "SNOOP_WITHOUT_BAR1",
             0x03 => "UNBIND_WHILE_RUNNING",
@@ -379,10 +404,13 @@ impl Fifo {
             store(&self.ring, index * 2, (PUSH_VA + index * 32) as u32);
             store(&self.ring, index * 2 + 1, (commands.len() as u32) << 10);
         }
-        // GM20B uses gm200_fifo -> gm107_runl, whose second word is the
-        // instance address. The older gk104 zero word is not valid here.
+        // Switchroot's GM20B HAL uses gk20a_get_ch_runlist_entry: channel ID
+        // followed by zero. channel_gm20b_bind publishes the instance in
+        // CCSR, as enable() does here. Nouveau's generic GM200/gm107_runl
+        // instead emits an instance pointer in word one; use the vendor's
+        // integrated GM20B representation for this CCSR-bound channel.
         store(&self.runlist, 0, 0);
-        store(&self.runlist, 1, (self.instance.as_paddr() >> 12) as u32);
+        store(&self.runlist, 1, 0);
         for memory in [
             &self.instance,
             &self.userd,
@@ -442,6 +470,11 @@ impl Fifo {
             }
         }
         scarlet::println!("gm20b: FIFO RAMFC/PDB/runlist inputs visible through BAR1");
+        scarlet::println!(
+            "gm20b: FIFO runlist words={:#010x}/{:#010x}",
+            unsafe { arch::mmio::read32(self.bar1 + RUNLIST_VA) },
+            unsafe { arch::mmio::read32(self.bar1 + RUNLIST_VA + 4) }
+        );
         Ok(())
     }
 
@@ -462,9 +495,12 @@ impl Fifo {
             scarlet::println!("gm20b: FIFO failure snapshot after GPU isolation/MC drain");
             failure.report();
             scarlet::println!(
-                "gm20b: FIFO backing get={} put={} ref={:#010x} fence={:#010x}",
+                "gm20b: FIFO backing get={} put={}",
                 physical(&self.userd, USERD_GP_GET / 4),
-                physical(&self.userd, USERD_GP_PUT / 4),
+                physical(&self.userd, USERD_GP_PUT / 4)
+            );
+            scarlet::println!(
+                "gm20b: FIFO backing ref={:#010x} fence={:#010x}",
                 physical(&self.userd, USERD_REF / 4),
                 physical(&self.fence, 0)
             );
@@ -545,6 +581,11 @@ impl Fifo {
         );
         self.write(CHANNEL, (self.read(CHANNEL) & !0xc00) | 0x400);
         self.activate_runlist()?;
+        scarlet::println!(
+            "gm20b: FIFO active runlist base={:#010x} state={:#010x}",
+            self.read(RUNLIST_ACTIVE_BASE),
+            self.read(RUNLIST_STATUS)
+        );
         scarlet::println!(
             "gm20b: FIFO runlist ready; scheduler={:#010x} pbdma-context={:#010x}",
             self.read(SCHED_DISABLE),

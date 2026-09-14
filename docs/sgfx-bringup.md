@@ -107,10 +107,18 @@ report; see [implementation](gpu-memory-host-9106.md). Its physical effect
 remains unproven. Source `3567632` passes production build/package inspection,
 including all 12 hashes and eight unchanged native applications. It is installed
 to the known FAT32 SD, with all 12 file readbacks and 38 protected-file hashes
-matching, then ejected. Physical testing is pending; exact identities are in
+matching, then ejected. The [September 15 boot log](gpu-hardware-0915.md) passes
+FB/LTC and private input visibility, but the first host push still fails with
+PBDMA invalid. Exact installed identities are in
 [gpu-memory-host-9106-verification.json](gpu-memory-host-9106-verification.json).
 DC register/rotation programming is unchanged. Actual PFIFO completion,
 authenticated GR, SGFX Ready and direct compatible GPU scanout remain unproven.
+
+The [next candidate](gpu-runlist-0915.md) uses the Switch Linux vendor's
+bare-channel runlist words (channel ID, zero) with the existing CCSR-bound
+instance. It also saves active runlist/instance/PBDMA status and splits failure
+lines to retain their trailing values in captured logs. This reference difference
+is established; its causal role in the failed first push remains unproven.
 
 ## Execution path
 

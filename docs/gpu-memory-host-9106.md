@@ -8,9 +8,12 @@ physical effect is unproven. Source `3567632` passes the
 production Cortex-A57 release build, all 12 package hashes, 16 firmware
 files, 13 shader pairs and eight native executables unchanged from the
 preceding installed image. It is installed to the known FAT32 SD: all 12 file
-readbacks and 38 protected-file hashes match, and the SD was ejected. Physical
-testing is pending; real hardware must complete both host pushes before signed
-GR and actual graphics admission.
+readbacks and 38 protected-file hashes match, and the SD was ejected. The
+[September 15 boot log](gpu-hardware-0915.md) reaches FB/LTC and private input
+visibility but fails during the first host push with PBDMA still invalid.
+Both genuine host pushes remain required before signed GR and actual graphics
+admission. The [next candidate](gpu-runlist-0915.md) follows the vendor's
+bare-channel runlist representation.
 
 ## Memory prerequisites
 

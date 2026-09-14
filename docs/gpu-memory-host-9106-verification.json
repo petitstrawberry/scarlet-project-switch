@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-14T14:35:19.817964+00:00",
+  "generated_at_utc": "2026-09-14T16:15:48.562335+00:00",
   "purpose": "Complete vendor GM20B FB/LTC memory FS state, local FIFO error routing and saved post-isolation failure diagnostics after IMG_9106",
   "board_source_revision": "3567632de27c9ed5b69794a07e183edbb9e9a12a",
   "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
@@ -10,7 +10,7 @@
     "drivers/gpu/nvidia-gm20b/src/gmmu.rs": "0983bbb6d04097a42cba3ca0071f2c6fe2661006c7169feccf61df467c5dd699",
     "drivers/gpu/nvidia-gm20b/src/runtime.rs": "e0cf743ead94f6db3695e996118dc5138c13901fbaa174696ef712e18fab48af"
   },
-  "hardware_tested": false,
+  "hardware_tested": true,
   "hardware_validated": false,
   "installed_to_sd": true,
   "preceding_hardware_report": "docs/gpu-hardware-9106.md",
@@ -271,7 +271,7 @@
     "kernel_native_restored_sha256": "b5b18722f5c7bbb0dff7c55a824629b054039a11b11795b19e7e72173a1748bb"
   },
   "limitations": [
-    "Built/package-verified and installed with 12 file readbacks and 38 protected-file hashes matching, then ejected; physical testing of the new correction is pending",
+    "Built/package-verified and installed/ejected; September 15 user boot log passes FB/LTC and private input visibility but fails during the first host push with PBDMA invalid. Genuine hardware admission remains unvalidated",
     "The reference-backed FB/LTC and local routing differences are established, but their causal role in IMG_9106 is not proven",
     "BAR1 input visibility and saved failure/backing snapshots do not substitute for both genuine host completions and retirement",
     "Authenticated GR, all real SGFX draw/copy admission and the common direct GPU/DC layout contract remain required"
@@ -305,5 +305,37 @@
     "install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd",
     "ejected_at_utc": "2026-09-14T14:35:00.937833+00:00",
     "ejection_result": "Disk /Volumes/SWITCH SD ejected"
+  },
+  "latest_hardware_report": "docs/gpu-hardware-0915.md",
+  "hardware_observation": {
+    "received_date_jst": "2026-09-15",
+    "input": "user-provided textual boot log",
+    "selected_input_excerpt": ".cache/gpu-runlist-0915-user-boot-excerpt.txt",
+    "selected_input_excerpt_sha256": "dc3570921cad1e60de5c64dcb70cb80c6aa48b6d1969e507496ad05e47b0474a",
+    "right_edge_truncated": true,
+    "image_identity_basis": "Last verified SD installation and matching new FB/LTC plus RAMFC/runlist milestones; ELF hash is not printed by the boot log",
+    "active_ltcs": 2,
+    "private_security_fuse": "0x00000001",
+    "ccsr_channel": "0x11000001",
+    "ccsr_status": "pending",
+    "ccsr_instance": "0x80177220",
+    "pbdma_context": "0x108e0130",
+    "pbdma_context_state": "invalid",
+    "userd_get": 0,
+    "userd_put": 1,
+    "userd_reference": "0xffffffff",
+    "physical_backing_get": 0,
+    "physical_backing_put": 1,
+    "physical_backing_reference": "0xffffffff",
+    "first_submission_failed": true,
+    "both_host_completions_observed": false,
+    "gr_or_sgfx_ready_observed": false,
+    "cropped_values_not_reconstructed": [
+      "physical MMU policy",
+      "fence words",
+      "full PBDMA interrupt word 1",
+      "final probe-error suffix"
+    ],
+    "gpcclk_measured_hz": 19200000
   }
 }
