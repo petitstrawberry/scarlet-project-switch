@@ -22,7 +22,7 @@ use scarlet::{
             resource::PlatformDeviceResourceType,
         },
     },
-    earlyfb::{self, EarlyFramebufferSurface},
+    earlyfb,
     mem::page::ContiguousPages,
     object::capability::{ControlOps, MemoryMappingOps, Selectable},
     sync::Mutex,
@@ -30,6 +30,8 @@ use scarlet::{
     vm::{self, vmem::MemoryAttribute},
 };
 use scarlet_driver_tegra210::{cell, delay_us};
+
+use crate::block_linear;
 
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
@@ -93,16 +95,19 @@ struct State {
     changed: bool,
     lost: bool,
     front: usize,
+    scanout_front: usize,
     gpu_front: Option<GpuDisplayResource>,
     pending_gpu: Option<GpuDisplayResource>,
-    early_surface: Option<EarlyFramebufferSurface>,
 }
 
 struct Display {
     base: usize,
     mc: usize,
     config: FramebufferConfig,
+    // Ordinary linear mmap buffers; private block-linear front/back are never
+    // exported as a linear framebuffer or written while DC fetches them.
     buffers: Option<[ContiguousPages; 2]>,
+    scanout: Option<[ContiguousPages; 2]>,
     original: [u32; REGISTERS.len()],
     original_console_window: [u32; REGISTERS.len()],
     original_console_kind: u32,
@@ -157,13 +162,13 @@ impl Display {
         self.write(INT_ENABLE, self.read(INT_ENABLE) | self.event_mask);
         // T210 window.c resets the fetch FIFO before updating a window.
         self.write(MEMFETCH_CONTROL, 1);
-        if self.keep_console {
-            let header = self.read(HEADER);
-            self.write(HEADER, 1 << 5);
-            self.write(MEMFETCH_CONTROL, 1);
-            self.write(HEADER, header);
-        }
-        let request = ACT_REQ | if self.keep_console { 1 << 2 } else { 0 };
+        let header = self.read(HEADER);
+        self.write(HEADER, 1 << 5);
+        self.write(MEMFETCH_CONTROL, 1);
+        self.write(HEADER, header);
+        // B preserves the firmware console through native initialization;
+        // the first normal userspace present retires it with A's page flip.
+        let request = ACT_REQ | (1 << 2);
         self.write(STATE_CONTROL, request << 8);
         let _ = self.read(STATE_CONTROL);
         // Hekate leaves all window activations on H-counter boundaries.
@@ -185,17 +190,23 @@ impl Display {
 
     fn activation_mask(&self) -> u32 {
         // WIN_ACT_CNTR_SEL_HCOUNTER(index) = 1 << (index * 2 + 2).
-        (1 << 2) | if self.keep_console { 1 << 4 } else { 0 }
+        (1 << 2) | (1 << 4)
     }
 
     fn priority_fields(&self) -> (u32, u32, u32, u32) {
         // Linux dc.h places A in bits 22:16, B in 14:8. Timer fields
-        // are six bits each. Preserve cursor, C and unclaimed B fields.
-        let windows = (1 << 16) | if self.keep_console { 1 << 8 } else { 0 };
+        // are six bits each. Preserve cursor and unclaimed C fields.
+        let windows = (1 << 16) | (1 << 8);
         (0x7f * windows, 0x3f * windows, 0x20 * windows, windows)
     }
 
-    fn flip(&self, paddr: u64, stride: u32, format: PixelFormat) -> Result<(), &'static str> {
+    fn flip(
+        &self,
+        paddr: u64,
+        format: PixelFormat,
+        show_console: bool,
+    ) -> Result<(), &'static str> {
+        let stride = STRIDE;
         let access = self.read(STATE_ACCESS);
         let header = self.read(HEADER);
         self.write(STATE_ACCESS, 0); // Read and write assembly state.
@@ -218,7 +229,7 @@ impl Display {
             self.write(CDE_CONTROL, 0);
             self.write(CDE_CG_SW_OVERRIDE, 1);
             self.write(0x701, 0); // No byte swap.
-            self.write(0x702, 0); // Host buffer, pitch-linear.
+            self.write(0x702, 0); // Host buffer; DC surface kind selects block-linear.
             let color_depth = match format {
                 PixelFormat::BGRA8888 | PixelFormat::XRGB8888 => 12,
                 PixelFormat::RGBA8888 | PixelFormat::XBGR8888 => 13,
@@ -236,11 +247,11 @@ impl Display {
             // surfaces. Do not inherit a firmware pixel/tile stride.
             self.write(BUFFER_STRIDE, 0);
             self.write(UV_BUFFER_STRIDE, 0);
-            self.write(0x70d, 0); // Linear addressing, independent of firmware state.
+            self.write(0x70d, 0); // Clear inherited address mode; kind is programmed below.
             // SWS supplies the complete composited RGB frame. Linux's gen2
             // blender bypass avoids inherited per-pixel alpha/key state.
             self.write(0x716, (1 << 24) | 255);
-            self.write(0x80b, 0);
+            self.write(0x80b, block_linear::SURFACE_KIND);
             self.write(START, paddr as u32);
             self.write(START_HI, (paddr >> 32) as u32);
             // Switchroot ext/dev.c maps its 90-degree output rotation to
@@ -252,12 +263,12 @@ impl Display {
             self.write(0x806, h_offset);
             self.write(0x808, 0);
             self.write(OPTIONS, options);
-            if self.keep_console {
+            self.write(HEADER, 1 << 5);
+            if show_console {
                 // Keep the original portrait boot console in window B. It
                 // uses the inherited linear fetch, independently of window
-                // A's GPU image and SCAN_COLUMN landscape fetch. This is an
-                // opt-in diagnostic display, not a console distribution policy.
-                self.write(HEADER, 1 << 5);
+                // A's SCAN_COLUMN landscape fetch. It remains through native
+                // initialization; keep_bootcon also retains it in userspace.
                 for (register, value) in REGISTERS.iter().zip(self.original) {
                     self.write(*register, value);
                 }
@@ -266,8 +277,10 @@ impl Display {
                 self.write(CDE_CG_SW_OVERRIDE, 1);
                 self.write(0x716, 1 << 24); // Opaque foreground, depth zero.
                 self.write(OPTIONS, WIN_ENABLE);
-                self.write(HEADER, 1 << 4);
+            } else {
+                self.write(OPTIONS, 0);
             }
+            self.write(HEADER, 1 << 4);
             if let Err(error) = self.activate() {
                 self.trace_scanout(paddr, stride, options);
                 return Err(error);
@@ -288,7 +301,7 @@ impl Display {
                 (UV_BUFFER_STRIDE, 0),
                 (0x70d, 0),
                 (0x716, (1 << 24) | 255),
-                (0x80b, 0),
+                (0x80b, block_linear::SURFACE_KIND),
                 (0x806, h_offset),
                 (0x808, 0),
                 (CDE_CONTROL, 0),
@@ -322,9 +335,9 @@ impl Display {
                     return Err("Tegra DC active fetch policy mismatch");
                 }
             }
-            if self.keep_console {
-                self.write(HEADER, 1 << 5);
-                let valid = REGISTERS
+            self.write(HEADER, 1 << 5);
+            let console_valid = if show_console {
+                REGISTERS
                     .iter()
                     .zip(self.original)
                     .all(|(register, value)| {
@@ -337,11 +350,13 @@ impl Display {
                         };
                         self.read(*register) == expected
                     })
-                    && self.read(0x80b) == self.original_kind;
-                self.write(HEADER, 1 << 4);
-                if !valid {
-                    return Err("Tegra DC diagnostic console readback mismatch");
-                }
+                    && self.read(0x80b) == self.original_kind
+            } else {
+                self.read(OPTIONS) == 0
+            };
+            self.write(HEADER, 1 << 4);
+            if !console_valid {
+                return Err("Tegra DC boot console state mismatch");
             }
             self.trace_scanout(paddr, stride, options);
             Ok(())
@@ -374,14 +389,12 @@ impl Display {
             self.write(*register, value);
         }
         self.write(0x80b, self.original_kind);
-        if self.keep_console {
-            self.write(HEADER, 1 << 5);
-            for (register, value) in REGISTERS.iter().zip(self.original_console_window) {
-                self.write(*register, value);
-            }
-            self.write(0x80b, self.original_console_kind);
-            self.write(HEADER, 1 << 4);
+        self.write(HEADER, 1 << 5);
+        for (register, value) in REGISTERS.iter().zip(self.original_console_window) {
+            self.write(*register, value);
         }
+        self.write(0x80b, self.original_console_kind);
+        self.write(HEADER, 1 << 4);
         let result = self.activate().and_then(|_| {
             self.write(STATE_ACCESS, 1);
             if REGISTERS
@@ -399,17 +412,15 @@ impl Display {
             {
                 return Err("Tegra DC rollback fetch priority mismatch");
             }
-            if self.keep_console {
-                self.write(HEADER, 1 << 5);
-                let valid = REGISTERS
-                    .iter()
-                    .zip(self.original_console_window)
-                    .all(|(register, value)| self.read(*register) == value)
-                    && self.read(0x80b) == self.original_console_kind;
-                self.write(HEADER, 1 << 4);
-                if !valid {
-                    return Err("Tegra DC diagnostic console rollback mismatch");
-                }
+            self.write(HEADER, 1 << 5);
+            let valid = REGISTERS
+                .iter()
+                .zip(self.original_console_window)
+                .all(|(register, value)| self.read(*register) == value)
+                && self.read(0x80b) == self.original_console_kind;
+            self.write(HEADER, 1 << 4);
+            if !valid {
+                return Err("Tegra DC boot console rollback mismatch");
             }
             let mask = self.activation_mask();
             self.write(
@@ -468,7 +479,7 @@ impl Display {
                 delta[0],
                 delta[1]
             );
-            if delta[0] != 0 || (self.keep_console && delta[1] != 0) {
+            if delta[0] != 0 || delta[1] != 0 {
                 return Err("DC column scanout underflows; keeping firmware framebuffer");
             }
             Ok(())
@@ -513,21 +524,82 @@ impl Display {
         let memory = buffers
             .get(index)
             .ok_or("invalid Tegra DC scanout buffer")?;
-        // Both aliases are Normal Non-cacheable, matching arm64 Linux's
-        // pgprot_writecombine. Publish CPU stores before DC fetches the
-        // actual application buffer; there is no rotated staging copy.
         arch::io_mb();
-        state.changed = true;
         self.trace_frame(memory.as_paddr(), STRIDE, "CPU");
-        if let Err(error) = self.flip(memory.as_paddr(), STRIDE, PixelFormat::BGRA8888) {
+        let scanout = state.scanout_front ^ 1;
+        let paddr = self.scanout.as_ref().unwrap()[scanout].as_paddr();
+        self.upload_frame(memory.as_paddr(), STRIDE, paddr, false)?;
+        state.changed = true;
+        if let Err(error) = self.flip(
+            paddr,
+            PixelFormat::BGRA8888,
+            !state.initialized || self.keep_console,
+        ) {
             state.lost = true;
             return Err(error);
         }
         state.gpu_front = None;
         state.pending_gpu = None;
         state.front = index;
+        state.scanout_front = scanout;
         self.front.store(index, Ordering::Release);
         self.gpu_active.store(false, Ordering::Release);
+        Ok(())
+    }
+
+    fn upload_frame(
+        &self,
+        source: u64,
+        stride: u32,
+        destination: u64,
+        gpu: bool,
+    ) -> Result<(), &'static str> {
+        let source_address = vm::addr::phys_to_virt(source);
+        let source_size = stride as usize * HEIGHT as usize;
+        if gpu {
+            // The producer retired before entry. Invalidate for CPU reads;
+            // never clean a stale CPU alias over the GPU's completed stores.
+            arch::invalidate_dcache_to_poc_range(source_address, source_size);
+        }
+        let output_address = vm::addr::phys_to_virt(destination);
+        let input =
+            unsafe { core::slice::from_raw_parts(source_address as *const u8, source_size) };
+        let output = unsafe {
+            core::slice::from_raw_parts_mut(output_address as *mut u8, block_linear::SIZE)
+        };
+        let start = time::current_time_ns();
+        block_linear::upload(input, stride as usize, output)?;
+        arch::io_mb();
+        let sequence = self.diagnostic_frames.load(Ordering::Relaxed);
+        if sequence == 1 || (self.keep_console && (sequence <= 8 || sequence.is_power_of_two())) {
+            let elapsed = time::current_time_ns().saturating_sub(start);
+            let mut matched = 0;
+            for gy in 0..18 {
+                for gx in 0..32 {
+                    let x = gx * (WIDTH as usize - 1) / 31;
+                    let y = gy * (HEIGHT as usize - 1) / 17;
+                    let offset = y * stride as usize + x * 4;
+                    let tiled_offset = block_linear::pixel_offset(x, y);
+                    matched += u32::from(
+                        input[offset..offset + 4] == output[tiled_offset..tiled_offset + 4],
+                    );
+                }
+            }
+            scarlet::println!(
+                "tegra-dc: upload={} src={:#x} dst={:#x} kind={:#x} block-height={} padded={} elapsed={}us matched={}/576",
+                sequence,
+                source,
+                destination,
+                block_linear::SURFACE_KIND,
+                1 << block_linear::BLOCK_HEIGHT_LOG2,
+                block_linear::SIZE,
+                elapsed / 1000,
+                matched
+            );
+            if matched != 576 {
+                return Err("Tegra DC block-linear storage differs from ready source");
+            }
+        }
         Ok(())
     }
 
@@ -624,13 +696,10 @@ impl Drop for Display {
             // A failed flip may still become active. Retain every allocation
             // the controller could fetch, including the attempted GPU image.
             core::mem::forget(self.buffers.take());
+            core::mem::forget(self.scanout.take());
             core::mem::forget(self.state.get_mut().gpu_front.take());
             core::mem::forget(self.state.get_mut().pending_gpu.take());
             return;
-        }
-        if let Some(surface) = self.state.get_mut().early_surface.take() {
-            // The original firmware reservation remains live after rollback.
-            unsafe { earlyfb::restore_surface(surface) };
         }
     }
 }
@@ -744,7 +813,7 @@ impl GraphicsDevice for Display {
         }
         let mut state = self.state.lock();
         if state.gpu_front.is_none() && index == state.front {
-            return Err("Tegra DC buffer is currently scanned out");
+            return Err("Tegra DC buffer is the current presentation source");
         }
         self.present_buffer(&mut state, index)?;
         earlyfb::deactivate();
@@ -758,7 +827,7 @@ impl GraphicsDevice for Display {
     ) -> Result<(), &'static str> {
         self.validate_region(region)?;
         if !options.is_swapchain_buffer() {
-            return Err("Tegra DC direct GPU scanout requires a swapchain image");
+            return Err("Tegra DC presentation requires a GPU swapchain image");
         }
         let backing = resource
             .linear_backing()
@@ -798,12 +867,20 @@ impl GraphicsDevice for Display {
         // GPU-rendered frame. This controller only consumes the ready image.
         arch::io_mb();
         state.pending_gpu = Some(resource);
-        state.changed = true;
         self.trace_frame(paddr, stride, "GPU");
-        if let Err(error) = self.flip(paddr, stride, format) {
+        let scanout = state.scanout_front ^ 1;
+        let scanout_address = self.scanout.as_ref().unwrap()[scanout].as_paddr();
+        self.upload_frame(paddr, stride, scanout_address, true)?;
+        state.changed = true;
+        if let Err(error) = self.flip(
+            scanout_address,
+            format,
+            !state.initialized || self.keep_console,
+        ) {
             state.lost = true;
             return Err(error);
         }
+        state.scanout_front = scanout;
         state.gpu_front = state.pending_gpu.take();
         self.gpu_active.store(true, Ordering::Release);
         earlyfb::deactivate();
@@ -820,25 +897,12 @@ impl GraphicsDevice for Display {
         scarlet::println!("tegra-dc: activating native scanout");
         self.present_buffer(&mut state, 0)?;
         self.validate_initial_scanout()?;
-        // Keep the ordinary boot/emergency console on the adopted surface
-        // until the first userspace present. No console-mode policy lives here.
-        state.early_surface = if self.keep_console {
-            None
-        } else {
-            unsafe {
-                earlyfb::replace_surface(
-                    self.buffers.as_ref().unwrap()[0].as_vaddr(),
-                    WIDTH as usize,
-                    HEIGHT as usize,
-                    STRIDE as usize,
-                    false,
-                    false,
-                )
-            }?
-        };
+        // The firmware's linear surface stays in B through initialization.
+        // A block-linear surface cannot be adopted as an earlyfb linear map.
+        // The first ordinary userspace present retires B unless keep_bootcon.
         state.initialized = true;
         scarlet::println!(
-            "tegra-dc: native scanout active; DC90, direct pitch=5120, buffers=2, V-counter, Normal-NC"
+            "tegra-dc: native scanout active; DC90, block-linear kind=0x42, render/scanout=2/2, V-counter, Normal-NC"
         );
         if self.keep_console {
             scarlet::println!("tegra-dc: keep_bootcon; boot logs remain visible in window B");
@@ -890,12 +954,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     };
     let access = dc_read(STATE_ACCESS);
     let header = dc_read(HEADER);
-    let request = ACT_REQ
-        | if earlyfb::keep_boot_console() {
-            1 << 2
-        } else {
-            0
-        };
+    let request = ACT_REQ | (1 << 2);
     if dc_read(STATE_CONTROL) & request != 0 {
         return Err("inherited Tegra DC has a pending update");
     }
@@ -915,8 +974,8 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     let active = dc_read(0x409);
     dc_write(HEADER, header);
     dc_write(STATE_ACCESS, access);
-    if earlyfb::keep_boot_console() && original_console_window[0] & WIN_ENABLE != 0 {
-        return Err("diagnostic console requires an unused Tegra DC window B");
+    if original_console_window[0] & WIN_ENABLE != 0 {
+        return Err("boot console handoff requires an unused Tegra DC window B");
     }
     scarlet::println!(
         "tegra-dc: inherited addr={:#x}/{:#x} options={:#x} kind={:#x} mode={:#x} active={:#x}",
@@ -970,24 +1029,35 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         ContiguousPages::new((STRIDE as usize * HEIGHT as usize).div_ceil(4096))
             .ok_or("Tegra DC scanout allocation failed")?,
     ];
-    for (index, memory) in buffers.iter_mut().enumerate() {
+    let mut scanout = [
+        ContiguousPages::new_aligned(block_linear::SIZE.div_ceil(4096), 128 * 1024)
+            .ok_or("Tegra DC block-linear allocation failed")?,
+        ContiguousPages::new_aligned(block_linear::SIZE.div_ceil(4096), 128 * 1024)
+            .ok_or("Tegra DC block-linear allocation failed")?,
+    ];
+    for (index, memory) in buffers.iter_mut().chain(scanout.iter_mut()).enumerate() {
         if memory
             .as_paddr()
-            .checked_add(u64::from(STRIDE) * u64::from(HEIGHT))
+            .checked_add(memory.len() as u64 * 4096)
             .is_none_or(|end| end > 1 << 34)
         {
             return Err("Tegra DC scanout exceeds 34-bit DMA address range");
         }
         scarlet::println!(
-            "tegra-dc: preparing scanout buffer {} paddr={:#x}",
-            index,
-            memory.as_paddr()
+            "tegra-dc: preparing {} buffer {} paddr={:#x} bytes={}",
+            if index < 2 { "render" } else { "block-linear" },
+            index % 2,
+            memory.as_paddr(),
+            memory.len() * 4096
         );
+        // Allocation zeroes the complete padded extent. Retagging cleans
+        // those stores before replacing both aliases with Normal-NC.
         memory.retag_memory_attribute(MemoryAttribute::NonCacheable)?;
     }
     scarlet::println!("tegra-dc: scanout buffers ready; preserving boot frame");
     // Convert the inherited portrait boot frame once during adoption.
-    // All subsequent frames are scanned directly with DC hardware rotation.
+    // Subsequent images keep these coordinates in block-linear storage;
+    // DC performs the display rotation.
     let boot = vm::addr::phys_to_virt(u64::from(original[10]));
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
@@ -1001,18 +1071,13 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
             };
         }
     }
-    let event_mask = VBLANK
-        | WINDOW_A_FETCH_EVENTS
-        | if earlyfb::keep_boot_console() {
-            WINDOW_B_FETCH_EVENTS
-        } else {
-            0
-        };
+    let event_mask = VBLANK | WINDOW_A_FETCH_EVENTS | WINDOW_B_FETCH_EVENTS;
     let display = Arc::new(Display {
         base,
         mc,
         config: FramebufferConfig::new(WIDTH, HEIGHT, PixelFormat::BGRA8888),
         buffers: Some(buffers),
+        scanout: Some(scanout),
         original,
         original_console_window,
         original_console_kind,
@@ -1033,9 +1098,9 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
             changed: false,
             lost: false,
             front: 0,
+            scanout_front: 1,
             gpu_front: None,
             pending_gpu: None,
-            early_surface: None,
         }),
     });
     let id = DeviceManager::get_manager().register_device(display.clone());

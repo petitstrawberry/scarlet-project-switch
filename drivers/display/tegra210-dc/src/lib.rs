@@ -6,6 +6,8 @@
 
 extern crate alloc;
 #[cfg(target_os = "none")]
+mod block_linear;
+#[cfg(target_os = "none")]
 mod runtime;
 #[cfg(target_os = "none")]
 pub use runtime::force_link;
