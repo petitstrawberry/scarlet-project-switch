@@ -5,7 +5,7 @@
 //! 1ae0167d360287ca78f5a2572f0de42594140312 hw_{fifo,pbdma,ram,ccsr,trim}.
 //! The 906f host semaphore and SET_REFERENCE methods execute in PFIFO.
 
-use scarlet::{arch, mem::page::ContiguousPages, time};
+use scarlet::{arch, mem::page::ContiguousPages, sync::Mutex, time};
 use scarlet_driver_tegra210::delay_us;
 
 use crate::gmmu::{clean, pages, store};
@@ -14,6 +14,8 @@ const USERD_VA: usize = 0x3000;
 const RING_VA: usize = 0x4000;
 const PUSH_VA: usize = 0x5000;
 const FENCE_VA: usize = 0x6000;
+const INSTANCE_VA: usize = 0x7000;
+const RUNLIST_VA: usize = 0x8000;
 const USERD_REF: usize = 18 * 4;
 const USERD_GP_GET: usize = 34 * 4;
 const USERD_GP_PUT: usize = 35 * 4;
@@ -59,6 +61,56 @@ pub struct Proof {
     pub fence: u32,
 }
 
+#[derive(Clone, Copy)]
+struct FailureSnapshot {
+    fifo: u32,
+    pbdma: [u32; 2],
+    channel: u32,
+    context: u32,
+    runlist: u32,
+    bind: u32,
+    scheduler: u32,
+    fault_disable: u32,
+    engines: [u32; 2],
+    userd: [u32; 3],
+    fence: u32,
+}
+
+impl FailureSnapshot {
+    fn report(&self) {
+        scarlet::println!(
+            "gm20b: FIFO saved intr={:#010x} pbdma={:#010x}/{:#010x}",
+            self.fifo,
+            self.pbdma[0],
+            self.pbdma[1]
+        );
+        scarlet::println!(
+            "gm20b: FIFO saved chan={:#010x} ctx={:#010x} runlist={:#010x}",
+            self.channel,
+            self.context,
+            self.runlist
+        );
+        scarlet::println!(
+            "gm20b: FIFO saved bind={:#010x} sched={:#010x} fault={:#010x}",
+            self.bind,
+            self.scheduler,
+            self.fault_disable
+        );
+        scarlet::println!(
+            "gm20b: FIFO saved engines={:#010x}/{:#010x}",
+            self.engines[0],
+            self.engines[1]
+        );
+        scarlet::println!(
+            "gm20b: FIFO saved get={} put={} ref={:#010x} fence={:#010x}",
+            self.userd[0],
+            self.userd[1],
+            self.userd[2],
+            self.fence
+        );
+    }
+}
+
 /// Gmmu owns this storage before any DMA address is published. There is no
 /// independent Drop: Power must isolate and drain the GPU before release,
 /// including failures during channel binding, submission and retirement.
@@ -71,6 +123,7 @@ pub struct Fifo {
     push: ContiguousPages,
     fence: ContiguousPages,
     runlist: ContiguousPages,
+    failure: Mutex<Option<FailureSnapshot>>,
 }
 
 impl Fifo {
@@ -84,6 +137,7 @@ impl Fifo {
             push: pages(1)?,
             fence: pages(1)?,
             runlist: pages(1)?,
+            failure: Mutex::new(None),
         })
     }
 
@@ -91,12 +145,14 @@ impl Fifo {
         &self.instance
     }
 
-    pub fn mappings(&self) -> [(usize, &ContiguousPages); 4] {
+    pub fn mappings(&self) -> [(usize, &ContiguousPages); 6] {
         [
             (USERD_VA, &self.userd),
             (RING_VA, &self.ring),
             (PUSH_VA, &self.push),
             (FENCE_VA, &self.fence),
+            (INSTANCE_VA, &self.instance),
+            (RUNLIST_VA, &self.runlist),
         ]
     }
 
@@ -144,6 +200,26 @@ impl Fifo {
     }
 
     fn diagnose(&self) {
+        // Save live failure state before Power resets the GPU. The compact
+        // copy is reported again after MC drain, beyond the rapid console
+        // clear that hides the leading diagnostics in IMG_9105/IMG_9106.
+        *self.failure.lock() = Some(FailureSnapshot {
+            fifo: self.read(FIFO_INTR),
+            pbdma: [self.read(PBDMA_INTR0), self.read(PBDMA_INTR1)],
+            channel: self.read(CHANNEL),
+            context: self.read(PBDMA_CONTEXT),
+            runlist: self.read(RUNLIST_STATUS),
+            bind: self.read(FIFO_BIND_ERROR),
+            scheduler: self.read(SCHED_DISABLE),
+            fault_disable: self.read(ERROR_SCHED_DISABLE),
+            engines: [self.read(0x2640), self.read(0x2648)],
+            userd: [
+                self.userd(USERD_GP_GET),
+                self.userd(USERD_GP_PUT),
+                self.userd(USERD_REF),
+            ],
+            fence: unsafe { arch::mmio::read32(self.bar1 + FENCE_VA) },
+        });
         scarlet::println!(
             "gm20b: FIFO fault intr={:#010x} pbdma={:#010x}/{:#010x}",
             self.read(FIFO_INTR),
@@ -350,7 +426,55 @@ impl Fifo {
             }
         }
         scarlet::println!("gm20b: FIFO private USERD/ring/push inputs visible through BAR1");
+        // These structures are immutable at this pre-bind point. Reading
+        // them through the GPU aperture exercises their distinct physical
+        // pages, including PDB fields beyond RAMFC, rather than inferring
+        // visibility from the earlier scratch/input allocations.
+        for (va, memory, words) in [
+            (INSTANCE_VA, &self.instance, 4096 / 4),
+            (RUNLIST_VA, &self.runlist, 2),
+        ] {
+            for word in 0..words {
+                let expected = unsafe {
+                    core::ptr::read_volatile((memory.as_vaddr() as *const u32).add(word))
+                };
+                check(va + word * 4, expected)?;
+            }
+        }
+        scarlet::println!("gm20b: FIFO RAMFC/PDB/runlist inputs visible through BAR1");
         Ok(())
+    }
+
+    pub fn report_retired_failure(&self) {
+        let failure = *self.failure.lock();
+        let Some(failure) = failure else {
+            return;
+        };
+        // Isolation and MC drain have ended DMA ownership. Only now may
+        // the CPU invalidate these clean aliases and inspect actual backing.
+        arch::invalidate_dcache_to_poc_range(self.userd.as_vaddr(), 4096);
+        arch::invalidate_dcache_to_poc_range(self.fence.as_vaddr(), 4096);
+        let physical = |memory: &ContiguousPages, word: usize| unsafe {
+            core::ptr::read_volatile((memory.as_vaddr() as *const u32).add(word))
+        };
+        let keep_console = scarlet::earlyfb::keep_boot_console();
+        for _ in 0..if keep_console { 2 } else { 1 } {
+            scarlet::println!("gm20b: FIFO failure snapshot after GPU isolation/MC drain");
+            failure.report();
+            scarlet::println!(
+                "gm20b: FIFO backing get={} put={} ref={:#010x} fence={:#010x}",
+                physical(&self.userd, USERD_GP_GET / 4),
+                physical(&self.userd, USERD_GP_PUT / 4),
+                physical(&self.userd, USERD_REF / 4),
+                physical(&self.fence, 0)
+            );
+            if keep_console {
+                // Two short, held copies survive a clear between log pages.
+                // This failed-boot diagnostic never extends a DMA timeout
+                // or affects the ordinary distribution's submission path.
+                delay_us(500_000);
+            }
+        }
     }
 
     fn enable(&self, reference_hz: u32) -> Result<(), &'static str> {
@@ -396,15 +520,17 @@ impl Fifo {
             scarlet::println!("gm20b: FIFO PBDMA0 runlist map={:#010x}", map);
             return Err("FIFO PBDMA0 does not service runlist zero");
         }
-        // Poll completion/error state; interrupts stay masked at both levels.
-        self.write(0x2140, 0);
-        self.write(0x2144, 0);
-        self.write(0x4010c, 0);
-        self.write(0x4014c, 0);
+        // Match Nouveau's PFIFO/PBDMA internal error routing. MC INTA/INTB
+        // remain masked by runtime, so no unhandled CPU IRQ is enabled.
+        // Masking every child source also hides forwarded PFIFO error state.
         self.write(FIFO_INTR, u32::MAX);
         self.write(PBDMA_INTR0, u32::MAX);
         self.write(PBDMA_INTR1, u32::MAX);
         self.write(0x2a00, u32::MAX);
+        self.write(0x2140, 0x7fffffff);
+        self.write(0x2144, 0);
+        self.write(0x4010c, 0xfffffeff);
+        self.write(0x4014c, u32::MAX);
         self.write(0x2a04, self.read(0x2a04) | 0xbfffffff);
         self.write(0x4013c, self.read(0x4013c) & !0x10000100);
         self.write(0x4012c, 0x000f4240);

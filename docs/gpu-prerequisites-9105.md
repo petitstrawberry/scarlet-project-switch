@@ -3,12 +3,13 @@
 [IMG_9105](gpu-hardware-9105.md) passes ELPG, BAR1 backing/remap and private
 input visibility, then stalls at the first PFIFO host completion. This
 follow-up supplies missing Linux initialization steps. Hardware completion
-remains unproven until another physical boot. Source `8a2dcdc` passes the
+remains unproven: [IMG_9106](gpu-hardware-9106.md) still times out at the first PFIFO push. Source `8a2dcdc` passes the
 production Cortex-A57 release build and package inspection, including 12
 package hashes, 16 firmware files, 13 shader pairs and eight native apps
 identical to the preceding installed image. The correction is installed to the
 known FAT32 SD; all 12 readbacks and 38 protected-file hashes match, and the SD
-is ejected. Physical boot remains pending. Exact identities are in
+is ejected. IMG_9106 confirms PRIV ring, FIFO gating and 19.2-MHz GPCCLK,
+but PBDMA remains unloaded at timeout. Exact identities are in
 [the receipt](gpu-prerequisites-9105-verification.json).
 
 ## Implementation

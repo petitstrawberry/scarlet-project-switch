@@ -96,10 +96,15 @@ firmware files, 13 shader pairs and eight unchanged native applications. The
 new source is `8a2dcdc`; its ELF SHA-256 is
 `510a1d5a3679c7ae9f26ad2ce2aaceb2c5f086b93df5356630e6e6272567f69d`.
 It is installed to the known FAT32 SD, with all 12 file readbacks and 38
-protected-file hashes matching, then ejected. Physical boot remains pending.
+protected-file hashes matching, then ejected. [IMG_9106](gpu-hardware-9106.md)
+confirms PRIV ring startup, FIFO gating and 19.2-MHz GPCCLK, but PBDMA is still
+unloaded at the first host-completion timeout.
 Exact identities and checks are in
 [gpu-prerequisites-9105-verification.json](gpu-prerequisites-9105-verification.json).
-DC register/rotation programming is unchanged. Actual PFIFO completion,
+The follow-up supplies vendor FB/LTC FS state, local FIFO error routing,
+private RAMFC/PDB/runlist visibility checks and a saved post-isolation failure
+report; see [implementation](gpu-memory-host-9106.md). Its physical effect
+remains unproven. DC register/rotation programming is unchanged. Actual PFIFO completion,
 authenticated GR, SGFX Ready and direct compatible GPU scanout remain unproven.
 
 ## Execution path

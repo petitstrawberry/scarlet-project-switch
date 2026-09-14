@@ -3,6 +3,7 @@
 //! Linux Nouveau v6.12 privring/gk20a supplies ring reset/start ordering.
 //! Switchroot nvgpu 1ae0167d360287ca78f5a2572f0de42594140312
 //! clk_gm20b and gm20b_gating_reglist supply bypass and gating settings.
+//! Its common MM, FB/LTC and fuse sources supply memory FS state ordering.
 
 use scarlet::arch;
 use scarlet_driver_tegra210::delay_us;
@@ -117,4 +118,66 @@ pub fn measure_clock(base: usize, reference_hz: u32) {
             second
         );
     }
+}
+
+pub fn initialize_memory(base: usize) -> Result<(), &'static str> {
+    // nvgpu_init_mm_reset_enable_hw applies FB/LTC gating after ELPG and
+    // before BAR1 binding. Use gm20b_gating_reglist's disabled settings;
+    // there is no PMU-managed gating or compressed backing yet.
+    for (reg, value) in [
+        (0x100d14, 0xfffffffe),
+        (0x100c9c, 0x1fe),
+        (0x17e050, 0xfffffffe),
+        (0x17e35c, 0xfffffffe),
+        (0x100d10, 0),
+        (0x100d30, 0),
+        (0x100d3c, 0),
+        (0x100d48, 0),
+        (0x100c98, 0),
+        (0x17e030, 0),
+        (0x17e040, 0),
+        (0x17e3e0, 0),
+        (0x17e3c8, 0),
+    ] {
+        // Vendor broadcast gating registers are programmed directly; a
+        // reserved/all-ones read is not a functional admission condition.
+        write(base, reg, value);
+    }
+    // gm20b_ltc_init_fs_state discovers the active LTC count from the PRIV
+    // ring; fb_gm20b_init_fs_state publishes that same count to the FB hub.
+    let enumeration = read(base, 0x12006c);
+    let ltcs = enumeration & 0x1f;
+    if enumeration == u32::MAX || ltcs == 0 {
+        return Err("GPU PRIV ring enumerated no readable LTC");
+    }
+    for reg in [0x17e27c, 0x17e000, 0x100800] {
+        write(base, reg, ltcs);
+        let value = read(base, reg);
+        if value == u32::MAX || value & 0x1f != ltcs {
+            return Err("GPU FB/LTC active-count readback mismatch");
+        }
+    }
+    let dstg = read(base, 0x140518);
+    if dstg == u32::MAX {
+        return Err("GPU LTC slice configuration returned all ones");
+    }
+    write(base, 0x17e318, dstg | (1 << 15)); // Vendor VDC 4-to-2 disable.
+    // Match fb_gm20b_init_fs_state only for a confirmed non-secure GPU.
+    // This is a GPU MMU policy register, not a fuse write or Tegra MC/VPR
+    // carveout change. Priv-secure hardware keeps its inherited policy;
+    // signed ACR/PMU/FECS admission is unchanged in either mode.
+    let priv_security = read(base, 0x21434);
+    if priv_security == u32::MAX {
+        return Err("GPU private-security fuse read returned all ones");
+    }
+    if priv_security == 0 {
+        write(base, 0x100ce4, u32::MAX);
+    }
+    scarlet::println!(
+        "gm20b: FB/LTC active={} priv-security={:#010x} phy-policy={:#010x}",
+        ltcs,
+        priv_security,
+        read(base, 0x100ce4)
+    );
+    Ok(())
 }

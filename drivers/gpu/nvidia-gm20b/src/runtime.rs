@@ -211,6 +211,7 @@ impl Drop for Power {
                 scarlet::println!("gm20b: isolated GPU retained DMA backing: {}", error);
                 return;
             }
+            dma.report_retired_fifo_failure();
             drop(dma);
         }
         if let Err(error) = self.rail.restore(self.rail_before) {
@@ -387,7 +388,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     let firmware = Firmware::load()?;
     scarlet::println!("gm20b: firmware loaded; initializing hardware");
     let gpu_base = vm::ioremap(gpu.start, 0x801000)?;
-    let bar1_base = vm::ioremap(bar1.start, 0x7000)?;
+    let bar1_base = vm::ioremap(bar1.start, 0x9000)?;
     let mc_base = vm::ioremap(0x70019000, 0x1000)?;
     let mut power = Power::acquire(platform, Rail { bus })?;
     scarlet::println!(
@@ -424,7 +425,10 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         scarlet::arch::mmio::write32(gpu_base + 0x140, 0);
         scarlet::arch::mmio::write32(gpu_base + 0x144, 0);
     }
-    let _ = read(0x144);
+    scarlet::arch::io_mb();
+    if read(0x140) != 0 || read(0x144) != 0 {
+        return Err("GPU MC CPU interrupt outputs did not remain masked");
+    }
     crate::hardware::initialize(gpu_base)?;
     // Transfer the allocation owner before any hardware address is published.
     // On failure Power isolates/drains the client before freeing its pages.

@@ -147,6 +147,11 @@ impl Gmmu {
         self.fifo.initialize(reference_hz)
     }
 
+    // Power calls this only after GPU isolation and a successful MC drain.
+    pub fn report_retired_fifo_failure(&self) {
+        self.fifo.report_retired_failure();
+    }
+
     pub(super) fn map_private(
         &self,
         va: usize,
@@ -300,6 +305,7 @@ impl Gmmu {
             return Err("GPU memory ELPG enable readback mismatch");
         }
         delay_us(20);
+        crate::hardware::initialize_memory(self.base)?;
         self.write(MMU_CTRL, self.read(MMU_CTRL) | (1 << 11));
 
         // Small-page PDE is the high word. Big-page PDE remains invalid.

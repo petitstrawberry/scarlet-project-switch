@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-14T13:55:02.893837+00:00",
+  "generated_at_utc": "2026-09-14T14:11:41.379976+00:00",
   "purpose": "Initialize GPU-wide reference clocks and PRIV ring before GMMU; apply vendor FIFO gating-disabled settings and physical GPCCLK diagnostics after IMG_9105",
   "board_source_revision": "8a2dcdc7c26470e113b5413598ef6632beddcb23",
   "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
@@ -10,7 +10,7 @@
     "drivers/gpu/nvidia-gm20b/src/lib.rs": "ce47c1eed6bed154568cba3ecf3c92eacbbf0e525600f0cae283d102fd8bff89",
     "drivers/gpu/nvidia-gm20b/src/runtime.rs": "ab103ae8ba20b1f4d58b44364f116857893d1157bec5297988b7c36ca1a61fd0"
   },
-  "hardware_tested": false,
+  "hardware_tested": true,
   "hardware_validated": false,
   "installed_to_sd": true,
   "preceding_hardware_report": "docs/gpu-hardware-9105.md",
@@ -197,7 +197,7 @@
     "kernel_native_restored_sha256": "b5b18722f5c7bbb0dff7c55a824629b054039a11b11795b19e7e72173a1748bb"
   },
   "limitations": [
-    "Installed to the known FAT32 SD; all 12 readbacks and 38 protected-file hashes match, then ejected; physical boot remains pending",
+    "Installed with 12 readbacks and 38 protected-file hashes verified; IMG_9106 physically tested it, but the first PFIFO completion still times out",
     "Missing PRIV ring/FIFO gating initialization is source-backed; its role in the observed PFIFO stall is not established by IMG_9105",
     "The GPCCLK counter is diagnostic; actual PFIFO completions, authenticated GR and real SGFX draw/copy admission remain required",
     "The shared GPU/DC layout contract and direct compatible GPU presentation are not implemented; the intermediate storage upload remains"
@@ -230,5 +230,33 @@
     "install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd",
     "ejected_at_utc": "2026-09-14T13:55:02.893837+00:00",
     "ejection_result": "Disk /Volumes/SWITCH SD ejected"
+  },
+  "hardware_report": "docs/gpu-hardware-9106.md",
+  "hardware_result": {
+    "video": "/Users/petitstrawberry/Downloads/IMG_9106.mov",
+    "video_sha256": "36c245597b6f6c9c64edc3c497d53ad897f2eb46ffce22c51256caa0e5756c5c",
+    "priv_ring_command": "0x00000000",
+    "priv_ring_decode": "0x00000002",
+    "priv_ring_interrupts": [
+      "0x00000000",
+      "0x00000000"
+    ],
+    "elpg_missing": "0x00000000",
+    "bar1_backing_write_remap_passed": true,
+    "private_input_visibility_passed": true,
+    "fifo_slcg": "0x0001fffe",
+    "fifo_blcg": "0x00000000",
+    "pbdma_context_at_failure": "0x108e0130",
+    "pbdma_context_state_at_failure": 0,
+    "userd_get": 0,
+    "userd_put": 1,
+    "userd_reference": "0xffffffff",
+    "fence": "0x00000000",
+    "first_host_completion_observed": false,
+    "gr_initialized": false,
+    "sgfx_ready": false,
+    "error": "FIFO host-method completion timeout",
+    "gpcclk_measured_hz": 19200000,
+    "gpcclk_counter": "0x00000190"
   }
 }
