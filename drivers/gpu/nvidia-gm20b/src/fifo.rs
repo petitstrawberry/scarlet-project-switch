@@ -25,6 +25,9 @@ const RUNLIST_BASE: usize = 0x2270;
 const RUNLIST: usize = 0x2274;
 const RUNLIST_STATUS: usize = 0x2284;
 const PBDMA_MAP: usize = 0x2390;
+const FIFO_BIND_ERROR: usize = 0x252c;
+const FIFO_SCHED_ERROR: usize = 0x254c;
+const FIFO_CHSW_ERROR: usize = 0x256c;
 const PREEMPT: usize = 0x2634;
 const PBDMA_INTR0: usize = 0x40108;
 const PBDMA_INTR1: usize = 0x40148;
@@ -134,6 +137,24 @@ impl Fifo {
             self.read(CHANNEL),
             self.read(RUNLIST_STATUS)
         );
+        let bind = self.read(FIFO_BIND_ERROR);
+        let reason = match bind & 0xff {
+            0x01 => "BIND_NOT_UNBOUND",
+            0x02 => "SNOOP_WITHOUT_BAR1",
+            0x03 => "UNBIND_WHILE_RUNNING",
+            0x05 => "INVALID_RUNLIST",
+            0x06 => "INVALID_CTX_TGT",
+            0x0b => "UNBIND_WHILE_PARKED",
+            _ => "UNKNOWN",
+        };
+        scarlet::println!("gm20b: FIFO bind={:#010x} reason={}", bind, reason);
+        scarlet::println!(
+            "gm20b: FIFO context bar1={:#010x} inst={:#010x} sched={:#010x} chsw={:#010x}",
+            self.read(FIFO_BAR1_BASE),
+            self.read(CHANNEL_INST),
+            self.read(FIFO_SCHED_ERROR),
+            self.read(FIFO_CHSW_ERROR)
+        );
         scarlet::println!(
             "gm20b: FIFO progress gp={}/{} pb={:#010x}:{:#010x} header={:#010x} method={:#010x}",
             self.read(0x40014),
@@ -149,6 +170,19 @@ impl Fifo {
             self.userd(USERD_REF),
             unsafe { arch::mmio::read32(self.bar1 + FENCE_VA) }
         );
+    }
+
+    fn publish_userd(&self) -> Result<(), &'static str> {
+        // Linux gk104_fifo_init and nvgpu gk20a_init_fifo_setup_hw publish
+        // the USERD BAR1 base before binding any channel. Binding can snoop
+        // USERD immediately; publishing it after CCSR bind is too late.
+        let value = 0x10000000 | (USERD_VA >> 12) as u32;
+        self.write(FIFO_BAR1_BASE, value);
+        if self.read(FIFO_BAR1_BASE) != value {
+            self.diagnose();
+            return Err("FIFO USERD BAR1 base readback mismatch");
+        }
+        Ok(())
     }
 
     fn prepare(&self) {
@@ -262,13 +296,13 @@ impl Fifo {
         if self.read(CHANNEL_INST) != 0 {
             return Err("FIFO private channel zero was not unbound after reset");
         }
+        self.publish_userd()?;
         self.write(CHANNEL, self.read(CHANNEL) & !0x000f0000);
         self.write(
             CHANNEL_INST,
             0x80000000 | (self.instance.as_paddr() >> 12) as u32,
         );
         self.write(CHANNEL, (self.read(CHANNEL) & !0xc00) | 0x400);
-        self.write(FIFO_BAR1_BASE, 0x10000000 | (USERD_VA >> 12) as u32);
         self.write(RUNLIST_BASE, (self.runlist.as_paddr() >> 12) as u32);
         self.write(RUNLIST, 1); // Runlist zero, one plain channel.
         self.wait(RUNLIST_STATUS, |value| value & (1 << 20) == 0)
@@ -397,12 +431,12 @@ impl Fifo {
         for memory in [&self.instance, &self.userd, &self.ring, &self.fence] {
             clean(memory);
         }
+        self.publish_userd()?;
         self.write(
             CHANNEL_INST,
             0x80000000 | (self.instance.as_paddr() >> 12) as u32,
         );
         self.write(CHANNEL, (self.read(CHANNEL) & !0x000f0c00) | 0x400);
-        self.write(FIFO_BAR1_BASE, 0x10000000 | (USERD_VA >> 12) as u32);
         self.write(RUNLIST_BASE, (self.runlist.as_paddr() >> 12) as u32);
         self.write(RUNLIST, 1);
         self.wait(RUNLIST_STATUS, |v| v & (1 << 20) == 0)?;

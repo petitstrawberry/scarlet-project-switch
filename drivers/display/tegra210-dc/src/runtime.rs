@@ -47,9 +47,11 @@ const MEMFETCH_CONTROL: usize = 0x82b;
 const WIN_ENABLE: u32 = 1 << 30;
 const ACT_REQ: u32 = 3; // GENERAL and window A.
 const VBLANK: u32 = 1 << 2;
-const REGISTERS: [usize; 21] = [
+// T210 uses the gen2 blender at 0x716..0x719. NVIDIA window.c programs
+// DC_WIN_GLOBAL_ALPHA (0x715) only for gen1; do not manage or verify it here.
+const REGISTERS: [usize; 20] = [
     OPTIONS, 0x702, 0x703, 0x704, 0x705, 0x706, 0x707, 0x708, 0x709, 0x70a, START, START_HI, 0x806,
-    0x808, 0x701, 0x70d, 0x715, 0x716, 0x717, 0x718, 0x719,
+    0x808, 0x701, 0x70d, 0x716, 0x717, 0x718, 0x719,
 ];
 static REGISTERED: AtomicBool = AtomicBool::new(false);
 
@@ -67,8 +69,8 @@ struct Display {
     base: usize,
     config: FramebufferConfig,
     buffers: Option<[ContiguousPages; 2]>,
-    original: [u32; 21],
-    original_console_window: [u32; 21],
+    original: [u32; REGISTERS.len()],
+    original_console_window: [u32; REGISTERS.len()],
     original_console_kind: u32,
     original_kind: u32,
     original_vblank_enable: u32,
@@ -156,7 +158,6 @@ impl Display {
             self.write(0x709, 0x10001000); // No scaling.
             self.write(0x70a, stride);
             self.write(0x70d, 0); // Linear addressing, independent of firmware state.
-            self.write(0x715, 0xff); // Disable global-alpha multiplication.
             // SWS supplies the complete composited RGB frame. Linux's gen2
             // blender bypass avoids inherited per-pixel alpha/key state.
             self.write(0x716, (1 << 24) | 255);
@@ -197,7 +198,6 @@ impl Display {
                 (0x709, 0x10001000),
                 (0x70a, stride),
                 (0x70d, 0),
-                (0x715, 0xff),
                 (0x716, (1 << 24) | 255),
                 (0x80b, 0),
                 (0x806, WIDTH * 4 - 1),
