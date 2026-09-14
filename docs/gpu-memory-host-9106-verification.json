@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-14T14:14:21.508908+00:00",
+  "generated_at_utc": "2026-09-14T14:35:19.817964+00:00",
   "purpose": "Complete vendor GM20B FB/LTC memory FS state, local FIFO error routing and saved post-isolation failure diagnostics after IMG_9106",
   "board_source_revision": "3567632de27c9ed5b69794a07e183edbb9e9a12a",
   "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
@@ -12,7 +12,7 @@
   },
   "hardware_tested": false,
   "hardware_validated": false,
-  "installed_to_sd": false,
+  "installed_to_sd": true,
   "preceding_hardware_report": "docs/gpu-hardware-9106.md",
   "preceding_installed_receipt": "docs/gpu-prerequisites-9105-verification.json",
   "inspection": {
@@ -271,10 +271,39 @@
     "kernel_native_restored_sha256": "b5b18722f5c7bbb0dff7c55a824629b054039a11b11795b19e7e72173a1748bb"
   },
   "limitations": [
-    "Built/package-verified; the new correction is not installed or physically tested",
+    "Built/package-verified and installed with 12 file readbacks and 38 protected-file hashes matching, then ejected; physical testing of the new correction is pending",
     "The reference-backed FB/LTC and local routing differences are established, but their causal role in IMG_9106 is not proven",
     "BAR1 input visibility and saved failure/backing snapshots do not substitute for both genuine host completions and retirement",
     "Authenticated GR, all real SGFX draw/copy admission and the common direct GPU/DC layout contract remain required"
   ],
-  "gpu_cpu_irq_output_mask_readback_enforced_in_source": true
+  "gpu_cpu_irq_output_mask_readback_enforced_in_source": true,
+  "sd_receipt": {
+    "device": "disk8s1",
+    "mount": "/Volumes/SWITCH SD",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "56f96e1cb454d3f431ace388c8cd56f048fb74696c892628235c01078425c39c",
+      "switchroot/scarlet-console/Image": "bfd0252f67c41c0570fa51728840d76be52600af8f2fccfcfcd8ebf2cf5fe804",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "41dc156b5e2ee33b7a483e42f1afc056cd9ae65a1ecb127b8f6f968966ebdabd",
+      "switchroot/scarlet-console/initramfs": "7bb47a58f12655eb8d931c20624c75c8c7dc8da87393cccd7045fa52708b516e",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "0ad36eef514d4cf010af7c4501b9b753154bde6b4fdca274284449ec770857e2",
+      "switchroot/scarlet-console-logs/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console-logs/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console-logs/boot.scr": "43fd16bf4d0585ff1477343d4f93d5d2b630f4a881c7fb2b05e036a63a9da6cf",
+      "switchroot/scarlet-console-logs/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df"
+    },
+    "protected_files_verified": 38,
+    "raw_device_accessed": false,
+    "hardware_boot_validated": false,
+    "board_source_revision": "3567632de27c9ed5b69794a07e183edbb9e9a12a",
+    "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+    "kernel_elf_sha256": "37e9c5df1489a838a4742bf521495e3f243e5a80c2bc8d7cc2a90f1cd7b37a25",
+    "volume_uuid": "3B5C719E-AC1A-3190-902F-508C45D88F3E",
+    "install_log": ".cache/gpu-userd-9106-sd-install.log",
+    "install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd",
+    "ejected_at_utc": "2026-09-14T14:35:00.937833+00:00",
+    "ejection_result": "Disk /Volumes/SWITCH SD ejected"
+  }
 }
