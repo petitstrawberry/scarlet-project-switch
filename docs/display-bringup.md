@@ -17,6 +17,13 @@ suspend/resume remain pending. The new [SGFX candidate](sgfx-bringup.md) renders
 into GPU-owned images and presents through this ordinary display interface;
 physical GPU-image presentation is still unverified.
 
+[IMG_9086](gpu-hardware-9086.md) shows a console GUI with SWS logs drawn over
+it, but does not establish native DC adoption or the intended opaque window-B
+diagnostic view. GPU discovery remains deferred in that installed image.
+The next candidate adds a common post-initramfs retry; its
+[verification record](gpu-initramfs-retry-verification.json) distinguishes
+successful package checks from pending SD installation and hardware testing.
+
 ## Adoption and ownership
 
 The board boot script marks only DC0 with `scarlet,boot-scanout = <1>`.

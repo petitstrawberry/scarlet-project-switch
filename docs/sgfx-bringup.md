@@ -2,13 +2,17 @@
 
 The current image integrates the GM20B kernel executor, a Maxwell SGFX backend,
 and SGFX facade negotiation into the ordinary SWS/ScarletUI distribution.
-Production compilation succeeds. The user installed and tested the SGFX
-candidate and reported a uniform screen whose color changes with input.
-That report is not an older SD image: it is the tested SGFX candidate. Its exact
-binary hashes and hardware phase logs have not been captured, so successful
-GPU rendering and GPU-image scanout cannot yet be distinguished. The current
-candidate and deployment status are recorded
-in [gpu-sgfx-render-verification.json](gpu-sgfx-render-verification.json).
+Production compilation succeeds. The user tested an earlier SGFX candidate
+and reported a uniform screen whose color changes with input. The subsequent
+diagnostic image is recorded in
+[gpu-sgfx-render-verification.json](gpu-sgfx-render-verification.json).
+[IMG_9086](gpu-hardware-9086.md) shows GPU discovery remaining deferred before
+initramfs mounting, followed by a visible console GUI and continuing SWS logs.
+It does not establish successful GPU rendering or native DC adoption. A new
+candidate retries the deferred queue after mounting; its build and package
+checks are recorded in
+[gpu-initramfs-retry-verification.json](gpu-initramfs-retry-verification.json).
+That candidate has not been copied to SD or physically tested.
 
 ## Execution path
 
