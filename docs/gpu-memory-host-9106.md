@@ -4,7 +4,10 @@
 and passes BAR1 input checks, but the first PFIFO host push still times out
 with unloaded PBDMA context. This correction fills further differences from
 Linux and makes the failure snapshot recoverable from a camera clip. Its
-physical effect is unproven; real hardware must still complete both host
+physical effect is unproven. Source `3567632` passes the
+production Cortex-A57 release build, all 12 package hashes, 16 firmware
+files, 13 shader pairs and eight native executables unchanged from the
+preceding installed image. It is not installed; real hardware must complete both host
 pushes before signed GR and actual graphics admission.
 
 ## Memory prerequisites

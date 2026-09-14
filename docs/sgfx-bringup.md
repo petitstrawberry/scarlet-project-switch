@@ -104,7 +104,11 @@ Exact identities and checks are in
 The follow-up supplies vendor FB/LTC FS state, local FIFO error routing,
 private RAMFC/PDB/runlist visibility checks and a saved post-isolation failure
 report; see [implementation](gpu-memory-host-9106.md). Its physical effect
-remains unproven. DC register/rotation programming is unchanged. Actual PFIFO completion,
+remains unproven. Source `3567632` passes production build/package inspection,
+including all 12 hashes and eight unchanged native applications. It is not
+installed or physically tested; exact identities are in
+[gpu-memory-host-9106-verification.json](gpu-memory-host-9106-verification.json).
+DC register/rotation programming is unchanged. Actual PFIFO completion,
 authenticated GR, SGFX Ready and direct compatible GPU scanout remain unproven.
 
 ## Execution path
