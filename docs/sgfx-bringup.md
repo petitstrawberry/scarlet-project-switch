@@ -135,6 +135,12 @@ Linux application-visible ordering while preserving every real execution and
 retirement gate. It also prevents an unselected registered UART from becoming
 the kernel's normal console, so the resident journal follower stays on the
 selected framebuffer console unless the boot contract selected UART output.
+Source `19159d7` with kernel `814b69a0` passes the full production build and
+package inspection: 12 manifest hashes, 16 firmware files, 13 shader pairs and
+all legacy-image CRCs verify. Its kernel ELF SHA-256 is
+`1b9bdbb7e69438d3bd862f4d8ec9424562170a07c2961e0af7426f6177c836d9`.
+It is not installed or physically tested yet; exact evidence is in
+[gpu-scheduler-order-0915-verification.json](gpu-scheduler-order-0915-verification.json).
 
 ## Execution path
 

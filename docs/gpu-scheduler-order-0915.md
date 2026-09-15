@@ -32,6 +32,26 @@ retirement, authenticated GR, golden-context completion, every canonical shader
 pair, the 902D copy and the PGRAPH fence. A changed failure phase is diagnostic
 progress and is not reported as readiness.
 
+## Build and package
+
+Source `19159d7` with Scarlet kernel `814b69a0` passes the production
+Cortex-A57 release build and L4T package inspection. All 12 manifest hashes,
+the arm64 Image header, legacy kernel/RAMDisk CRCs, 16 pinned firmware files
+and 13 linked shader pairs verify. The eight native executables are byte-for-byte
+identical to the preceding candidate. The candidate kernel ELF SHA-256 is
+`1b9bdbb7e69438d3bd862f4d8ec9424562170a07c2961e0af7426f6177c836d9`,
+the Image SHA-256 is
+`e7b4de0cbf1d23aec5c0ae331034778180ddb1f457e45014aaa2839410ac717f`,
+and runtime reservation is `0x1102000`.
+
+The same kernel also keeps normal journal output on the boot-selected
+framebuffer when no UART was selected. Registered serial devices remain
+available, but normal console discovery no longer picks one solely because it
+has the `Serial` capability. Exact identities and limitations are recorded in
+[gpu-scheduler-order-0915-verification.json](gpu-scheduler-order-0915-verification.json).
+The SD card was not mounted when this package was recorded, so it remains
+uninstalled and hardware validation is pending.
+
 ## Primary references
 
 - [Switchroot power-on ordering](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/gk20a/gk20a.c#L241)
