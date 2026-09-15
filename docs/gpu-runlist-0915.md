@@ -3,15 +3,23 @@
 [The latest boot log](gpu-hardware-0915.md) reaches FB/LTC and physical input
 visibility, but its first host push leaves the enabled channel pending and
 PBDMA invalid. This candidate changes the runlist representation to match the
-Switch Linux vendor's GM20B HAL. Its physical effect is not yet known.
+Switch Linux vendor's GM20B HAL.
 
 Source `a9976f0` passes the production Cortex-A57 release build, all 12 package
 hashes, 16 firmware files and 13 linked shader pairs. All eight native
 executables match the preceding installed image. The new ELF SHA-256 is
 `35d11eb221d2d2d87d3eaf36fa6e0f6205276d9c0442135e4476cb906c9f7773`;
-runtime reservation remains `0x1101000`. The candidate is not installed or
-physically tested. Exact build/package evidence is in
+runtime reservation remains `0x1101000`. The user physically tested the source;
+exact build/package evidence and the hardware result are in
 [gpu-runlist-0915-verification.json](gpu-runlist-0915-verification.json).
+
+The `[0, 0]` words are visible through BAR1, and hardware latches active base
+`0x00177225` for allocation `0x177225000`. The channel still remains pending:
+PBDMA state is invalid, GET/reference/fence do not move, all reported error
+registers remain zero, and the first push ends in the complete error
+`FIFO host-method completion timeout`. This encoding is valid for the selected
+vendor path, but it does not cause the observed stall. The next correction is
+documented in [gpu-scheduler-order-0915.md](gpu-scheduler-order-0915.md).
 
 ## Reference difference
 
@@ -22,12 +30,12 @@ Scarlet already binds this instance through CCSR, but its runlist's second
 word held that instance pointer as well. It now emits `[0, 0]` for its sole
 private channel zero; the CCSR instance and video-aperture target are preserved.
 
-This is a difference between Linux reference implementations, not an established
-hardware fault: Nouveau's GM200 FIFO uses `gm107_runl`, which emits the instance
-pointer as word one. The old comment declaring a zero second word invalid for
-GM20B was therefore too strong. The next physical iteration chooses the exact
-integrated GM20B vendor representation; there is no automatic fallback or
-change to channel privilege, signed firmware or execution admission.
+This is a difference between Linux reference implementations: Nouveau's GM200
+FIFO uses `gm107_runl`, which emits the instance pointer as word one. The old
+comment declaring a zero second word invalid for GM20B was therefore too strong.
+The physical result establishes that changing to the integrated GM20B vendor
+representation alone does not schedule the channel. There is no automatic
+fallback or change to channel privilege, signed firmware or execution admission.
 
 ## Diagnosis
 
@@ -43,11 +51,10 @@ zero is labelled `NONE`. The existing two 500-ms held diagnostic copies and
 ordinary boot's single copy without a hold remain. CPU backing inspection
 still requires successful GPU isolation and MC drain.
 
-Boot **More Configs → Scarlet Switch SGFX Logs**. Look for
-`FIFO runlist words`, `FIFO active runlist` and both genuine host completions,
-or the complete split `FIFO saved` / `FIFO backing` lines. Actual semaphore,
-reference, GET and retired physical backing must agree before the existing
-authenticated GR and real graphics admission can proceed.
+The hardware capture contains `FIFO runlist words`, `FIFO active runlist` and
+the complete split `FIFO saved` / `FIFO backing` lines. No genuine completion
+occurs. Actual semaphore, reference, GET and retired physical backing must agree
+before real graphics admission can proceed.
 
 ## Primary references
 

@@ -513,7 +513,7 @@ impl Fifo {
         }
     }
 
-    fn enable(&self, reference_hz: u32) -> Result<(), &'static str> {
+    fn initialize_hardware(&self, reference_hz: u32) -> Result<(), &'static str> {
         // GPU-wide clock/ring initialization already preceded the GMMU.
         let enable = self.read(MC_ENABLE);
         if enable == u32::MAX || self.read(PBDMA_ENABLE) == u32::MAX {
@@ -574,6 +574,10 @@ impl Fifo {
             return Err("FIFO private channel zero was not unbound after reset");
         }
         self.publish_userd()?;
+        Ok(())
+    }
+
+    fn bind_channel(&self) -> Result<(), &'static str> {
         self.write(CHANNEL, self.read(CHANNEL) & !0x000f0000);
         self.write(
             CHANNEL_INST,
@@ -662,16 +666,26 @@ impl Fifo {
         Ok(())
     }
 
-    pub fn initialize(&self, reference_hz: u32) -> Result<Proof, &'static str> {
+    /// Reset and configure PFIFO without publishing a runnable channel.
+    ///
+    /// Linux completes this phase before enabling GR. Keeping the channel
+    /// unbound lets the caller finish authenticated GR initialization before
+    /// runlist zero can ask the scheduler to load it.
+    pub fn prepare_hardware(&self, reference_hz: u32) -> Result<(), &'static str> {
         self.prepare();
         self.verify_host_inputs()?;
+        self.initialize_hardware(reference_hz)
+    }
+
+    /// Publish the private channel after GR is ready and prove host execution.
+    pub fn prove_host(&self) -> Result<Proof, &'static str> {
         scarlet::println!(
             "gm20b: FIFO binding private channel inst={:#x} userd={:#x} runlist={:#x}",
             self.instance.as_paddr(),
             self.userd.as_paddr(),
             self.runlist.as_paddr()
         );
-        self.enable(reference_hz)?;
+        self.bind_channel()?;
         self.submit(1, SEQUENCES[0], TIMEOUT_NS, true)?;
         let proof = self.submit(2, SEQUENCES[1], TIMEOUT_NS, true)?;
         self.retire(TIMEOUT_NS)?;

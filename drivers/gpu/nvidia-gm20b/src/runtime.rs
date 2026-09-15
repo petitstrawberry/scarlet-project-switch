@@ -434,12 +434,13 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     // On failure Power isolates/drains the client before freeing its pages.
     power.dma = Some(Gmmu::allocate(gpu_base, bar1_base, mc_base)?);
     power.dma.as_ref().unwrap().initialize()?;
-    let _fifo = power
+    power
         .dma
         .as_ref()
         .unwrap()
-        .initialize_fifo(power.platform.reference_hz())?;
+        .initialize_fifo_hardware(power.platform.reference_hz())?;
     let gr = power.dma.as_mut().unwrap().initialize_gr(firmware)?;
+    let _fifo = power.dma.as_ref().unwrap().prove_fifo_host()?;
     let _graphics = power
         .dma
         .as_mut()

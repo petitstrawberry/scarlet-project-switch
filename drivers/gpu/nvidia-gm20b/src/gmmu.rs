@@ -138,13 +138,17 @@ impl Gmmu {
         store(instance, 131, 0);
     }
 
-    pub fn initialize_fifo(&self, reference_hz: u32) -> Result<Proof, &'static str> {
+    pub fn initialize_fifo_hardware(&self, reference_hz: u32) -> Result<(), &'static str> {
         for (va, memory) in self.fifo.mappings() {
             self.map_private(va, memory)?;
         }
         self.instance_pdb(self.fifo.instance());
         self.invalidate()?;
-        self.fifo.initialize(reference_hz)
+        self.fifo.prepare_hardware(reference_hz)
+    }
+
+    pub fn prove_fifo_host(&self) -> Result<Proof, &'static str> {
+        self.fifo.prove_host()
     }
 
     // Power calls this only after GPU isolation and a successful MC drain.

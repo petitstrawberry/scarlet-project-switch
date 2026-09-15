@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-09-14T16:18:59.888480+00:00",
-  "purpose": "Match the Switch Linux GM20B vendor bare-channel runlist representation after the September 15 failed first host push",
+  "generated_at_utc": "2026-09-15T03:44:31Z",
+  "purpose": "Record the hardware result of the Switch Linux GM20B vendor bare-channel runlist candidate",
   "board_source_revision": "a9976f0c93fe0634d3c20c0935bf969c14fd0ff0",
   "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
   "source_files_sha256": {
@@ -10,9 +10,9 @@
     "drivers/gpu/nvidia-gm20b/src/gmmu.rs": "0983bbb6d04097a42cba3ca0071f2c6fe2661006c7169feccf61df467c5dd699",
     "drivers/gpu/nvidia-gm20b/src/runtime.rs": "e0cf743ead94f6db3695e996118dc5138c13901fbaa174696ef712e18fab48af"
   },
-  "hardware_tested": false,
+  "hardware_tested": true,
   "hardware_validated": false,
-  "installed_to_sd": false,
+  "installed_to_sd": true,
   "preceding_hardware_report": "docs/gpu-hardware-0915.md",
   "preceding_installed_receipt": "docs/gpu-memory-host-9106-verification.json",
   "inspection": {
@@ -164,14 +164,22 @@
     "aperture_target": "Tegra video aperture with physical backing",
     "automatic_fallback": false,
     "nouveau_gm107_reference_emits_instance_pointer_in_second_word": true,
-    "causal_role_in_preceding_failure_proven": false
+    "causal_role_in_preceding_failure_proven": false,
+    "tested_on_hardware": true,
+    "active_base_latched": true,
+    "result": "The [0, 0] entry was visible and its physical base latched, but the channel remained pending and PBDMA never loaded a context."
   },
   "saved_failure_registers": {
     "active_runlist_base": "0x2280",
     "ccsr_instance": "0x800000",
     "pbdma_status": "0x40100",
     "captured_before_gpu_reset": true,
-    "raw_values_are_diagnostic_only": true
+    "raw_values_are_diagnostic_only": true,
+    "observed_active_runlist_base": "0x00177225",
+    "observed_ccsr_instance": "0x80177220",
+    "observed_fifo_pbdma_context": "0x10860130",
+    "observed_fifo_pbdma_context_state": 0,
+    "observed_raw_pbdma_status": "0x10011111"
   },
   "diagnostic_failure_hold": {
     "option": "keep_bootcon",
@@ -249,9 +257,68 @@
     "generated_project_hash_retained": true
   },
   "limitations": [
-    "Built/package-verified; the new runlist correction is not installed or physically tested",
-    "Both Linux runlist representations are documented; selecting the exact GM20B vendor representation is not proof of the hardware root cause",
+    "The source-identifiable candidate was physically tested, but no exact package or SD hash readback accompanies the user-supplied textual log",
+    "The vendor runlist representation and active physical base are established; neither proves that PBDMA scheduled the channel",
     "Private BAR1 input visibility and saved register/backing snapshots do not replace both genuine host completions and complete retirement",
     "Authenticated GR, real graphics admission and direct compatible GPU/DC presentation remain unvalidated"
-  ]
+  ],
+  "installation": {
+    "status": "source-identifiable hardware boot supplied by the user",
+    "exact_package_sd_hash_readback_recorded": false,
+    "identity_basis": [
+      "FIFO runlist words=0x00000000/0x00000000",
+      "FIFO active runlist base and split saved-state diagnostics introduced by board source a9976f0",
+      "bind error zero labelled NONE"
+    ],
+    "user_supplied_log": ".cache/gpu-runlist-0915-full-user-boot.txt",
+    "user_supplied_log_sha256": "f99987d725174ccd0164ac13bf5bc2250adaaaa228f329321a0b6b0d01544943",
+    "package_identity_limitation": "The textual boot log identifies the source behavior but does not print or independently verify the packaged ELF or SD file hashes."
+  },
+  "hardware_result": {
+    "result": "failed_before_first_host_completion",
+    "terminal_error": "FIFO host-method completion timeout",
+    "runlist_words": [
+      "0x00000000",
+      "0x00000000"
+    ],
+    "runlist_physical_address": "0x177225000",
+    "active_runlist_base": "0x00177225",
+    "active_base_matches_physical_address_shifted_by_12": true,
+    "runlist_update_pending_clear": true,
+    "ccsr_channel": "0x11000001",
+    "ccsr_channel_state": 1,
+    "ccsr_instance": "0x80177220",
+    "fifo_pbdma_context": "0x10860130",
+    "fifo_pbdma_context_state": 0,
+    "raw_pbdma_status": "0x10011111",
+    "pbdma_loaded_context_observed": false,
+    "pgraph_enable_bit_observed": false,
+    "mc_enable": "0xc0012120",
+    "fifo_interrupt": "0x00000000",
+    "pbdma_interrupts": [
+      "0x00000000",
+      "0x00000000"
+    ],
+    "bind_error": "0x00000000",
+    "scheduler_error": "0x00000000",
+    "channel_switch_error": "0x00000000",
+    "engine_status": [
+      "0x00000000",
+      "0x00000000"
+    ],
+    "userd_before_isolation": {
+      "get": 0,
+      "put": 1,
+      "reference": "0xffffffff"
+    },
+    "fence_before_isolation": "0x00000000",
+    "physical_backing_after_isolation": {
+      "get": 0,
+      "put": 1,
+      "reference": "0xffffffff",
+      "fence": "0x00000000"
+    },
+    "conclusion": "The vendor runlist representation and physical base are no longer candidate causes. Submission occurred before GR was enabled, unlike Linux channel execution ordering.",
+    "smp_out_of_scope_at_user_direction": true
+  }
 }

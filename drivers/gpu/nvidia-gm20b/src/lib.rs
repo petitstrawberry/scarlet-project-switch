@@ -4,8 +4,9 @@
 //! GM20B hardware bring-up through Scarlet's common GPU control interface.
 //! This first stage owns GPU power/reset, reads hardware identity and flushes
 //! the MC GPU client, checks a private GMMU/BAR1 address space and executes
-//! private PFIFO host semaphore/reference methods, then boots signed PMU/FECS
-//! firmware and ordinary GPCCS, and saves a private golden graphics context.
+//! prepares private PFIFO state, boots signed PMU/FECS firmware and ordinary
+//! GPCCS, saves a private golden graphics context, then proves PFIFO host
+//! semaphore/reference execution.
 //! Ready execution is withheld until PFIFO, authenticated GR and every real
 //! shader/draw/copy admission check completes on the physical GPU.
 

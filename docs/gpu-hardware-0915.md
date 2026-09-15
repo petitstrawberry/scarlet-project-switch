@@ -36,3 +36,34 @@ prepared structures. They do not establish that the structures' selected
 runlist representation is appropriate or that PBDMA consumed them. The next
 candidate follows the Switch Linux vendor's bare-channel runlist encoding;
 see [gpu-runlist-0915.md](gpu-runlist-0915.md).
+
+## Vendor bare-channel runlist result
+
+The user then supplied a complete textual capture from source `a9976f0`. Its
+unique `[0, 0]` runlist line, active-base line, split saved-state lines and
+`NONE` bind label identify the source. The log does not carry the packaged ELF
+hash or an SD readback receipt, so those byte identities are not inferred. The
+original GPU section is frozen in
+`.cache/gpu-runlist-0915-full-user-boot.txt` with SHA-256
+`f99987d725174ccd0164ac13bf5bc2250adaaaa228f329321a0b6b0d01544943`.
+
+- The runlist words read `0x00000000/0x00000000`. The runlist allocation is
+  `0x177225000`, and hardware reports active base `0x00177225`; the physical
+  page address therefore latched exactly. Update-pending is clear.
+- CCSR reports channel `0x11000001` and bound instance `0x80177220`. The channel
+  remains enabled, busy and pending. PBDMA context `0x10860130` has invalid
+  state zero, and neither engine has a valid context.
+- `MC_ENABLE=0xc0012120` has PFIFO enabled and PGRAPH disabled. Bind, scheduler,
+  channel-switch, FIFO and both PBDMA interrupt registers all read zero.
+- USERD remains GET 0, PUT 1, reference `0xffffffff`; the semaphore fence
+  remains zero. The same values survive GPU isolation, MC drain and CPU cache
+  invalidation in the physical backing.
+- The complete terminal error is `FIFO host-method completion timeout`.
+
+This result removes the second runlist word and active runlist address from the
+current fault set. The driver was publishing a runnable channel before GR was
+enabled, whereas Linux completes GR enablement before applications can bind and
+submit channels. The next candidate preserves the vendor runlist and moves the
+first host proof after authenticated GR initialization; see
+[gpu-scheduler-order-0915.md](gpu-scheduler-order-0915.md). SMP diagnostics in
+the same capture are outside this investigation at the user's direction.
