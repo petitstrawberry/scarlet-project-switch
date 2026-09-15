@@ -260,13 +260,11 @@ portrait boot-console allocation above it, so the diagnostic entry deliberately
 covers the GUI with logs. The normal Console entry remains the GUI iteration
 entry. No framebuffer TTY or alternative distribution mode is started.
 
-The `log-kmsg` service follows the ordinary logd application/service journal
-through `logctl`, writing to `/dev/kmsg`. Explicit service stdio bypasses logd
-capture, preventing a log feedback loop. Kernel and SWS messages therefore
-remain in the kernel ring, and the diagnostic entry keeps them visible after
-the first native presentation. An unused window B and successful active-state
-readback are required; otherwise native adoption fails while preserving the
-boot-console surface.
+Kernel messages remain in the kernel ring, and the diagnostic entry keeps them
+visible after the first native presentation. To inspect the application/service
+journal from an interactive console, run `logctl --follow --lines all`. An unused
+window B and successful active-state readback are required; otherwise native
+adoption fails while preserving the boot-console surface.
 
 Capture these lines, including their order and physical addresses:
 

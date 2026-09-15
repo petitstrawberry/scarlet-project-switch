@@ -1,6 +1,0 @@
-# Preserve service/app stdout and stderr in the ordinary kernel log as well.
-# Explicit stdio bypasses stemd's capture, so logctl cannot log back into logd.
-[service.log-kmsg]
-exec = "/bin/logctl --follow --lines all"
-depends = ["logd"]
-tty = "/dev/kmsg"
