@@ -111,5 +111,15 @@
       "drivers/soc/tegra/fuse/fuse-tegra30.c"
     ]
   },
-  "superseded_by": "docs/scale1-verification.json"
+  "superseded_by": "docs/scale1-verification.json",
+  "later_physical_boot_observation": {
+    "verification": "docs/gpu-verification.json",
+    "readout": "docs/gpu-hardware-9076.md",
+    "scope": "Later combined GPU image shows PLLX probe and a completed deferred transition requesting 710400 kHz; no post-transition frequency query, repeated switching or sustained timer measurement is shown."
+  },
+  "latest_physical_boot_observation": {
+    "verification": "docs/gpu-gpio6-verification.json",
+    "readout": "docs/gpu-hardware-9080.md",
+    "scope": "CPU_ON succeeds for all three APs; AP 1/2 local timer ready and CPU 3 controller initialization done; one requested 710400 kHz transition reports applied; no sustained per-core timer measurement or post-transition frequency query"
+  }
 }

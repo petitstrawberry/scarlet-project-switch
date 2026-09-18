@@ -14,6 +14,8 @@ features = { linux-boot = true, limine = false, hypervisor = false, network = tr
 [modules]
 "scarlet-driver-tegra210" = { path = "../../drivers/soc/tegra210", enabled = true }
 "scarlet-driver-tegra210-cpufreq" = { path = "../../drivers/cpufreq/tegra210", enabled = true }
+"scarlet-driver-nvidia-gm20b" = { path = "../../drivers/gpu/nvidia-gm20b", enabled = true }
+"scarlet-driver-tegra210-dc" = { path = "../../drivers/display/tegra210-dc", enabled = true }
 "scarlet-driver-max77620" = { path = "../../drivers/rtc/max77620", enabled = true }
 "scarlet-driver-stm-ftm4" = { path = "../../drivers/input/touchscreen/stm-ftm4", enabled = true }
 "scarlet-driver-joycon" = { path = "../../drivers/input/joycon", enabled = true }

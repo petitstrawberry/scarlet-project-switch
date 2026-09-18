@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-14T07:33:13.511638+00:00",
+  "purpose": "Enable GPU-internal HUB/XBAR/PFB/L2 and GM20B memory ELPG controls; allow the owned PFIFO runlist and verify private channel inputs through BAR1 before execution",
+  "board_source_revision": "57feee3b32f328abc316bfc305acfa04408c0fd1",
+  "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+  "source_files_sha256": {
+    "drivers/gpu/nvidia-gm20b/src/fifo.rs": "0f4ff8d5a280723ce137fa124982f310381f4379780e2e42cacda7949c9cdb24",
+    "drivers/gpu/nvidia-gm20b/src/gmmu.rs": "79e0408f818bf35d852ea1e85090c6cdf74411f5feb491adc7e5b6d6dabb8a86"
+  },
+  "hardware_tested": true,
+  "hardware_validated": false,
+  "installed_to_sd": true,
+  "preceding_hardware_report": "docs/gpu-hardware-9094.md",
+  "preceding_installed_image": "docs/dc-block-linear-verification.json",
+  "display_register_programming_unchanged": true,
+  "display_source_files_sha256": {
+    "drivers/display/tegra210-dc/src/runtime.rs": "b353f0c1b6be2587dd8674077977322333ed84638f116226c5b3f209d23a3c39",
+    "drivers/display/tegra210-dc/src/lib.rs": "c57860a6272ce8e87a6873f1e6cf0eab49c5ab4f35747d902783040b5fad96f7",
+    "drivers/display/tegra210-dc/src/block_linear.rs": "1841b783fc6af0146f6a206903897c1514f9cecb231c9f778818788efd0c388b"
+  },
+  "display_cached_render_checkpoint_included": "c8591773802c481c34452eb0f540e7c84d491782",
+  "inspection": {
+    "package_hashes_verified": 12,
+    "linux_image_magic_verified": true,
+    "legacy_kernel_ramdisk_crc_verified": true,
+    "kernel_load_entry": "0x80200000",
+    "runtime_reservation": "0x10fe000",
+    "kernel_elf_sha256": "f48b5bd315a6705d767ad8604f07d3fe9e2f55d13754c72c756f2d7d990204b9",
+    "output_scale": 1.0,
+    "maxcpus": 4,
+    "firmware_files_verified": 16,
+    "firmware_revision": "46a6999a2d14a5f2239e7e712e5bbcf543f59034",
+    "sw_method_init_sha256": "6372e2f6f547d7bd086beb066ce46ac379795f95c38eeeedd9e13c7b32515b24",
+    "shader_binaries_and_headers_linked": {
+      "fs_solid.bin": true,
+      "fs_solid.header.bin": true,
+      "fs_texture_alpha_mask.bin": true,
+      "fs_texture_alpha_mask.header.bin": true,
+      "fs_texture_rgb_ignore_alpha.bin": true,
+      "fs_texture_rgb_ignore_alpha.header.bin": true,
+      "fs_texture_rgba.bin": true,
+      "fs_texture_rgba.header.bin": true,
+      "fs_texture_vertex_color_rgba.bin": true,
+      "fs_texture_vertex_color_rgba.header.bin": true,
+      "fs_vertex_color.bin": true,
+      "fs_vertex_color.header.bin": true,
+      "vs_stride16_pos2.bin": true,
+      "vs_stride16_pos2.header.bin": true,
+      "vs_stride16_pos2_uv2.bin": true,
+      "vs_stride16_pos2_uv2.header.bin": true,
+      "vs_stride24_pos4_uv2.bin": true,
+      "vs_stride24_pos4_uv2.header.bin": true,
+      "vs_stride28_pos4_color3.bin": true,
+      "vs_stride28_pos4_color3.header.bin": true,
+      "vs_stride40_pos4.bin": true,
+      "vs_stride40_pos4.header.bin": true,
+      "vs_stride40_pos4_color4.bin": true,
+      "vs_stride40_pos4_color4.header.bin": true,
+      "vs_stride40_pos4_color4_uv2.bin": true,
+      "vs_stride40_pos4_color4_uv2.header.bin": true
+    },
+    "native_executables": {
+      "init": {
+        "size": 113304,
+        "sha256": "0fa66d1dc2d32e075ec78fe5c98793308de0b034bb29ac2b0a090664924b1a42",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/sws": {
+        "size": 4467536,
+        "sha256": "86bff3544b47b4a84defec8980dcad27aebbb672b6bd9c569fbbe9d737bbcc92",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/scarlet-shell": {
+        "size": 10868192,
+        "sha256": "d6dc9a59c761b39c1abf415c4467038cdb7d8945d61ee09565885bde60794e36",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/cpufreqctl": {
+        "size": 147272,
+        "sha256": "c33f3df672bc4930949feecde7163e26b472516c10a322b12136a7b57752c0f0",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/gpu-info": {
+        "size": 147848,
+        "sha256": "544e953a134ad93342025742a1887b7450ab201fcd3abf9da59e7cd8cd93a066",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/logctl": {
+        "size": 167688,
+        "sha256": "c3774d1ab777a3ab803184a57624faf3558987295998b3123b5dcee9cd536130",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/logd": {
+        "size": 173160,
+        "sha256": "8d628132c0be60c5dfa3616d731fbdb7a09bb4bea663013af7352f0f3694bd94",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/stemd": {
+        "size": 458848,
+        "sha256": "b0c5cb2944635151ff17dac7ac289e6b9ade8a85f54f76e68013b5ac71f4f050",
+        "aarch64_elf": true,
+        "osabi": 83
+      }
+    },
+    "sws_maxwell_symbol_linked": true,
+    "hardware_validated": false,
+    "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+    "diagnostic_script_crc_verified": true,
+    "diagnostic_shares_console_images": true,
+    "journal_mirror_packaged": true,
+    "diagnostic_console_option": "keep_bootcon",
+    "diagnostic_view": "opaque original boot console in DC window B; GUI renders in window A"
+  },
+  "package_manifest": {
+    "hardware_validated": false,
+    "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+    "kernel_elf_sha256": "f48b5bd315a6705d767ad8604f07d3fe9e2f55d13754c72c756f2d7d990204b9",
+    "boot_directory": "scarlet-console",
+    "entry_file": "L4T-scarlet-console.ini",
+    "diagnostic_directory": "scarlet-console-logs",
+    "initramfs_size": 72406608,
+    "kernel_load": "0x80200000",
+    "kernel_entry": "0x80200000",
+    "text_offset": "0x200000",
+    "image_runtime_size": 17817600,
+    "dtb_selection_buffer": "0x8d000000",
+    "initramfs_load_buffer": "0x92000000",
+    "initramfs_payload_start": "0x92000040",
+    "initramfs_format": "uncompressed CPIO newc in a legacy RAMDisk header",
+    "uboot_fdt_initrd_relocation": false,
+    "entry_contract": "Linux arm64 Image; x0=physical DTB; EL1/EL2; MMU off; DAIF masked",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "56f96e1cb454d3f431ace388c8cd56f048fb74696c892628235c01078425c39c",
+      "switchroot/scarlet-console/Image": "5c6e93a56481b066e6863811a37fbc556c9f4a44a549bac12823b80c7143f7ec",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "41dc156b5e2ee33b7a483e42f1afc056cd9ae65a1ecb127b8f6f968966ebdabd",
+      "switchroot/scarlet-console/initramfs": "7bb47a58f12655eb8d931c20624c75c8c7dc8da87393cccd7045fa52708b516e",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "a286ca22a9eddf68bc68a9c3abead58ae69b96679bba8c0a971a1d15568b143a",
+      "switchroot/scarlet-console-logs/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console-logs/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console-logs/boot.scr": "43fd16bf4d0585ff1477343d4f93d5d2b630f4a881c7fb2b05e036a63a9da6cf",
+      "switchroot/scarlet-console-logs/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df"
+    }
+  },
+  "build_log": ".cache/gpu-fifo-memory-build.log",
+  "build_log_sha256": "22f4421d41cdf9d3e507bb36e7e430a981aee2d03623087d52c2c9e8ce71f37b",
+  "changes": [
+    "Enable only GPU-internal memory units with MC_ENABLE mask 0x2010000c and MC_ELPG_ENABLE mask 0x20100004, preserving other fields and checking readback",
+    "Explicitly clear SCHED_DISABLE bit 0 for the owned runlist after commit; reject active hardware fault blocks without clearing them",
+    "Before channel binding, read back USERD controls, both GPFIFO entries and both immutable host pushes through BAR1",
+    "Order GP_PUT notification after published commands and check GP_PUT readback",
+    "Diagnose scheduler/fault disable, internal memory/PBDMA enable and one PBDMA context snapshot with derived state"
+  ],
+  "limitations": [
+    "GPU Ready still requires actual PFIFO completion twice, physical backing agreement, full retirement, authenticated firmware/GR context and real SGFX draw/copy checks",
+    "IMG_9095 physically boots this image but rejects GPU initialization at the added MC_ENABLE mask readback; ELPG, BAR1 private proof and PFIFO submission are not reached",
+    "SGFX framebuffer images remain linear and still undergo the existing DC block-linear upload; direct compatible GPU-storage presentation is not implemented",
+    "DC register/rotation/retirement programming is unchanged in this GPU iteration; the earlier untested cached render-alias checkpoint is included",
+    "USB host/NIC log transport, GPU PLL/DVFS, suspend/resume and cold panel modesetting remain pending"
+  ],
+  "sd_receipt": {
+    "device": "disk8s1",
+    "mount": "/Volumes/SWITCH SD",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "56f96e1cb454d3f431ace388c8cd56f048fb74696c892628235c01078425c39c",
+      "switchroot/scarlet-console/Image": "5c6e93a56481b066e6863811a37fbc556c9f4a44a549bac12823b80c7143f7ec",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "41dc156b5e2ee33b7a483e42f1afc056cd9ae65a1ecb127b8f6f968966ebdabd",
+      "switchroot/scarlet-console/initramfs": "7bb47a58f12655eb8d931c20624c75c8c7dc8da87393cccd7045fa52708b516e",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "a286ca22a9eddf68bc68a9c3abead58ae69b96679bba8c0a971a1d15568b143a",
+      "switchroot/scarlet-console-logs/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console-logs/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console-logs/boot.scr": "43fd16bf4d0585ff1477343d4f93d5d2b630f4a881c7fb2b05e036a63a9da6cf",
+      "switchroot/scarlet-console-logs/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df"
+    },
+    "protected_files_verified": 38,
+    "raw_device_accessed": false,
+    "hardware_boot_validated": false,
+    "board_source_revision": "57feee3b32f328abc316bfc305acfa04408c0fd1",
+    "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+    "kernel_elf_sha256": "f48b5bd315a6705d767ad8604f07d3fe9e2f55d13754c72c756f2d7d990204b9",
+    "volume_uuid": "3B5C719E-AC1A-3190-902F-508C45D88F3E",
+    "install_log": ".cache/gpu-fifo-memory-sd-install.log",
+    "install_log_sha256": "77e2c193ae3be605458ff14049a153fd0a180e6f44156a192c5bf20fa3d911dd",
+    "ejected_at_utc": "2026-09-14T07:35:12.942876+00:00"
+  },
+  "hardware_report": "docs/gpu-hardware-9095.md",
+  "hardware_observations": {
+    "rootfs_retry_reached_hardware": true,
+    "mc_boot_0": "0x12b000a1",
+    "memory_enable_before": "0xc0012024",
+    "memory_enable_after": "0xc0012024",
+    "first_failure": "GPU memory unit enable readback mismatch",
+    "elpg_write_reached": false,
+    "private_bar1_proof_reached": false,
+    "fifo_submission_reached": false,
+    "gpu_ready": false,
+    "native_dc_published": true,
+    "dc_initial_underflow_delta": [
+      0,
+      0
+    ],
+    "evidence_frames": [
+      ".cache/video-9095/frame-089.jpg",
+      ".cache/video-9095/frame-099.jpg"
+    ]
+  }
+}

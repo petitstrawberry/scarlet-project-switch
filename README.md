@@ -57,19 +57,50 @@ The console build now includes attached Joy-Con, touchscreen and RTC drivers,
 plus native SWS/ScarletUI gamepad support. Touch and Left Joy-Con operation
 were observed physically; the latest Joy-Con/SMP candidate received the user's
 successful-boot report. See [input bring-up](docs/input-bringup.md).
-The next candidate uses scale 1.0 and adds PLLX/MAX77621 CPU frequency control
-through the common governors and `cpufreqctl`. Physical switching remains
-pending; see [CPU frequency bring-up](docs/cpufreq-bringup.md).
+The current candidate uses scale 1.0 and adds PLLX/MAX77621 CPU frequency control
+through the common governors and `cpufreqctl`. The boot video shows one
+completed transition requesting 710400 kHz; repeated switching
+remains pending. See [CPU frequency bring-up](docs/cpufreq-bringup.md).
+
+The GM20B power/identity stage passed physically in `IMG_9080.mov` and
+private BAR1 read/write/remap passed in `IMG_9082.mov`. The HHDM correction was
+subsequently reported to appear working. The new candidate implements signed
+ACR/PMU/FECS boot, golden contexts, real Maxwell shader rendering, GPU-owned
+images and queues, and automatic SGFX negotiation in the ordinary SWS facade.
+Its production build passes; the current receipt is
+[GPU SGFX verification](docs/gpu-sgfx-render-verification.json).
+The user tested that SGFX candidate and reported a uniform screen whose color
+changes with input. The current package adds explicit DC blend/layout setup,
+GPU/DC image diagnostics, and a separate **Scarlet Switch SGFX Logs** entry
+that keeps boot and SWS logs visible while the same GUI runs behind them.
+The exact failing hardware boundary remains unresolved. See
+[SGFX bring-up](docs/sgfx-bringup.md), [GPU bring-up](docs/gpu-bringup.md), and
+[display bring-up](docs/display-bringup.md). Prepare pinned firmware once with
+`python3 scripts/prepare-gm20b-firmware.py --download`.
 
 Supported development hosts: Apple Silicon macOS, AArch64 Linux, x86-64 Linux.
 Use a sibling `../Scarlet` checkout at
-`85f0cead4cb4c9add021360f1b469f08bf0d23a9` or a compatible successor.
+`8fc70e81a0b01acdcec0e4b09d811509571de193` or a compatible successor (native
+display adoption needs the common earlyfb handoff API and safe HHDM retagging).
+Boot-console diagnostics additionally require Scarlet
+`f717b199` or a compatible successor, proposed in
+[PR #562](https://github.com/petitstrawberry/Scarlet/pull/562).
+Use the matching SGFX Maxwell facade from
+[SGFX PR #6](https://github.com/petitstrawberry/sgfx/pull/6).
+The local GPU client also includes the additive upstream API definitions from
+Scarlet `4b5257897e341a0d0d3136b37d47b0157b9985cd`, required by the matching
+SGFX checkout. The console preparation script uses sibling `../sgfx` alongside
+`../scarlet-ui` and overrides all shared library identities consistently.
 The SDK and toolchain revisions are recorded in `flake.lock`.
 The hardware-tested kernel changes are committed locally as `99c65035`
 (Linux framebuffer diagnostics) and `e2ecbecb` (generic ECAM host selection).
 The installed artifact predates those commits; its exact source and binary
 hashes are preserved in `docs/kernel-boot-success.json`.
 The generic kernel fixes are proposed upstream in [PR #558](https://github.com/petitstrawberry/Scarlet/pull/558).
+The common earlyfb native-display handoff is in stacked draft
+[PR #559](https://github.com/petitstrawberry/Scarlet/pull/559).
+The AArch64 HHDM retag correction is in stacked draft
+[PR #560](https://github.com/petitstrawberry/Scarlet/pull/560).
 The current kernel test also requires the changes in
 `patches/linux-boot-framebuffer.patch` and `patches/pci-ecam-host-detection.patch`.
 They are already applied to this
@@ -134,11 +165,11 @@ on temporary directories, with mocked diskutil data for layout rejection.
 Serial logs, input DTBs, framebuffer dumps,
 rendered PPMs, and results are written to `.cache/qa/`.
 
-The Linux boot path currently operates on CPU0 only: it passes `cpu_count = 1`
-and does not provide a secondary-CPU startup hook. This is missing SMP bring-up,
-not proof that the hardware has only one CPU. See `docs/cpu-bringup.md`.
+The current Linux Image path implements PSCI SMP; the console uses `maxcpus=4`
+and `IMG_9076.mov` shows all four schedulers online. Sustained task execution
+and timer delivery need further physical checks. See `docs/cpu-bringup.md`.
 
-The fixture models four physical CPUs with only CPU0 exposed to Scarlet. It
+The historical fixture models four physical CPUs with only CPU0 exposed to Scarlet. It
 uses QEMU virt's PL011/GIC, not Tegra devices. These checks do not verify Hekate,
 BL31/BL33 execution, Switch DRAM carveouts, panel scanout, or Tegra UARTs.
 The current shared kernel emits existing compiler warnings during the build.

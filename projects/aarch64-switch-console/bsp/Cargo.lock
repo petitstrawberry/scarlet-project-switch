@@ -62,6 +62,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "maxwell-shader-pack"
+version = "0.1.0"
+
+[[package]]
+name = "maxwell-submit-wire"
+version = "0.1.0"
+dependencies = [
+ "maxwell-shader-pack",
+]
+
+[[package]]
 name = "scarlet"
 version = "1.0.1"
 dependencies = [
@@ -94,6 +105,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "scarlet-driver-nvidia-gm20b"
+version = "0.1.0"
+dependencies = [
+ "fdt",
+ "maxwell-shader-pack",
+ "maxwell-submit-wire",
+ "scarlet",
+ "scarlet-driver-tegra210",
+]
+
+[[package]]
 name = "scarlet-driver-stm-ftm4"
 version = "0.1.0"
 dependencies = [
@@ -119,15 +141,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "scarlet-driver-tegra210-dc"
+version = "0.1.0"
+dependencies = [
+ "scarlet",
+ "scarlet-driver-tegra210",
+]
+
+[[package]]
 name = "scarlet-modules"
 version = "0.1.0"
 dependencies = [
  "scarlet",
  "scarlet-driver-joycon",
  "scarlet-driver-max77620",
+ "scarlet-driver-nvidia-gm20b",
  "scarlet-driver-stm-ftm4",
  "scarlet-driver-tegra210",
  "scarlet-driver-tegra210-cpufreq",
+ "scarlet-driver-tegra210-dc",
 ]
 
 [[package]]

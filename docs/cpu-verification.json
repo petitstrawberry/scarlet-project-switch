@@ -57,5 +57,15 @@
   },
   "sd_ejected": true,
   "user_reported_boot_success": true,
-  "user_report": "動いた。今度はCPUの動作周波数をちゃんと変えられるようにしたいね。あと、x2はちょっとデカすぎたわ。"
+  "user_report": "動いた。今度はCPUの動作周波数をちゃんと変えられるようにしたいね。あと、x2はちょっとデカすぎたわ。",
+  "later_physical_boot_observation": {
+    "verification": "docs/gpu-verification.json",
+    "readout": "docs/gpu-hardware-9076.md",
+    "scope": "Later combined GPU image shows all four schedulers online; sustained tasks and per-core timer delivery remain unmeasured."
+  },
+  "latest_physical_boot_observation": {
+    "verification": "docs/gpu-gpio6-verification.json",
+    "readout": "docs/gpu-hardware-9080.md",
+    "scope": "CPU_ON succeeds for all three APs; AP 1/2 local timer ready and CPU 3 controller initialization done; one requested 710400 kHz transition reports applied; no sustained per-core timer measurement or post-transition frequency query"
+  }
 }

@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-14T03:39:33.965917+00:00",
+  "purpose": "Publish USERD BAR1 before CCSR channel bind and stop managing gen1 alpha on T210 DC",
+  "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+  "board_source_revision": "093c11e35d7d6a040e61c4790f9576ac9e1cf644",
+  "source_files_sha256": {
+    "drivers/gpu/nvidia-gm20b/src/fifo.rs": "75fdee723e0756a3eb98e0347f9ff762bfcdcce4d63117b163f2303dbbfd4ddd",
+    "drivers/display/tegra210-dc/src/runtime.rs": "d9e8dd3fd5d19fa39811fb447dc9ef8a9e911ff3fd010bae1ba28f59097966d0"
+  },
+  "hardware_validated": false,
+  "installed_to_sd": true,
+  "build_log": ".cache/gpu-fifo-bar1-gen2-dc-build.log",
+  "build_log_sha256": "0113268ab305aec73babf3b2bd38de26542331aadbabb55d860382a146ccdd93",
+  "preceding_hardware_report": "docs/gpu-hardware-9087.md",
+  "preceding_installed_image": "docs/gpu-initramfs-retry-verification.json",
+  "changes": [
+    "Private and graphics channels publish and read back FIFO_BAR1_BASE before CHANNEL_INST bind",
+    "Fault logs decode 0x252c bind reason and print BAR1, instance, scheduler and channel-switch status",
+    "DC window A/B snapshots, activation and rollback manage gen2 blending without the gen1 0x715 register"
+  ],
+  "package": {
+    "hardware_validated": false,
+    "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+    "kernel_elf_sha256": "a2005ed8554f922e0eb97da7ab2c68cc2b7cc912357b64752defb3ab7853e04b",
+    "boot_directory": "scarlet-console",
+    "entry_file": "L4T-scarlet-console.ini",
+    "diagnostic_directory": "scarlet-console-logs",
+    "initramfs_size": 72406608,
+    "kernel_load": "0x80200000",
+    "kernel_entry": "0x80200000",
+    "text_offset": "0x200000",
+    "image_runtime_size": 17813504,
+    "dtb_selection_buffer": "0x8d000000",
+    "initramfs_load_buffer": "0x92000000",
+    "initramfs_payload_start": "0x92000040",
+    "initramfs_format": "uncompressed CPIO newc in a legacy RAMDisk header",
+    "uboot_fdt_initrd_relocation": false,
+    "entry_contract": "Linux arm64 Image; x0=physical DTB; EL1/EL2; MMU off; DAIF masked",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "56f96e1cb454d3f431ace388c8cd56f048fb74696c892628235c01078425c39c",
+      "switchroot/scarlet-console/Image": "bfb077e180fd3b4e1182944f5c5945ca26e4e72feb362d454843a691522531f5",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "41dc156b5e2ee33b7a483e42f1afc056cd9ae65a1ecb127b8f6f968966ebdabd",
+      "switchroot/scarlet-console/initramfs": "7bb47a58f12655eb8d931c20624c75c8c7dc8da87393cccd7045fa52708b516e",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "8cbbd0454a7f02079ed2d9387696ddb035555acc9152554d984178f551dd7d20",
+      "switchroot/scarlet-console-logs/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console-logs/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console-logs/boot.scr": "43fd16bf4d0585ff1477343d4f93d5d2b630f4a881c7fb2b05e036a63a9da6cf",
+      "switchroot/scarlet-console-logs/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df"
+    }
+  },
+  "inspection": {
+    "package_hashes_verified": 12,
+    "linux_image_magic_verified": true,
+    "legacy_kernel_ramdisk_crc_verified": true,
+    "kernel_load_entry": "0x80200000",
+    "runtime_reservation": "0x10fd000",
+    "kernel_elf_sha256": "a2005ed8554f922e0eb97da7ab2c68cc2b7cc912357b64752defb3ab7853e04b",
+    "output_scale": 1.0,
+    "maxcpus": 4,
+    "firmware_files_verified": 16,
+    "firmware_revision": "46a6999a2d14a5f2239e7e712e5bbcf543f59034",
+    "sw_method_init_sha256": "6372e2f6f547d7bd086beb066ce46ac379795f95c38eeeedd9e13c7b32515b24",
+    "shader_binaries_and_headers_linked": {
+      "fs_solid.bin": true,
+      "fs_solid.header.bin": true,
+      "fs_texture_alpha_mask.bin": true,
+      "fs_texture_alpha_mask.header.bin": true,
+      "fs_texture_rgb_ignore_alpha.bin": true,
+      "fs_texture_rgb_ignore_alpha.header.bin": true,
+      "fs_texture_rgba.bin": true,
+      "fs_texture_rgba.header.bin": true,
+      "fs_texture_vertex_color_rgba.bin": true,
+      "fs_texture_vertex_color_rgba.header.bin": true,
+      "fs_vertex_color.bin": true,
+      "fs_vertex_color.header.bin": true,
+      "vs_stride16_pos2.bin": true,
+      "vs_stride16_pos2.header.bin": true,
+      "vs_stride16_pos2_uv2.bin": true,
+      "vs_stride16_pos2_uv2.header.bin": true,
+      "vs_stride24_pos4_uv2.bin": true,
+      "vs_stride24_pos4_uv2.header.bin": true,
+      "vs_stride28_pos4_color3.bin": true,
+      "vs_stride28_pos4_color3.header.bin": true,
+      "vs_stride40_pos4.bin": true,
+      "vs_stride40_pos4.header.bin": true,
+      "vs_stride40_pos4_color4.bin": true,
+      "vs_stride40_pos4_color4.header.bin": true,
+      "vs_stride40_pos4_color4_uv2.bin": true,
+      "vs_stride40_pos4_color4_uv2.header.bin": true
+    },
+    "native_executables": {
+      "init": {
+        "size": 113304,
+        "sha256": "0fa66d1dc2d32e075ec78fe5c98793308de0b034bb29ac2b0a090664924b1a42",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/sws": {
+        "size": 4467536,
+        "sha256": "86bff3544b47b4a84defec8980dcad27aebbb672b6bd9c569fbbe9d737bbcc92",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/scarlet-shell": {
+        "size": 10868192,
+        "sha256": "d6dc9a59c761b39c1abf415c4467038cdb7d8945d61ee09565885bde60794e36",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/cpufreqctl": {
+        "size": 147272,
+        "sha256": "c33f3df672bc4930949feecde7163e26b472516c10a322b12136a7b57752c0f0",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/gpu-info": {
+        "size": 147848,
+        "sha256": "544e953a134ad93342025742a1887b7450ab201fcd3abf9da59e7cd8cd93a066",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/logctl": {
+        "size": 167688,
+        "sha256": "c3774d1ab777a3ab803184a57624faf3558987295998b3123b5dcee9cd536130",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/logd": {
+        "size": 173160,
+        "sha256": "8d628132c0be60c5dfa3616d731fbdb7a09bb4bea663013af7352f0f3694bd94",
+        "aarch64_elf": true,
+        "osabi": 83
+      },
+      "bin/stemd": {
+        "size": 458848,
+        "sha256": "b0c5cb2944635151ff17dac7ac289e6b9ade8a85f54f76e68013b5ac71f4f050",
+        "aarch64_elf": true,
+        "osabi": 83
+      }
+    },
+    "sws_maxwell_symbol_linked": true,
+    "hardware_validated": false,
+    "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+    "diagnostic_script_crc_verified": true,
+    "diagnostic_shares_console_images": true,
+    "journal_mirror_packaged": true,
+    "diagnostic_console_option": "keep_bootcon"
+  },
+  "references": [
+    "https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/fifo/gk104.c#L598",
+    "https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/fifo/gk104.c#L744",
+    "https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/tegra/dc.c#L294",
+    "https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/video/tegra/dc/window.c#L916"
+  ],
+  "sd_installation": {
+    "device": "disk8s1",
+    "mount": "/Volumes/SWITCH SD",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "56f96e1cb454d3f431ace388c8cd56f048fb74696c892628235c01078425c39c",
+      "switchroot/scarlet-console/Image": "bfb077e180fd3b4e1182944f5c5945ca26e4e72feb362d454843a691522531f5",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "41dc156b5e2ee33b7a483e42f1afc056cd9ae65a1ecb127b8f6f968966ebdabd",
+      "switchroot/scarlet-console/initramfs": "7bb47a58f12655eb8d931c20624c75c8c7dc8da87393cccd7045fa52708b516e",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "8cbbd0454a7f02079ed2d9387696ddb035555acc9152554d984178f551dd7d20",
+      "switchroot/scarlet-console-logs/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console-logs/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console-logs/boot.scr": "43fd16bf4d0585ff1477343d4f93d5d2b630f4a881c7fb2b05e036a63a9da6cf",
+      "switchroot/scarlet-console-logs/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df"
+    },
+    "protected_files_verified": 38,
+    "raw_device_accessed": false,
+    "hardware_boot_validated": false,
+    "ejected": true,
+    "readback_files_verified": 12,
+    "kernel_source_revision": "faac004cc3614ea8b192dbd7f8303cafe33a6a14",
+    "board_source_revision": "093c11e35d7d6a040e61c4790f9576ac9e1cf644",
+    "kernel_elf_sha256": "a2005ed8554f922e0eb97da7ab2c68cc2b7cc912357b64752defb3ab7853e04b",
+    "ejected_at_utc": "2026-09-14T04:12:28.199077+00:00"
+  },
+  "hardware_observations": {
+    "video": "IMG_9088.mov",
+    "video_sha256": "c198737e9c2b76db34e0445728cb22b339cb2b30a3ae52adbdfa4429d7ed3012",
+    "duration_seconds": 37.5517,
+    "report": "docs/gpu-hardware-9088.md",
+    "tested_kernel_elf_sha256": "a2005ed8554f922e0eb97da7ab2c68cc2b7cc912357b64752defb3ab7853e04b",
+    "post_initramfs_retry_confirmed": true,
+    "firmware_decoding_confirmed": true,
+    "bar1_read_write_remap_confirmed": true,
+    "initial_runlist_activates": true,
+    "initial_bind_error_present": false,
+    "private_fifo_completion_confirmed": false,
+    "fifo_failure": "First host-method submission times out; GET=0, REF=0xffffffff, fence=0; FIFO/PBDMA/scheduler error registers are zero",
+    "native_dc_publication_confirmed": true,
+    "cpu_frame_sample_varied": true,
+    "correct_physical_pixels_confirmed": false,
+    "user_report": "Input changes the screen to white/gray; possible garbage at the display edge",
+    "gr_execution_confirmed": false,
+    "sgfx_hardware_admission_confirmed": false
+  }
+}

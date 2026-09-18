@@ -1,0 +1,178 @@
+{
+  "schema": 1,
+  "stage": "Private GM20B GMMU/BAR1 and native Tegra DC scanout; SGFX rendering not implemented",
+  "kernel_source_revision": "fd9cc06a37466d278bda97cf598b2587fb4e9986",
+  "kernel_source_was_uncommitted_at_build": true,
+  "board_source_base_revision": "b28a9b575b02085ad4b6025cf19db351acde3710",
+  "board_sources_were_uncommitted_at_build": true,
+  "source_sha256": {
+    "drivers/gpu/nvidia-gm20b/src/gmmu.rs": "a851fe917045f8a63e787a99b9f1ef83553dd1d1c92b3f52883902b608104c90",
+    "drivers/gpu/nvidia-gm20b/src/runtime.rs": "0f0b676c1c8c23648c3f39609aed09b490c63040c27819594a091ac022ba2dde",
+    "drivers/display/tegra210-dc/src/runtime.rs": "b4b0b61a2dcdbd8c20e9b0800574d9d1f9a53b4bdcdc31ac99568690c96dbb25",
+    "drivers/display/tegra210-dc/src/lib.rs": "10b29195f37a1dfb757393eed25229dee3a9d1cca9645d08d4095e6ad34b9292",
+    "projects/aarch64-switch-console/bootloader/boot.cmd": "911c689dfae2af5d1a9d5258f2e60c0e16e72cc5165413b80b43c897fcf2887f",
+    "projects/aarch64-switch-console/scarlet.toml": "531830a791234d2a138ddeadf120854a1af0d5ff4511b88482e944923721a0ed",
+    "Scarlet/kernel/src/earlyfb.rs": "c8c34e641d8f02ce674757ccc47ab5987172bd0d0843803681a32d8077df0909",
+    "drivers/gpu/nvidia-gm20b/src/lib.rs": "4dcd0a904b87b5cec20106f029088446a376fe813e4dee772a1f59d2946d20bf",
+    "drivers/gpu/nvidia-gm20b/Cargo.toml": "7644b3191d41991e2d7daf4cdf15bc6a6dac64f0edca34ece03220460c44bba2",
+    "drivers/display/tegra210-dc/Cargo.toml": "eec376f973c02c64e6de555627259550ccf95060f1981007e4b5d153d1eed8e6",
+    "projects/aarch64-switch-console/bsp/Cargo.lock": "4e78946bc6e8ff649417ec424fa273c6faafb67e4e16d221d9c69720adcabab8"
+  },
+  "kernel_elf_sha256": "375c4ae233b7adf426446057ca7298b51b961871e14134f417235c0a1d9508e3",
+  "image_sha256": "2e585abce986263cc0f5cd8ae4256d20ccf4ebe98cf6cf499ddc3d661bf21134",
+  "initramfs_sha256": "3e4449926f6162ffc1fb9b76355e7f8345aeed92e1f0ee411713aa8f885acd40",
+  "image_runtime_size": 17661952,
+  "package_sha256": {
+    "bootloader/ini/L4T-scarlet-console.ini": "b43e47439a4420c641c4004f1a290e2c51ed0d2a16e73732ecc3c06a16757996",
+    "switchroot/scarlet-console/Image": "2e585abce986263cc0f5cd8ae4256d20ccf4ebe98cf6cf499ddc3d661bf21134",
+    "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+    "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+    "switchroot/scarlet-console/boot.scr": "1c7ca6cc61bc0e713adf3922bb5f2591ebe365a6bd6c8a78e635cc46703141cc",
+    "switchroot/scarlet-console/initramfs": "3e4449926f6162ffc1fb9b76355e7f8345aeed92e1f0ee411713aa8f885acd40",
+    "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+    "switchroot/scarlet-console/uImage": "4dc0409d65283e26ffac6c800e557f7676108af4dfa065173036bef7c82ab49f"
+  },
+  "package_hashes_verified": 8,
+  "legacy_header_and_payload_crc_verified": true,
+  "uimage_decompresses_to_image": true,
+  "initrd_payload_matches_cpio": true,
+  "boot_script_matches_source": true,
+  "output_scale": 1.0,
+  "maxcpus": 4,
+  "packaged_sws_config_matches_source": true,
+  "binaries": {
+    "gpu-info": {
+      "size": 147848,
+      "sha256": "12604b8ae04bab39ba91d89cd956c594dbaf0b2a44367ae1030491dc9cbe3b9e",
+      "elf_machine": 183,
+      "executable": true
+    },
+    "cpufreqctl": {
+      "size": 147272,
+      "sha256": "ea7769ce46ff67647e90e83c9ec54800a4dd3dd31754f6229b32c9da106f2f6f",
+      "elf_machine": 183,
+      "executable": true
+    }
+  },
+  "linked_diagnostics_in_elf_and_image": 7,
+  "production_build_exit_code": 0,
+  "production_build_log": ".cache/gmmu-dc-build.log",
+  "formatting_exit_code": 0,
+  "formatting_check_exit_code": 0,
+  "formatting_check_log": ".cache/gmmu-dc-format-check.log",
+  "gpu_execution_support": 0,
+  "gpu_dialect_available": false,
+  "sgfx_execution_implemented": false,
+  "hardware_boot_validated": false,
+  "hardware_gmmu_validated": false,
+  "hardware_native_scanout_validated": false,
+  "additional_host_or_qemu_tests_run": false,
+  "sd_installed": true,
+  "sd_ejected": true,
+  "previous_candidate_verification": "docs/gpu-gpio6-verification.json",
+  "initrd_identical_to_previous_verified_firmware_and_userspace": true,
+  "gpu_firmware_revision": "46a6999a2d14a5f2239e7e712e5bbcf543f59034",
+  "gpu_firmware_executed_or_authenticated": false,
+  "next_physical_check": "Correct MC/SMMU state handling and DC pre-probe dependencies, then record BAR1 read/write/remap and native display activation plus sustained Shell/input/timer operation.",
+  "primary_sources": [
+    {
+      "repository": "torvalds/linux",
+      "revision": "adc218676eef25575469234709c2d87185ca223a",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgk20a.c",
+      "obtained_with": "gh"
+    },
+    {
+      "repository": "torvalds/linux",
+      "revision": "adc218676eef25575469234709c2d87185ca223a",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgk104.c",
+      "obtained_with": "gh"
+    },
+    {
+      "repository": "torvalds/linux",
+      "revision": "adc218676eef25575469234709c2d87185ca223a",
+      "path": "drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgf100.c",
+      "obtained_with": "gh"
+    },
+    {
+      "repository": "CTCaer/switch-l4t-kernel-nvgpu",
+      "revision": "1ae0167d360287ca78f5a2572f0de42594140312",
+      "path": "drivers/gpu/nvgpu/gk20a/mm_gk20a.c",
+      "obtained_with": "gh"
+    },
+    {
+      "repository": "CTCaer/switch-l4t-kernel-nvgpu",
+      "revision": "1ae0167d360287ca78f5a2572f0de42594140312",
+      "path": "drivers/gpu/nvgpu/common/fb/fb_gm20b.c",
+      "obtained_with": "gh"
+    },
+    {
+      "repository": "CTCaer/switch-l4t-kernel-nvgpu",
+      "revision": "1ae0167d360287ca78f5a2572f0de42594140312",
+      "path": "drivers/gpu/nvgpu/common/bus/bus_gm20b.c",
+      "obtained_with": "gh"
+    },
+    {
+      "repository": "CTCaer/switch-l4t-kernel-nvidia",
+      "revision": "76e6d48970b451c242c20f298b8d63027836bb0b",
+      "path": "drivers/platform/tegra/mc/mc.c",
+      "obtained_with": "gh"
+    },
+    {
+      "repository": "CTCaer/switch-l4t-kernel-nvidia",
+      "revision": "76e6d48970b451c242c20f298b8d63027836bb0b",
+      "path": "drivers/video/tegra/dc/window.c",
+      "obtained_with": "gh"
+    },
+    {
+      "repository": "CTCaer/switch-l4t-kernel-nvidia",
+      "revision": "76e6d48970b451c242c20f298b8d63027836bb0b",
+      "path": "drivers/video/tegra/dc/dc_config.c",
+      "obtained_with": "gh"
+    },
+    {
+      "repository": "CTCaer/hekate",
+      "revision": "v6.5.3",
+      "path": "bdk/display/di.c",
+      "obtained_with": "gh"
+    },
+    {
+      "repository": "CTCaer/hekate",
+      "revision": "v6.5.3",
+      "path": "bdk/display/di.inl",
+      "obtained_with": "gh"
+    }
+  ],
+  "kernel_source_commit_after_build": "7795abb5aed3fcf4c3bcaa97273332a005295d71",
+  "sd_installation": {
+    "device": "disk8s1",
+    "mount": "/Volumes/SWITCH SD",
+    "sha256": {
+      "bootloader/ini/L4T-scarlet-console.ini": "b43e47439a4420c641c4004f1a290e2c51ed0d2a16e73732ecc3c06a16757996",
+      "switchroot/scarlet-console/Image": "2e585abce986263cc0f5cd8ae4256d20ccf4ebe98cf6cf499ddc3d661bf21134",
+      "switchroot/scarlet-console/bl31.bin": "dea0ecd406cd110b8d475641900ed23223d24d32dd5cef4d8a9ea2459c34e2b4",
+      "switchroot/scarlet-console/bl33.bin": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa",
+      "switchroot/scarlet-console/boot.scr": "1c7ca6cc61bc0e713adf3922bb5f2591ebe365a6bd6c8a78e635cc46703141cc",
+      "switchroot/scarlet-console/initramfs": "3e4449926f6162ffc1fb9b76355e7f8345aeed92e1f0ee411713aa8f885acd40",
+      "switchroot/scarlet-console/nx-plat.dtimg": "e928da0b79efade1571dde5db855b1a6d84b1ce4ca249db4fff7c42a102420df",
+      "switchroot/scarlet-console/uImage": "4dc0409d65283e26ffac6c800e557f7676108af4dfa065173036bef7c82ab49f"
+    },
+    "protected_files_verified": 38,
+    "raw_device_accessed": false,
+    "hardware_boot_validated": false
+  },
+  "sd_dry_run_log": ".cache/gmmu-dc-sd-dry-run.log",
+  "sd_installation_log": ".cache/gmmu-dc-sd-install.log",
+  "sd_eject_exit_code": 0,
+  "sd_eject_log": ".cache/gmmu-dc-sd-eject.log",
+  "native_scanout_implemented": true,
+  "cold_panel_initialization_implemented": false,
+  "gpu_image_direct_scanout_implemented": true,
+  "hardware_gpu_image_direct_scanout_validated": false,
+  "hardware_video": "docs/gpu-hardware-9081.md",
+  "hardware_video_sha256": "e9df4ce76113b495e2941bde2fa5067f9a6353a5f1d1e010a63ece773997003d",
+  "hardware_boot_observation": "Init and AP startup proceed; recording ends during initial drawing before a stable Shell frame.",
+  "hardware_gmmu_result": "Rejected before BAR1 binding: SMMU_CONFIG and GPU ASID both read 0xffffffff.",
+  "hardware_native_scanout_result": "DC0 and DC1 deferred before probe; ordinary firmware framebuffer fallback registered.",
+  "hardware_gpu_identity_validated": true,
+  "kernel_upstream_draft_pr": "https://github.com/petitstrawberry/Scarlet/pull/559"
+}

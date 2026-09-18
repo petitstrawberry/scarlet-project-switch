@@ -93,7 +93,29 @@ fdt set /cpus/cpu@0 performance-domains <0x5343>
 fdt set /cpus/cpu@1 performance-domains <0x5343>
 fdt set /cpus/cpu@2 performance-domains <0x5343>
 fdt set /cpus/cpu@3 performance-domains <0x5343>
+# Noble uses nvgpu's global clock aliases. Supply the equivalent standard
+# Nouveau bindings for Scarlet's external GM20B driver. Keep the MC/IOMMU
+# resource and all firmware GPU/VPR/WPR carveout reservations intact.
+fdt set /gpu clocks <0x36 184 0x36 299 0x36 189>
+fdt set /gpu clock-names gpu pwr ref
+fdt set /gpu vdd-supply <0x2f>
+# DC0 adopts this inspected, physically addressed Hekate DSI mode. DC1 and
+# uninspected cold panel/HDMI paths are not enabled by this binding.
+fdt set /host1x/dc@54200000 scarlet,boot-scanout <1>
+# This driver preserves Hekate's DSI pad state. Do not request Noble's cold
+# PMC pinctrl transitions during the common platform pre-probe pass.
+fdt rm /host1x/dc@54200000 pinctrl-names
+fdt rm /host1x/dc@54200000 pinctrl-0
+fdt rm /host1x/dc@54200000 pinctrl-1
+fdt rm /host1x/dc@54200000 pinctrl-2
+fdt rm /host1x/dc@54200000 pinctrl-3
+fdt rm /host1x/dc@54200000 pinctrl-4
+fdt rm /host1x/dc@54200000 pinctrl-5
+fdt set /host1x/dc@54240000 status disabled
 setenv bootargs "init=/init init.console=/dev/null maxcpus=4 scarlet.switch=1"
+if test "${scarlet_keep_bootcon}" = 1; then
+    setenv bootargs "${bootargs} keep_bootcon"
+fi
 echo Launching Scarlet ${scarlet_boot_mode} at 0x80200000
 bootm ${kernload} ${initaddr} ${fdtraddr}
 echoe Scarlet bootm returned

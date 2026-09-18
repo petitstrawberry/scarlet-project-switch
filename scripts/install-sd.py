@@ -79,7 +79,11 @@ def main():
     manifest = json.loads((package / "manifest.json").read_text())
     files = []
     for relative, expected in manifest["sha256"].items():
-        if relative != f"bootloader/ini/{entry_file}" and not relative.startswith(f"switchroot/{boot_directory}/"):
+        diagnostic = args.console and relative in {
+            f"switchroot/scarlet-console-logs/{name}"
+            for name in ("bl31.bin", "bl33.bin", "nx-plat.dtimg", "boot.scr")
+        }
+        if relative != f"bootloader/ini/{entry_file}" and not relative.startswith(f"switchroot/{boot_directory}/") and not diagnostic:
             raise ValueError(f"unexpected package destination: {relative}")
         path = Path(relative)
         if path.is_absolute() or ".." in path.parts: raise ValueError("invalid destination path")

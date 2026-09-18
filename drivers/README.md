@@ -9,5 +9,9 @@ policy through the normal governors and `/dev/cpufreq`; see
 Transport operations are limited to the declared supported instances;
 there is no complete generic Tegra clock, reset, regulator or GPIO IRQ API.
 See [input bring-up](../docs/input-bringup.md) for scope, provenance and tests.
-The BSP retains firmware's existing scanout surface. Tegra SDHCI, interrupt
-controller routing changes and a display-controller driver remain unimplemented.
+The GM20B module now checks a private GMMU/BAR1 address space; public resources,
+GR firmware and SGFX queues remain pending. The Tegra210 DC module adopts the
+inspected Hekate DSI mode and adds native scanout/buffer switching through the
+ordinary display interface; see [display bring-up](../docs/display-bringup.md).
+Both new paths still need physical validation. Cold panel/HDMI initialization,
+Tegra SDHCI and interrupt-controller routing changes remain unimplemented.

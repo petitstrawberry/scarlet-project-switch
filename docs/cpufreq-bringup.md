@@ -51,15 +51,17 @@ on Switch every CPU selects the same cluster. The image starts with `schedutil`.
 `get` lists the CPU mask, governor, target, actual frequency and available rates.
 SWS output scale is 1.0; the framebuffer remains the ordinary graphics surface.
 
-Physical CPU frequency switching is pending. The previous SMP/Joy-Con image
-received the user's `動いた` report; that does not validate this new clock driver.
-For this candidate observe `tegra210-cpufreq: PLLX ready; CPUs=0xf`, run the
+`IMG_9076.mov` shows PLLX probe at 1017600 kHz and a completed deferred
+transition requesting 710400 kHz. No post-transition frequency query is shown. See
+[the video reading](gpu-hardware-9076.md). Repeated user-requested switching
+and sustained timer stability are pending. For this candidate run the
 commands above, and check actual frequency, normal shell/input operation and
 continued clock/sleep wakeups under both low and high CPU load. Repeated boot,
 per-core timer delivery and sustained frequency stability require the Switch.
 The initial scale 1.5 package and SD readback are recorded in
-`cpufreq-verification.json`. The scale 1.0 rebuild is recorded in
-`scale1-verification.json`; its SD installation is pending.
+`cpufreq-verification.json`. The standalone scale 1.0 rebuild, which was not
+installed, is recorded in `scale1-verification.json`. The combined GM20B
+power/identity candidate and its SD readback are in `gpu-verification.json`.
 No additional host or QEMU tests are used as hardware evidence.
 
 DFLL initialization, higher frequencies, thermal policy and EMC scaling are

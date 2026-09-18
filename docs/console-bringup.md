@@ -3,7 +3,9 @@
 `projects/aarch64-switch-console` uses Scarlet's ordinary init, sealed
 Environment, stemd, SWS and Scarlet Desktop. The desktop session starts
 `scarlet-shell --mode console`, as in `aarch64-limine-console`.
-Console means the game-console shell presentation; text login is optional.
+Console means the game-console shell presentation. A text login also runs on
+`/dev/tty0`, which is backed by Switchvisor's USB virtual UART when its overlay
+is active.
 
 The first RAM-only image reuses the base and CLI bundles, desktop assets,
 cursors, fonts and application catalog. It includes Clock, Files, Notepad,
@@ -14,8 +16,9 @@ The Files resident service uses the normal desktop service configuration.
 
 ## Build and install
 
-Use sibling `../Scarlet` and `../scarlet-ui` checkouts, the latter matching the
-local ScarletUI development setup used by `aarch64-limine-console`.
+Use sibling `../Scarlet`, `../sgfx` and `../scarlet-ui` checkouts matching the
+local console development setup. The [GM20B SGFX candidate](sgfx-bringup.md)
+uses the existing fixed IR facade; it adds no special shell presentation policy.
 Import the pinned Noble firmware with `scripts/prepare-bootstack.py` first.
 
 ```sh
@@ -52,12 +55,13 @@ The current image uses the normal SWS output scale of 1.0 after the user's
 feedback on 2.0 and fractional scaling.
 
 The generic `init.console=` option selects initial stdio; the default remains
-`/dev/tty0` for existing distributions. This image explicitly uses
-`init.console=/dev/null`, with normal null-device semantics. SSH automatic
-startup is disabled until supported network and cryptographic entropy
-sources are available. The current Linux Image candidate requests four cores
-through PSCI; the previous candidate received a successful-boot report, while
-per-core timer and sustained SMP measurements remain pending. See `cpu-bringup.md`.
+`/dev/tty0` for existing distributions. This image keeps stemd's inherited
+stdio on `init.console=/dev/null`, while its login service explicitly owns
+`/dev/tty0`. SSH automatic startup is disabled until supported network and
+cryptographic entropy sources are available. The current Linux Image candidate
+requests four cores through PSCI; the previous candidate received a
+successful-boot report, while per-core timer and sustained SMP measurements
+remain pending. See `cpu-bringup.md`.
 The next image adds [CPU frequency control](cpufreq-bringup.md) through the
 common policy/governors, `/dev/cpufreq` and `cpufreqctl`; physical switching
 is pending.

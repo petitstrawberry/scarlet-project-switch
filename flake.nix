@@ -46,7 +46,7 @@
         in {
           default = pkgs.mkShell {
             packages = [
-              rust sdk pkgs.python3 pkgs.ripgrep pkgs.git pkgs.curl
+              rust sdk pkgs.python3 pkgs.ripgrep pkgs.git pkgs.gh pkgs.curl
               pkgs.llvmPackages.llvm pkgs.dtc pkgs.cpio pkgs.qemu
               pkgs.pkgsCross.aarch64-multiplatform.buildPackages.gcc
             ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ (mkNxboot pkgs) ];

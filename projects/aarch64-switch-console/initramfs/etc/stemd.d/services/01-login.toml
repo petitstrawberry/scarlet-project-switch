@@ -1,1 +1,6 @@
-# Text login is optional. The console distribution starts Scarlet Desktop.
+# Keep stemd on /dev/null while exposing one interactive shell on the
+# Switchvisor USB-backed TTY.
+[service.login]
+exec = "/bin/login"
+depends = []
+tty = "/dev/tty0"
