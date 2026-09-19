@@ -12,6 +12,7 @@ use scarlet::{
     arch,
     device::{
         Device, DeviceType,
+        gpu::GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4,
         graphics::{
             FramebufferConfig, GpuDisplayResource, GpuPresentOptions, GraphicsDevice, PixelFormat,
             manager::GraphicsManager, output::DisplayRegion,
@@ -806,35 +807,51 @@ impl GraphicsDevice for Display {
         if !options.is_swapchain_buffer() {
             return Err("Tegra DC presentation requires a GPU swapchain image");
         }
-        let backing = resource
-            .linear_backing()
-            .ok_or("Tegra DC requires linear GPU backing")?;
-        let required = u64::from(backing.stride()) * u64::from(HEIGHT);
+        let (paddr, stride, format, direct) = if let Some(backing) = resource.modified_backing() {
+            if backing.modifier() != GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4
+                || backing.stride() != STRIDE
+                || backing.allocation_size() < block_linear::SIZE as u64
+            {
+                return Err("unsupported Tegra DC modified GPU scanout layout");
+            }
+            (
+                backing.physical_addr(),
+                backing.stride(),
+                backing.format(),
+                true,
+            )
+        } else {
+            let backing = resource
+                .linear_backing()
+                .ok_or("Tegra DC requires GPU backing")?;
+            if backing.physical_segments().len() != 1
+                || backing.stride() < STRIDE
+                || backing.stride() > 0xffff
+                || backing.stride() & 63 != 0
+                || backing.allocation_size() < u64::from(backing.stride()) * u64::from(HEIGHT)
+            {
+                return Err("unsupported Tegra DC linear GPU scanout layout");
+            }
+            (
+                backing.physical_addr(),
+                backing.stride(),
+                backing.format(),
+                false,
+            )
+        };
+        let required = if direct {
+            block_linear::SIZE as u64
+        } else {
+            u64::from(stride) * u64::from(HEIGHT)
+        };
         if resource.width() != WIDTH
             || resource.height() != HEIGHT
-            || backing.physical_segments().len() != 1
-            || backing.stride() < STRIDE
-            || backing.stride() > 0xffff
-            || backing.stride() & 63 != 0
-            || backing.physical_addr() & 63 != 0
-            || backing.allocation_size() < required
-            || backing
-                .physical_addr()
-                .checked_add(required)
-                .is_none_or(|end| end > 1 << 34)
-            || !matches!(
-                backing.format(),
-                PixelFormat::BGRA8888
-                    | PixelFormat::XRGB8888
-                    | PixelFormat::RGBA8888
-                    | PixelFormat::XBGR8888
-            )
+            || paddr & 0xfff != 0
+            || paddr.checked_add(required).is_none_or(|end| end > 1 << 34)
+            || !matches!(format, PixelFormat::BGRA8888 | PixelFormat::XRGB8888)
         {
             return Err("unsupported Tegra DC GPU scanout layout");
         }
-        let paddr = backing.physical_addr();
-        let stride = backing.stride();
-        let format = backing.format();
         let mut state = self.state.lock();
         if state.lost {
             return Err("Tegra DC display is lost");
@@ -846,8 +863,19 @@ impl GraphicsDevice for Display {
         state.pending_gpu = Some(resource);
         self.diagnostic_frames.fetch_add(1, Ordering::Relaxed);
         let scanout = state.scanout_front ^ 1;
-        let scanout_address = self.scanout.as_ref().unwrap()[scanout].as_paddr();
-        self.upload_frame(paddr, stride, scanout_address, true)?;
+        let scanout_address = if direct {
+            if self.diagnostic_frames.load(Ordering::Relaxed) <= 4 {
+                scarlet::println!(
+                    "tegra-dc: direct GPU block-linear scanout paddr={:#x}",
+                    paddr
+                );
+            }
+            paddr
+        } else {
+            let address = self.scanout.as_ref().unwrap()[scanout].as_paddr();
+            self.upload_frame(paddr, stride, address, true)?;
+            address
+        };
         state.changed = true;
         if let Err(error) = self.flip(
             scanout_address,
@@ -857,7 +885,9 @@ impl GraphicsDevice for Display {
             state.lost = true;
             return Err(error);
         }
-        state.scanout_front = scanout;
+        if !direct {
+            state.scanout_front = scanout;
+        }
         state.gpu_front = state.pending_gpu.take();
         self.gpu_active.store(true, Ordering::Release);
         earlyfb::deactivate();

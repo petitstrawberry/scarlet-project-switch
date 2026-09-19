@@ -141,7 +141,7 @@ impl Emitter {
         Ok(())
     }
     fn surface(&mut self, word: u32, s: Surface, access: Access) -> Result<(), CompileError> {
-        if s.tile_mode != 0 {
+        if s.tile_mode != 0 && s.tile_mode != 0x40 {
             return Err(CompileError::UnsupportedFeature);
         }
         self.address(
@@ -290,6 +290,7 @@ fn layout(w: &mut [u32; 64], at: usize, s: Surface) {
     w[at] = s.width;
     w[at + 1] = s.height;
     w[at + 2] = s.stride;
+    w[if at == 10 { 52 } else { 53 }] = s.tile_mode;
 }
 fn rectangle(w: &mut [u32; 64], at: usize, r: PixelRect) {
     w[at] = r.x();

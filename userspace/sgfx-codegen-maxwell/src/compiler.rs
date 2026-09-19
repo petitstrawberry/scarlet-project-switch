@@ -391,6 +391,17 @@ fn validate_image_layout(
                 .and_then(|bytes| bytes.checked_add(u64::from(row_bytes)))
                 .ok_or(CompileError::Overflow)?
         }
+        ImageModifier::NvidiaBlockLinear16Bx2H4 => {
+            if image.storage_format != TextureFormat::Bgra8Unorm
+                || image.extent.width() != 1280
+                || image.extent.height() != 720
+                || plane.stride != 5120
+                || plane.offset & 0xfff != 0
+            {
+                return Err(CompileError::InvalidResource);
+            }
+            5120 * 768
+        }
     };
     let plane_end = plane
         .offset
@@ -410,10 +421,7 @@ fn require_image_surface(
     let ResourceKind::Image(image) = &resource.kind else {
         return Err(CompileError::InvalidResource);
     };
-    if !image.usage.contains(required)
-        || image.storage_format != TextureFormat::Bgra8Unorm
-        || image.modifier != ImageModifier::Linear
-    {
+    if !image.usage.contains(required) || image.storage_format != TextureFormat::Bgra8Unorm {
         return Err(CompileError::InvalidResource);
     }
     validate_image_layout(resource.size, image, max_pitch)?;
@@ -425,7 +433,10 @@ fn require_image_surface(
         width: image.extent.width(),
         height: image.extent.height(),
         stride: plane.stride,
-        tile_mode: 0,
+        tile_mode: match image.modifier {
+            ImageModifier::Linear => 0,
+            ImageModifier::NvidiaBlockLinear16Bx2H4 => 0x40,
+        },
         alpha_mask: image.format == TextureFormat::R8Unorm,
     })
 }

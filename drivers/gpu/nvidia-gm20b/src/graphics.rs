@@ -5,7 +5,7 @@
 
 use crate::{
     fifo::Fifo,
-    gmmu::{clean, pages, store},
+    gmmu::{clean, pages, pages_aligned, store},
     gr::Gr,
     method::*,
 };
@@ -22,11 +22,17 @@ const VERTEX_VA: usize = 0x3b0000;
 const IMAGE_VA: usize = 0x3c0000;
 const TEXTURE_VA: usize = 0x3d0000;
 const PUSH_VA: usize = 0x400000;
+const TILE_VA: usize = 0x500000;
+const TILE_WIDTH: usize = 16;
+const TILE_HEIGHT: usize = 128;
+const TILE_PITCH: usize = TILE_WIDTH * 4;
+const TILE_SIZE: usize = TILE_PITCH * TILE_HEIGHT;
 const FENCE_VA: u32 = 0x6000;
 const PUSH_SIZE: usize = 0x100000;
 const BGRA8: u32 = 0xcf; // G80_SURFACE_FORMAT_BGRA8_UNORM
 
 pub struct Graphics {
+    gpu_base: usize,
     programs: ContiguousPages,
     aux: ContiguousPages,
     descriptors: ContiguousPages,
@@ -36,11 +42,13 @@ pub struct Graphics {
     vertex: ContiguousPages,
     image: ContiguousPages,
     texture: ContiguousPages,
+    tile: ContiguousPages,
     sequence: u32,
 }
 impl Graphics {
-    pub fn allocate() -> Result<Self, &'static str> {
+    pub fn allocate(gpu_base: usize) -> Result<Self, &'static str> {
         Ok(Self {
+            gpu_base,
             programs: pages(PACK_SIZE / 4096)?,
             aux: pages(1)?,
             descriptors: pages(1)?,
@@ -50,6 +58,7 @@ impl Graphics {
             vertex: pages(1)?,
             image: pages(1)?,
             texture: pages(1)?,
+            tile: pages_aligned(TILE_SIZE / 4096, 8192)?,
             sequence: 0x53474700,
         })
     }
@@ -65,6 +74,9 @@ impl Graphics {
             (IMAGE_VA, &self.image),
             (TEXTURE_VA, &self.texture),
         ]
+    }
+    pub fn tile_mapping(&self) -> (usize, &ContiguousPages) {
+        (TILE_VA, &self.tile)
     }
     pub fn prepare(&self, gr: &Gr, size: u32) -> Result<(), &'static str> {
         gr.copy_golden(&self.context, size as usize)?;
@@ -111,6 +123,9 @@ impl Graphics {
         for (_, memory) in self.mappings() {
             clean(memory);
         }
+        // Page allocation zeroes through the cached CPU alias. Retire those
+        // dirty zero lines before the GPU first writes this tiled target.
+        clean(&self.tile);
         Ok(())
     }
     pub fn execute(
@@ -179,7 +194,11 @@ impl Graphics {
         result.map_err(GpuBackendSubmitError::DeviceLost)?;
         gr.idle().map_err(GpuBackendSubmitError::DeviceLost)?;
         gr.check_execution()
-            .map_err(GpuBackendSubmitError::DeviceLost)
+            .map_err(GpuBackendSubmitError::DeviceLost)?;
+        if operations.iter().any(|operation| operation[52] == 0x40) {
+            crate::gmmu::flush_ltc_at(self.gpu_base).map_err(GpuBackendSubmitError::DeviceLost)?;
+        }
+        Ok(())
     }
     /// Exercise every canonical shader pair, texture descriptor, indexed draw,
     /// source-over blending, scissor and 902D copy before exposing execution.
@@ -375,6 +394,98 @@ impl Graphics {
             return Err("SGFX linear sampler readback mismatch");
         }
         scarlet::println!("gm20b: SGFX linear sampler draw passed");
+        // The same 16-GOB, kind-0xfe storage selected for the display
+        // swapchain must survive PGRAPH writes, 902D reads/writes and TIC
+        // sampling before the backend advertises Ready.
+        let mut tiled_clear = probe_clear();
+        tiled_clear[2] = TILE_VA as u32;
+        tiled_clear[10..13].copy_from_slice(&[
+            TILE_WIDTH as u32,
+            TILE_HEIGHT as u32,
+            TILE_PITCH as u32,
+        ]);
+        tiled_clear[15] = TILE_WIDTH as u32;
+        tiled_clear[16] = TILE_HEIGHT as u32;
+        tiled_clear[52] = 0x40;
+        self.execute(fifo, gr, &[tiled_clear])
+            .map_err(proof_error)?;
+        arch::invalidate_dcache_to_poc_range(self.tile.as_vaddr(), TILE_SIZE);
+        scarlet::println!(
+            "gm20b: tiled proof paddr={:#x} pixel00={:#010x} pixel88={:#010x}",
+            self.tile.as_paddr(),
+            self.tile_pixel(0, 0),
+            self.tile_pixel(8, 8)
+        );
+        let render_matches =
+            self.tile_pixel(0, 0) == 0xffff0000 && self.tile_pixel(8, 8) == 0xffff0000;
+        let mut sampled_tile = linear;
+        sampled_tile[6] = TILE_VA as u32;
+        sampled_tile[29..32].copy_from_slice(&[
+            TILE_WIDTH as u32,
+            TILE_HEIGHT as u32,
+            TILE_PITCH as u32,
+        ]);
+        sampled_tile[53] = 0x40;
+        self.execute(fifo, gr, &[clear, sampled_tile])
+            .map_err(proof_error)?;
+        arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+        let sampled = self.pixel(8, 8);
+        scarlet::println!("gm20b: tiled sampler center={:#010x}", sampled);
+        let mut tile_to_linear = [0; 64];
+        tile_to_linear[0] = 3;
+        tile_to_linear[2] = IMAGE_VA as u32;
+        tile_to_linear[4] = TILE_VA as u32;
+        tile_to_linear[10..13].copy_from_slice(&[16, 16, 256]);
+        tile_to_linear[13..17].copy_from_slice(&[0, 0, 16, 16]);
+        tile_to_linear[17..21].copy_from_slice(&[0, 0, 16, 16]);
+        tile_to_linear[29..32].copy_from_slice(&[
+            TILE_WIDTH as u32,
+            TILE_HEIGHT as u32,
+            TILE_PITCH as u32,
+        ]);
+        tile_to_linear[53] = 0x40;
+        self.execute(fifo, gr, &[tile_to_linear])
+            .map_err(proof_error)?;
+        arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+        let copied = (self.pixel(0, 0), self.pixel(8, 8));
+        scarlet::println!(
+            "gm20b: tiled-to-linear pixels={:#010x}/{:#010x}",
+            copied.0,
+            copied.1
+        );
+        let mut linear_to_tile = tile_to_linear;
+        linear_to_tile[2] = TILE_VA as u32;
+        linear_to_tile[4] = TEXTURE_VA as u32;
+        linear_to_tile[10..13].copy_from_slice(&[
+            TILE_WIDTH as u32,
+            TILE_HEIGHT as u32,
+            TILE_PITCH as u32,
+        ]);
+        linear_to_tile[29..32].copy_from_slice(&[16, 16, 256]);
+        linear_to_tile[52] = 0x40;
+        linear_to_tile[53] = 0;
+        self.execute(fifo, gr, &[linear_to_tile])
+            .map_err(proof_error)?;
+        arch::invalidate_dcache_to_poc_range(self.tile.as_vaddr(), TILE_SIZE);
+        let copied_back = (self.tile_pixel(0, 0), self.tile_pixel(8, 8));
+        scarlet::println!(
+            "gm20b: linear-to-tiled pixels={:#010x}/{:#010x}",
+            copied_back.0,
+            copied_back.1
+        );
+        if !render_matches {
+            return Err("SGFX tiled render/PTE readback mismatch");
+        }
+        if sampled != 0xffff0000 {
+            return Err("SGFX tiled sampler mismatch");
+        }
+        if copied != (0xffff0000, 0xffff0000) {
+            return Err("SGFX tiled-to-linear copy mismatch");
+        }
+        if copied_back != (0xff0000ff, 0xff0000ff) {
+            return Err("SGFX linear-to-tiled copy mismatch");
+        }
+        scarlet::println!("gm20b: SGFX block-linear render/copy/sample passed");
         // A genuine 902D linear copy, also ordered by the PGRAPH fence.
         let mut copy = [0; 64];
         copy[0] = 3;
@@ -398,6 +509,19 @@ impl Graphics {
 
     fn pixel(&self, x: usize, y: usize) -> u32 {
         unsafe { core::ptr::read_volatile((self.image.as_vaddr() + y * 256 + x * 4) as *const u32) }
+    }
+
+    fn tile_pixel(&self, x: usize, y: usize) -> u32 {
+        let xb = x * 4;
+        let offset = (y / 128) * TILE_PITCH * 128
+            + (xb / 64) * 512 * 16
+            + ((y % 128) / 8) * 512
+            + ((xb % 64) / 32) * 256
+            + ((y % 8) / 2) * 64
+            + ((xb % 32) / 16) * 32
+            + (y % 2) * 16
+            + xb % 16;
+        unsafe { core::ptr::read_volatile((self.tile.as_vaddr() + offset) as *const u32) }
     }
 }
 
@@ -593,18 +717,19 @@ impl Push {
         Ok(())
     }
     fn target(&mut self, w: &[u32; 64]) -> Result<(), &'static str> {
+        let tiled = w[52] == 0x40;
         self.method(
             0,
             RT_ADDRESS_HIGH,
             &[
                 w[3],
                 w[2],
-                w[12],
+                if tiled { w[10] } else { w[12] },
                 w[11],
                 BGRA8,
-                RT_TILE_MODE_LINEAR,
+                if tiled { 0x40 } else { RT_TILE_MODE_LINEAR },
                 1,
-                0,
+                0, // Mesa sets layer_stride only for array_size > 1.
                 0,
             ],
         )?;
@@ -739,12 +864,13 @@ impl Push {
                 | (channels[1] << 22)
                 | (channels[2] << 25)
                 | (channels[3] << 28);
+            let tiled = w[53] == 0x40;
             let tic = [
                 tic0,
                 w[6],
-                w[7] | 0x00400000,
-                0x10000 | (w[31] >> 5),
-                0xe3800000 | (w[29] - 1),
+                w[7] | if tiled { 0x00600000 } else { 0x00400000 },
+                0x10000 | if tiled { 0x20 } else { w[31] >> 5 },
+                (if tiled { 0xe0800000 } else { 0xe3800000 }) | (w[29] - 1),
                 0x80000000 | (w[30] - 1),
                 0,
                 0,
@@ -796,12 +922,17 @@ impl Push {
     }
     fn copy(&mut self, w: &[u32; 64]) -> Result<(), &'static str> {
         self.one(SERIALIZE, 0)?;
-        for (m, addr, width, height, stride) in [
-            (0x200, [w[3], w[2]], w[10], w[11], w[12]),
-            (0x230, [w[5], w[4]], w[29], w[30], w[31]),
+        for (m, addr, width, height, stride, tile_mode) in [
+            (0x200, [w[3], w[2]], w[10], w[11], w[12], w[52]),
+            (0x230, [w[5], w[4]], w[29], w[30], w[31], w[53]),
         ] {
-            self.method(3, m, &[BGRA8, 1])?;
-            self.method(3, m + 0x14, &[stride, width, height, addr[0], addr[1]])?;
+            if tile_mode == 0x40 {
+                self.method(3, m, &[BGRA8, 0, tile_mode, 1, 0])?;
+                self.method(3, m + 0x18, &[width, height, addr[0], addr[1]])?;
+            } else {
+                self.method(3, m, &[BGRA8, 1])?;
+                self.method(3, m + 0x14, &[stride, width, height, addr[0], addr[1]])?;
+            }
         }
         self.method(3, 0x88c, &[0])?;
         let dst = [w[13], w[14], w[15], w[16]];

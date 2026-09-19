@@ -76,6 +76,22 @@ pub(super) fn pages(count: usize) -> Result<ContiguousPages, &'static str> {
     Ok(memory)
 }
 
+pub(super) fn pages_aligned(
+    count: usize,
+    alignment: usize,
+) -> Result<ContiguousPages, &'static str> {
+    let memory =
+        ContiguousPages::new_aligned(count, alignment).ok_or("GMMU aligned allocation failed")?;
+    if memory
+        .as_paddr()
+        .checked_add((count * PAGE) as u64)
+        .is_none_or(|end| end > IOMMU_SELECTOR)
+    {
+        return Err("GMMU aligned allocation overlaps Tegra IOMMU selector");
+    }
+    Ok(memory)
+}
+
 pub(super) fn store(memory: &ContiguousPages, word: usize, value: u32) {
     // All offsets are fixed private structure fields or checked PTE indices.
     unsafe { core::ptr::write_volatile((memory.as_vaddr() as *mut u32).add(word), value) };
@@ -83,6 +99,23 @@ pub(super) fn store(memory: &ContiguousPages, word: usize, value: u32) {
 
 pub(super) fn clean(memory: &ContiguousPages) {
     arch::clean_dcache_to_poc_range(memory.as_vaddr(), memory.len() * PAGE);
+}
+
+/// Retire GPU L2 writes before a different engine or DC reads tiled storage.
+pub(super) fn flush_ltc_at(base: usize) -> Result<(), &'static str> {
+    unsafe { arch::mmio::write32(base + LTC_FLUSH, 1) };
+    arch::io_mb();
+    let deadline = time::current_time_ns().saturating_add(100_000_000);
+    loop {
+        let status = unsafe { arch::mmio::read32(base + LTC_FLUSH) };
+        if status & 3 == 0 {
+            return Ok(());
+        }
+        if status == u32::MAX || time::current_time_ns() >= deadline {
+            return Err("GM20B LTC flush timeout");
+        }
+        delay_us(2);
+    }
 }
 
 impl Gmmu {
@@ -138,7 +171,7 @@ impl Gmmu {
         }
     }
 
-    fn map_page(&self, va: usize, paddr: u64, cacheable: bool) {
+    fn map_page(&self, va: usize, paddr: u64, cacheable: bool, kind: u8) {
         debug_assert!(va < VA_LIMIT as usize && va.is_multiple_of(PAGE));
         let word = (va / PAGE) * 2;
         store(&self.table, word, ((paddr >> 12) as u32) << 4 | 1);
@@ -147,7 +180,7 @@ impl Gmmu {
         store(
             &self.table,
             word + 1,
-            if cacheable { 0 } else { PTE_VOLATILE },
+            ((kind as u32) << 4) | if cacheable { 0 } else { PTE_VOLATILE },
         );
     }
 
@@ -172,7 +205,7 @@ impl Gmmu {
             // nvgpu_dma_alloc_map_sys maps FIFO control backing without
             // NVGPU_VM_MAP_CACHEABLE. In particular, BAR1 USERD must not
             // retain stale copies of PBDMA's physical-memory updates.
-            self.map_private_with_cache(va, memory, false)?;
+            self.map_private_with_cache(va, memory, false, 0)?;
         }
         self.instance_pdb(self.fifo.instance());
         self.invalidate()?;
@@ -193,7 +226,17 @@ impl Gmmu {
         va: usize,
         memory: &ContiguousPages,
     ) -> Result<(), &'static str> {
-        self.map_private_with_cache(va, memory, true)
+        self.map_private_with_cache(va, memory, true, 0)
+    }
+
+    /// Map a GPU image with the page kind required by its storage modifier.
+    pub(super) fn map_private_kind(
+        &self,
+        va: usize,
+        memory: &ContiguousPages,
+        kind: u8,
+    ) -> Result<(), &'static str> {
+        self.map_private_with_cache(va, memory, true, kind)
     }
 
     fn map_private_with_cache(
@@ -201,6 +244,7 @@ impl Gmmu {
         va: usize,
         memory: &ContiguousPages,
         cacheable: bool,
+        kind: u8,
     ) -> Result<(), &'static str> {
         let size = memory
             .len()
@@ -227,7 +271,12 @@ impl Gmmu {
             {
                 return Err("private GPU mapping would replace a valid PTE");
             }
-            self.map_page(address, memory.as_paddr() + (page * PAGE) as u64, cacheable);
+            self.map_page(
+                address,
+                memory.as_paddr() + (page * PAGE) as u64,
+                cacheable,
+                kind,
+            );
         }
         Ok(())
     }
@@ -249,10 +298,26 @@ impl Gmmu {
     }
 
     pub fn initialize_graphics(&mut self, context_size: u32) -> Result<u32, &'static str> {
-        self.graphics = Some(crate::graphics::Graphics::allocate()?);
+        self.graphics = Some(crate::graphics::Graphics::allocate(self.base)?);
         for (va, mem) in self.graphics.as_ref().unwrap().mappings() {
             self.map_private(va, mem)?;
         }
+        let (tile_va, tile_memory) = self.graphics.as_ref().unwrap().tile_mapping();
+        self.map_private_kind(tile_va, tile_memory, 0xfe)?;
+        scarlet::println!(
+            "gm20b: tiled proof VA={:#x} PTE={:#010x}/{:#010x}",
+            tile_va,
+            unsafe {
+                core::ptr::read_volatile(
+                    (self.table.as_vaddr() as *const u32).add(tile_va / PAGE * 2),
+                )
+            },
+            unsafe {
+                core::ptr::read_volatile(
+                    (self.table.as_vaddr() as *const u32).add(tile_va / PAGE * 2 + 1),
+                )
+            }
+        );
         self.invalidate_all()?;
         let gr = self.gr.as_ref().ok_or("GR missing")?;
         self.graphics.as_ref().unwrap().prepare(gr, context_size)?;
@@ -337,9 +402,7 @@ impl Gmmu {
     }
 
     fn flush_ltc(&self) -> Result<(), &'static str> {
-        self.write(LTC_FLUSH, 1);
-        self.wait(LTC_FLUSH, |value| value & 3 == 0)?;
-        Ok(())
+        flush_ltc_at(self.base)
     }
 
     pub fn initialize(&self) -> Result<(), &'static str> {
@@ -391,8 +454,8 @@ impl Gmmu {
             VA_LIMIT / (1024 * 1024),
             PDE_COUNT
         );
-        self.map_page(VA_A, self.scratch.as_paddr(), true);
-        self.map_page(VA_B, self.scratch.as_paddr() + PAGE as u64, true);
+        self.map_page(VA_A, self.scratch.as_paddr(), true, 0);
+        self.map_page(VA_B, self.scratch.as_paddr() + PAGE as u64, true, 0);
         let pdb = self.directory.as_paddr();
         self.instance_pdb(&self.instance);
         store(&self.scratch, 0, 0x53474131);
@@ -449,7 +512,7 @@ impl Gmmu {
             scarlet::println!("gm20b: GMMU BAR1 write readback={:#010x}", written);
             return Err("GMMU BAR1 write did not reach physical backing");
         }
-        self.map_page(VA_A, self.scratch.as_paddr() + PAGE as u64, true);
+        self.map_page(VA_A, self.scratch.as_paddr() + PAGE as u64, true, 0);
         self.invalidate()?;
         let remapped = unsafe { arch::mmio::read32(self.bar1 + VA_A) };
         scarlet::println!(
@@ -460,7 +523,7 @@ impl Gmmu {
         if remapped != 0x53474232 {
             return Err("GMMU TLB invalidation retained the old mapping");
         }
-        self.map_page(VA_A, self.scratch.as_paddr(), true);
+        self.map_page(VA_A, self.scratch.as_paddr(), true, 0);
         self.invalidate()?;
         scarlet::println!("gm20b: GMMU BAR1 read/write/remap passed; channels pending");
         Ok(())

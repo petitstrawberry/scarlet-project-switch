@@ -8,10 +8,10 @@ use core::{
 
 use gpu_raw::{
     GPU_BUFFER_FLAG_CPU_VISIBLE, GPU_IMAGE_FORMAT_BGRA8_UNORM, GPU_IMAGE_FORMAT_DEPTH32_FLOAT,
-    GPU_IMAGE_MODIFIER_LINEAR, GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT,
-    GPU_IMAGE_USAGE_PRESENTABLE, GPU_IMAGE_USAGE_RENDER_TARGET, GPU_IMAGE_USAGE_SAMPLED,
-    GPU_IMAGE_USAGE_TRANSFER_DST, GPU_IMAGE_USAGE_TRANSFER_SRC, GpuBuffer, GpuImage,
-    GpuImageLayout,
+    GPU_IMAGE_MODIFIER_LINEAR, GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4,
+    GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT, GPU_IMAGE_USAGE_PRESENTABLE,
+    GPU_IMAGE_USAGE_RENDER_TARGET, GPU_IMAGE_USAGE_SAMPLED, GPU_IMAGE_USAGE_TRANSFER_DST,
+    GPU_IMAGE_USAGE_TRANSFER_SRC, GpuBuffer, GpuImage, GpuImageLayout,
 };
 #[cfg(feature = "std")]
 use scarlet_os::handle::capability::memory_mapping::{MemoryMappingOps, flags, prot};
@@ -555,11 +555,20 @@ fn validate_image_layout(
     {
         return Err(HandleError::Unsupported);
     }
+    let tiled = layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4;
+    let padded_height = if tiled {
+        if width != 1280 || height != 720 || plane.row_pitch != 5120 {
+            return Err(HandleError::Unsupported);
+        }
+        768
+    } else {
+        height
+    };
     let minimum_size = u64::from(plane.row_pitch)
-        .checked_mul(u64::from(height))
+        .checked_mul(u64::from(padded_height))
         .ok_or(HandleError::InvalidParameter)?;
     if logical_format == ir::TextureFormat::Depth32Float
-        || layout.modifier != GPU_IMAGE_MODIFIER_LINEAR
+        || (!tiled && layout.modifier != GPU_IMAGE_MODIFIER_LINEAR)
         || plane.row_pitch < minimum_pitch
         || plane.size < minimum_size
     {

@@ -97,6 +97,8 @@ impl Capabilities {
 pub enum ImageModifier {
     /// One or more uncompressed linear planes.
     Linear,
+    /// Tegra X1 GOB64x8, uncompressed kind 0xfe, 16-GOB block height.
+    NvidiaBlockLinear16Bx2H4,
 }
 
 /// Immutable layout of one image plane in an external allocation.

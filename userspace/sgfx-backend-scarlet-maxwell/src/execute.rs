@@ -727,12 +727,16 @@ fn append_image_resource(
     metadata
         .try_reserve(1)
         .map_err(|_| IrSubmitError::OutOfMemory)?;
-    let modifier = if image.layout.modifier == gpu_raw::GPU_IMAGE_MODIFIER_LINEAR {
-        codegen::ImageModifier::Linear
-    } else {
-        return Err(IrSubmitError::Unsupported(
-            UnsupportedIrFeature::ImageLayout,
-        ));
+    let modifier = match image.layout.modifier {
+        gpu_raw::GPU_IMAGE_MODIFIER_LINEAR => codegen::ImageModifier::Linear,
+        gpu_raw::GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 => {
+            codegen::ImageModifier::NvidiaBlockLinear16Bx2H4
+        }
+        _ => {
+            return Err(IrSubmitError::Unsupported(
+                UnsupportedIrFeature::ImageLayout,
+            ));
+        }
     };
     metadata.push(codegen::ResourceMeta {
         id,

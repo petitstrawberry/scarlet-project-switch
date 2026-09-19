@@ -4,7 +4,7 @@
 //! tokens. User bytes can never select a GPU method, physical address or shader.
 
 use crate::{
-    gmmu::{VA_LIMIT, pages},
+    gmmu::{VA_LIMIT, clean, pages, pages_aligned},
     runtime::Power,
 };
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
@@ -145,27 +145,53 @@ impl State {
         if count == 0 || count > 0x1000000 / 4096 {
             return Err(self.allocation_error(size, "GPU object size exceeds address-space budget"));
         }
-        let mut va: usize = 0x500000;
+        // The private 0x500000..0x501fff proof surface stays mapped for the
+        // lifetime of the graphics context; public allocations start after it.
+        let tiled = matches!(
+            &kind,
+            Kind::Image { layout, .. }
+                if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4
+        );
+        let alignment = if tiled { 8192 } else { 4096 };
+        let mut va: usize = 0x502000;
         // First fit over sorted retained mappings; each submission is fully
         // retired under this mutex before allocation or mapping retirement.
         for (&start, entry) in &self.dma().retained {
+            va = (va + alignment - 1) & !(alignment - 1);
             if va + count * 4096 <= start {
                 break;
             }
             va = va.max(start + entry.pages.len() * 4096);
         }
+        va = (va + alignment - 1) & !(alignment - 1);
         if va
             .checked_add(count * 4096)
             .is_none_or(|end| end > VA_LIMIT as usize)
         {
             return Err(self.allocation_error(size, "GM20B GPU address space exhausted"));
         }
-        let memory = pages(count).map_err(|error| self.allocation_error(size, error))?;
+        let memory = (if tiled {
+            pages_aligned(count, alignment)
+        } else {
+            pages(count)
+        })
+        .map_err(|error| self.allocation_error(size, error))?;
+        // The allocator zeroes through the cached CPU mapping. Publish those
+        // lines before DMA so a later eviction cannot overwrite GPU output.
+        clean(&memory);
         let object = self.next_object;
         self.next_object = self
             .next_object
             .checked_add(1)
             .ok_or("GPU object identity exhausted")?;
+        let page_kind = match &kind {
+            Kind::Image { layout, .. }
+                if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 =>
+            {
+                0xfe
+            }
+            _ => 0,
+        };
         let memory = Arc::new(Memory {
             pages: memory,
             va,
@@ -181,7 +207,7 @@ impl State {
             .insert(va, Arc::clone(&memory));
         if let Err(error) = self
             .dma()
-            .map_private(va, &memory.pages)
+            .map_private_kind(va, &memory.pages, page_kind)
             .and_then(|_| self.dma().invalidate_all())
         {
             self.fault();
@@ -290,16 +316,32 @@ impl GpuBackendImage for Image {
             return None;
         }
         let owner: Arc<dyn scarlet::device::gpu::GpuDisplayBackingOwner> = self.memory.clone();
-        GpuDisplayResource::new_linear(
-            self.memory.pages.as_paddr(),
-            self.memory.size,
-            create.width,
-            create.height,
-            layout.planes[0].row_pitch,
-            PixelFormat::BGRA8888,
-            owner,
-        )
-        .ok()
+        let paddr = self.memory.pages.as_paddr();
+        let stride = layout.planes[0].row_pitch;
+        if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 {
+            GpuDisplayResource::new_modified(
+                paddr,
+                self.memory.size,
+                create.width,
+                create.height,
+                stride,
+                PixelFormat::BGRA8888,
+                layout.modifier,
+                owner,
+            )
+            .ok()
+        } else {
+            GpuDisplayResource::new_linear(
+                paddr,
+                self.memory.size,
+                create.width,
+                create.height,
+                stride,
+                PixelFormat::BGRA8888,
+                owner,
+            )
+            .ok()
+        }
     }
 }
 // A context carries real attachment authority; shader IDs and object IDs never
@@ -652,7 +694,32 @@ impl GpuBackend for Backend {
             || create.width > 16384
             || create.height > 16384
         {
-            return Err("GM20B requires linear BGRA8 color images");
+            return Err("GM20B requires BGRA8 color images");
+        }
+        if create.width == 1280
+            && create.height == 720
+            && create.usage & (GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_RENDER_TARGET)
+                == GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_RENDER_TARGET
+        {
+            const PITCH: u32 = 1280 * 4;
+            const SIZE: u32 = PITCH * 768; // six 128-row GOB blocks
+            let mut planes = [GpuBackendImagePlaneLayout::EMPTY; GPU_IMAGE_MAX_PLANES];
+            planes[0] = GpuBackendImagePlaneLayout {
+                offset: 0,
+                size: SIZE as u64,
+                row_pitch: PITCH,
+                array_pitch: SIZE,
+                block_width: 1,
+                block_height: 1,
+                bytes_per_block: 4,
+            };
+            return Ok(GpuBackendImageLayout {
+                modifier: GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4,
+                total_size: SIZE as u64,
+                alignment: 4096,
+                plane_count: 1,
+                planes,
+            });
         }
         let pitch = create
             .width
@@ -741,7 +808,7 @@ fn validate(
         for (i, word) in w.iter_mut().enumerate() {
             *word = decoded.commands_word(base + i).unwrap();
         }
-        if w[1] != 0 || w[52..].iter().any(|&v| v != 0) {
+        if w[1] != 0 || w[54..].iter().any(|&v| v != 0) || (w[0] == 1 && w[53] != 0) {
             return Err("canonical reserved words nonzero");
         }
         let mut roles = [None, None, None, None];
@@ -811,6 +878,7 @@ fn validate(
                 w[10],
                 w[11],
                 w[12],
+                w[52],
                 if w[0] == 3 {
                     GPU_IMAGE_USAGE_TRANSFER_DST
                 } else {
@@ -870,11 +938,11 @@ fn validate(
                     return Err("vertex binding invalid");
                 }
                 if let Some(t) = roles[2] {
-                    surface(t, w[29], w[30], w[31], GPU_IMAGE_USAGE_SAMPLED)?;
+                    surface(t, w[29], w[30], w[31], w[53], GPU_IMAGE_USAGE_SAMPLED)?;
                     if t.0.va == target.0.va {
                         return Err("sampled/render target alias forbidden");
                     }
-                } else if w[29..32].iter().any(|&v| v != 0) || w[22] & 0x22 != 0 {
+                } else if w[29..32].iter().any(|&v| v != 0) || w[53] != 0 || w[22] & 0x22 != 0 {
                     return Err("unused texture state nonzero");
                 }
                 if w[26] == 0 {
@@ -918,7 +986,14 @@ fn validate(
             }
             3 => {
                 let source = roles[1].ok_or("copy source missing")?;
-                surface(source, w[29], w[30], w[31], GPU_IMAGE_USAGE_TRANSFER_SRC)?;
+                surface(
+                    source,
+                    w[29],
+                    w[30],
+                    w[31],
+                    w[53],
+                    GPU_IMAGE_USAGE_TRANSFER_SRC,
+                )?;
                 rectangle(&w[17..21], w[29], w[30])?;
                 if target.0.va == source.0.va
                     || w[15] != w[19]
@@ -946,6 +1021,7 @@ fn surface(
     width: u32,
     height: u32,
     pitch: u32,
+    tile_mode: u32,
     usage: u32,
 ) -> Result<(), &'static str> {
     let Kind::Image { create, layout, .. } = &binding.0.kind else {
@@ -954,6 +1030,14 @@ fn surface(
     if create.width != width
         || create.height != height
         || layout.planes[0].row_pitch != pitch
+        || tile_mode
+            != if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 {
+                0x40
+            } else if layout.modifier == GPU_IMAGE_MODIFIER_LINEAR {
+                0
+            } else {
+                return Err("unsupported surface modifier");
+            }
         || create.usage & usage != usage
         || binding.1 != layout.planes[0].offset
         || binding.2 < layout.planes[0].size
