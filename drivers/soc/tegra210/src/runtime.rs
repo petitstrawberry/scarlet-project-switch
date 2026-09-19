@@ -543,9 +543,28 @@ impl TegraUart {
         Ok(())
     }
     pub fn receive(&self, bytes: &mut [u8]) -> Result<usize, UartRxError> {
+        self.receive_with_wait(bytes, true)
+    }
+    /// Drain a ready RX burst without spinning when the FIFO is empty. Once a
+    /// byte arrives, keep the normal inter-byte wait for a complete packet.
+    pub fn receive_ready(&self, bytes: &mut [u8]) -> Result<usize, UartRxError> {
+        self.receive_with_wait(bytes, false)
+    }
+    fn receive_with_wait(
+        &self,
+        bytes: &mut [u8],
+        wait_for_first: bool,
+    ) -> Result<usize, UartRxError> {
         let _lock = self.lock.lock();
+        if !wait_for_first && self.regs.read(0x14) & 0x1f == 0 {
+            return Ok(0);
+        }
+        // A live 3-Mbps rail byte takes about 3.3 us. The worker's parser
+        // retains partial packets, so it needs only a short inter-byte gap;
+        // initialization keeps the wider wait used for handshake replies.
+        let idle_gap_ns = if wait_for_first { 250_000 } else { 40_000 };
         let deadline = scarlet::time::current_time_ns().saturating_add(2_000_000);
-        let mut idle = scarlet::time::current_time_ns().saturating_add(250_000);
+        let mut idle = scarlet::time::current_time_ns().saturating_add(idle_gap_ns);
         let mut n = 0;
         let mut errors = 0;
         while n < bytes.len() {
@@ -556,7 +575,7 @@ impl TegraUart {
             if status & 1 != 0 {
                 bytes[n] = self.regs.read(0) as u8;
                 n += 1;
-                idle = scarlet::time::current_time_ns().saturating_add(250_000);
+                idle = scarlet::time::current_time_ns().saturating_add(idle_gap_ns);
             } else if scarlet::time::current_time_ns() >= idle {
                 break;
             }

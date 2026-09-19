@@ -55,6 +55,12 @@ impl Parser {
     }
     pub fn feed(&mut self, input: &[u8]) -> Vec<Vec<u8>> {
         let mut packets = Vec::new();
+        self.feed_each(input, |packet| packets.push(packet.to_vec()));
+        packets
+    }
+    /// Visit complete packets without reallocating the frame buffer for each
+    /// UART report. The callback must not retain the borrowed packet.
+    pub fn feed_each(&mut self, input: &[u8], mut packet: impl FnMut(&[u8])) {
         for byte in input {
             self.bytes.push(*byte);
             loop {
@@ -76,11 +82,11 @@ impl Parser {
                 if self.bytes.len() < size {
                     break;
                 }
-                packets.push(core::mem::take(&mut self.bytes));
+                packet(&self.bytes);
+                self.bytes.clear();
                 break;
             }
         }
-        packets
     }
 }
 
@@ -89,6 +95,16 @@ pub struct Report {
     pub buttons: u32,
     pub x: i32,
     pub y: i32,
+}
+impl Report {
+    /// Ignore sub-percent raw-stick noise while preserving every button edge.
+    /// Compare with the last published sample so small real movement accumulates.
+    pub fn differs_from(self, published: Self) -> bool {
+        const AXIS_FUZZ: u32 = 8;
+        self.buttons != published.buttons
+            || self.x.abs_diff(published.x) > AXIS_FUZZ
+            || self.y.abs_diff(published.y) > AXIS_FUZZ
+    }
 }
 impl Default for Report {
     fn default() -> Self {
@@ -361,9 +377,8 @@ mod tests {
     fn no_replies_back_off_and_disconnect_clears_initialization() {
         let mut link = Link::new(Side::Left);
         link.next(0);
-        for n in 0..11 {
-            link.next(4 + n * 10);
-        }
+        assert_eq!(link.next(10), Some(Action::Send(WAKE_HANDSHAKE)));
+        assert_eq!(link.next(110), None);
         assert_eq!(link.stage, Stage::Backoff);
         assert_eq!(link.next(500), None);
         link.detach();
@@ -390,6 +405,30 @@ mod tests {
         pair.release(Side::Right);
         assert_eq!(pair.buttons(), 0x420000);
         assert_eq!(pair.halves[0], l);
+    }
+    #[test]
+    fn stick_noise_is_quiet_but_button_edges_and_accumulated_motion_publish() {
+        let origin = Report {
+            buttons: 0,
+            x: 2000,
+            y: 2100,
+        };
+        assert!(
+            !Report {
+                x: 2008,
+                y: 2092,
+                ..origin
+            }
+            .differs_from(origin)
+        );
+        assert!(Report { x: 2009, ..origin }.differs_from(origin));
+        assert!(
+            Report {
+                buttons: 1,
+                ..origin
+            }
+            .differs_from(origin)
+        );
     }
     #[test]
     fn captured_official_handshake_and_mac_reply_reach_baud_switch() {

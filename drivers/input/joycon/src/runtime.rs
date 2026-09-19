@@ -206,17 +206,19 @@ fn publish() -> Result<Arc<EventDevice>, &'static str> {
 fn emit(event: &EventDevice, pair: &Pair) {
     // Authoritative snapshot every input frame: readers recover after SYN_DROPPED
     // without guessing which transitions were lost.
-    for (bit, code) in BUTTONS {
-        event.push_event(1, *code, i32::from(pair.buttons() & bit != 0));
+    let mut frame = [(0u16, 0u16, 0i32); BUTTONS.len() + 7];
+    let buttons = pair.buttons();
+    for (index, (bit, code)) in BUTTONS.iter().enumerate() {
+        frame[index] = (1, *code, i32::from(buttons & bit != 0));
     }
     for (n, (x, y)) in pair.halves.iter().map(|r| (r.x, r.y)).enumerate() {
-        event.push_event(3, if n == 0 { 0 } else { 3 }, x);
-        event.push_event(3, if n == 0 { 1 } else { 4 }, y);
+        frame[BUTTONS.len() + n * 2] = (3, if n == 0 { 0 } else { 3 }, x);
+        frame[BUTTONS.len() + n * 2 + 1] = (3, if n == 0 { 1 } else { 4 }, y);
     }
     let (x, y) = pair.hat();
-    event.push_event(3, 0x10, x);
-    event.push_event(3, 0x11, y);
-    event.push_event(0, 0, 0);
+    frame[BUTTONS.len() + 4] = (3, 0x10, x);
+    frame[BUTTONS.len() + 5] = (3, 0x11, y);
+    event.push_events(&frame);
 }
 fn worker() {
     let Some(event) = EVENT.lock().clone() else {
@@ -231,31 +233,36 @@ fn worker() {
     let mut received_packets = [0u64; 2];
     let mut first_input = [false; 2];
     let mut pair = Pair::default();
-    for rail in RAILS.lock().iter() {
-        if let Some(initial) = rail.initial.lock().take() {
-            let n = rail.side.index();
-            links[n] = initial.link;
-            parsers[n] = initial.parser;
-            detected[n] = initial.attached;
-            if links[n].stage == Stage::Ready {
-                links[n].last_input_ms = scarlet::time::current_time_ns() / 1_000_000;
-            }
-            if let Some(report) = initial.report {
-                pair.set(rail.side, report);
-                first_input[n] = true;
-            }
-        }
-    }
+    let mut rails: [Option<Arc<Rail>>; 2] = [None, None];
     emit(&event, &pair);
     loop {
-        let rails = RAILS.lock().clone();
         let now = scarlet::time::current_time_ns() / 1_000_000;
         let check_detect = now >= next_detect;
         let mut changed = false;
         if check_detect {
             next_detect = now + 100;
+            for rail in RAILS.lock().iter() {
+                let n = rail.side.index();
+                if rails[n].is_some() {
+                    continue;
+                }
+                if let Some(initial) = rail.initial.lock().take() {
+                    links[n] = initial.link;
+                    parsers[n] = initial.parser;
+                    detected[n] = initial.attached;
+                    if links[n].stage == Stage::Ready {
+                        links[n].last_input_ms = now;
+                    }
+                    if let Some(report) = initial.report {
+                        pair.set(rail.side, report);
+                        first_input[n] = true;
+                        changed = true;
+                    }
+                }
+                rails[n] = Some(rail.clone());
+            }
         }
-        for rail in rails {
+        for rail in rails.iter().flatten() {
             let n = rail.side.index();
             let link = &mut links[n];
             // L4T switches TX to GPIO only in detection mode. Keep the pin
@@ -284,10 +291,10 @@ fn worker() {
                 continue;
             }
             let mut bytes = [0; 256];
-            match rail.uart.receive(&mut bytes) {
+            match rail.uart.receive_ready(&mut bytes) {
                 Ok(count) => {
                     received_bytes[n] += count as u64;
-                    for packet in parsers[n].feed(&bytes[..count]) {
+                    parsers[n].feed_each(&bytes[..count], |packet| {
                         received_packets[n] += 1;
                         let previous = link.stage;
                         if let Some(report) = link.receive(&packet, now) {
@@ -303,8 +310,10 @@ fn worker() {
                                 );
                                 first_input[n] = true;
                             }
-                            pair.set(rail.side, report);
-                            changed = true;
+                            if report.differs_from(pair.halves[n]) {
+                                pair.set(rail.side, report);
+                                changed = true;
+                            }
                         }
                         if previous != link.stage && link.stage == Stage::Ready {
                             scarlet::println!("joycon: {:?} HID connected at 3Mbps", rail.side);
@@ -327,7 +336,7 @@ fn worker() {
                             );
                             next_diagnostic[n] = now + 5000;
                         }
-                    }
+                    });
                 }
                 Err(error) => {
                     if now >= next_diagnostic[n] {

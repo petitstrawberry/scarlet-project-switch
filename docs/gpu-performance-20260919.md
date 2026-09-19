@@ -87,6 +87,39 @@ layout will need an explicit image-layout and retained-backing contract;
 claiming a tiled allocation is linear would break uploads, readback, sampling
 and cross-device presentation. This pass does not make a zero-copy claim.
 
+### Later Switchvisor performance run
+
+With the regular console image and both Joy-Cons attached, the idle Joy-Con
+worker initially consumed about 9.3–9.6% of one CPU. Its 8-ms loop cloned the
+rail registry, spun for 250 us on each empty UART, allocated a packet buffer
+for each HID report, and individually locked and woke the input queue for 25
+events per snapshot. The hot path now caches the two rails, returns immediately
+from an empty UART, retains parser capacity, ignores stick noise within 8 raw
+counts of the last published value, and publishes a complete input frame with
+one queue lock and wakeup. The rail's initialization still uses the original
+handshake timeout. Successive connected hardware samples showed about 7.0%,
+then 3.8%, and finally 3.2–3.4% of one CPU. Both rails reached Ready and
+delivered a first HID report on the final image; physical button/axis movement
+was not measured in this pass.
+After the cube was closed, a later one-second `top` sample still showed the
+Joy-Con worker at 3.3% of one CPU and 9.3% total CPU busy. The UART shell
+remained responsive; `/dev/thermal` then reported 36.5°C GPU and 38.1°C skin.
+
+`ui-sgfx-showcase --cube` now opens the textured cube from the shell. The
+application only constructs animation frames for currently open demo windows;
+with its launcher alone, one `top` sample fell from about 9% to 5% of one CPU
+across different boots. This is an indicative sample, not a controlled
+benchmark. With the cube open, one sample reported the showcase at 37.2% and
+SWS's compositor thread at 57.3% of one CPU, 34.6% total across four CPUs.
+`/dev/devfreq` sampled GM20B at 47% utilization while at 76.8 MHz; kernel
+logs also showed the governor reaching 307.2 MHz during the run. Early DC
+GPU-frame conversions remained about 15.5–16.3 ms. `/dev/thermal` reported
+38.5°C GPU and 39.3°C skin with no frequency cap after the run. The final
+bundle booted through Switchvisor and the UART shell remained responsive while
+the cube window was running. The full-screen linear-to-block-linear copy
+remains the measured display bottleneck; a direct GPU/DC tiled-image contract
+is still required to remove it.
+
 On the visible `ui-sgfx-showcase` run, a one-shot `top` sample reported the
 showcase main thread at 93% of one core and SWS at 64% of one core. The
 showcase updated all three animation frames on every application idle callback,
