@@ -504,7 +504,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         snapshot,
         gpu_base,
         utilization,
-    ));
+    )?);
     let gpu_backend: Arc<dyn GpuBackend> = backend.clone();
     let (_, name) = register_gpu_control_device(gpu_backend)?;
     let opps = crate::clock::RATES_KHZ.map(|freq_khz| DeviceFrequencyOpp {

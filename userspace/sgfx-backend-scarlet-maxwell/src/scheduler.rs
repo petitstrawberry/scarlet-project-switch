@@ -29,6 +29,11 @@ pub(crate) trait Transport {
     type Error: Copy;
 
     fn size(chunk: &Self::Chunk) -> usize;
+    /// CPU uploads may modify storage referenced by an earlier native chunk.
+    /// They require retirement of the entire ordered prefix across jobs.
+    fn requires_idle(_: &Self::Chunk) -> bool {
+        false
+    }
     fn ready(&self, chunk: &Self::Chunk) -> Result<bool, Self::Error>;
     fn submit(
         &self,
@@ -167,7 +172,8 @@ impl<T: Transport> Scheduler<T> {
         let mut in_flight = self.receipts().count();
         for job in &mut self.jobs {
             while let Some(chunk) = job.chunks.get(job.next) {
-                if in_flight == MAX_NATIVE_IN_FLIGHT {
+                if in_flight == MAX_NATIVE_IN_FLIGHT || (in_flight != 0 && T::requires_idle(chunk))
+                {
                     return progressed;
                 }
                 match transport.ready(chunk) {

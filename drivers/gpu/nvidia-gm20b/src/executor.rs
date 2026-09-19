@@ -7,7 +7,7 @@ use crate::{
     gmmu::{VA_LIMIT, clean, pages, pages_aligned},
     runtime::Power,
 };
-use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
 use maxwell_shader_pack::PipelineVariant;
 use maxwell_submit_wire as wire;
 use scarlet::{
@@ -58,9 +58,10 @@ struct State {
     diagnostic_submissions: u64,
     diagnostic_allocation_failures: u64,
 }
-struct Shared {
+pub(super) struct Shared {
     state: Mutex<State>,
     utilization: Option<crate::utilization::UtilizationMonitor>,
+    pub(super) work: crate::asynchronous::WorkQueue,
 }
 pub struct Backend {
     shared: Arc<Shared>,
@@ -73,8 +74,8 @@ impl Backend {
         snapshot: [u8; 64],
         gpu_base: usize,
         utilization: Option<crate::utilization::UtilizationMonitor>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, &'static str> {
+        let backend = Self {
             shared: Arc::new(Shared {
                 state: Mutex::new(State {
                     power,
@@ -85,10 +86,13 @@ impl Backend {
                     diagnostic_allocation_failures: 0,
                 }),
                 utilization,
+                work: crate::asynchronous::WorkQueue::new()?,
             }),
             snapshot,
             gpu_base,
-        }
+        };
+        crate::asynchronous::register(&backend.shared)?;
+        Ok(backend)
     }
 }
 
@@ -346,14 +350,14 @@ impl GpuBackendImage for Image {
 }
 // A context carries real attachment authority; shader IDs and object IDs never
 // grant access. IDs are indexed separately to support repeated attachments.
-struct Attachment {
+pub(super) struct Attachment {
     object: u64,
     memory: Arc<Memory>,
 }
 #[derive(Clone)]
-struct Context {
-    shared: Arc<Shared>,
-    attachments: Arc<Mutex<BTreeMap<u64, Attachment>>>,
+pub(super) struct Context {
+    pub(super) shared: Arc<Shared>,
+    pub(super) attachments: Arc<Mutex<BTreeMap<u64, Attachment>>>,
 }
 impl Context {
     fn attach(&self, object: u64, cookie: u64) -> Result<u64, &'static str> {
@@ -460,12 +464,21 @@ impl Context {
                 arch::clean_dcache_to_poc_range(gpu, n);
             }
         }
-        // DMA retirement is guaranteed by synchronous submit holding this lock.
+        // The CPU-access reservation drained admitted GPU work before this transfer.
         // Imported layouts are checked by the same transfer validation.
         Ok(())
     }
 }
 impl GpuBackendContext for Context {
+    fn begin_image_cpu_access(
+        &self,
+        image: &dyn GpuBackendImage,
+    ) -> Result<Option<Box<dyn GpuBackendCpuAccessGuard + '_>>, &'static str> {
+        self.image(image)?;
+        Ok(Some(Box::new(crate::asynchronous::begin_cpu_access(
+            &self.shared,
+        )?)))
+    }
     fn query_info(&self) -> GpuBackendContextInfo {
         GpuBackendContextInfo::new(0, DIALECT_TOKEN)
     }
@@ -528,119 +541,212 @@ impl GpuBackendQueue for Queue {
         GpuBackendQueueInfo::new(wire::MAX_SUBMIT_SIZE as u32)
     }
     fn submit(&self, bytes: &[u8]) -> Result<(), GpuBackendSubmitError> {
+        crate::asynchronous::submit(&self.context, bytes)
+    }
+    fn async_capacity(&self) -> u32 {
+        crate::asynchronous::CAPACITY as u32
+    }
+    fn enqueue(&self, submission: GpuSubmission) -> Result<(), GpuBackendEnqueueError> {
+        crate::asynchronous::enqueue(&self.context, submission)
+    }
+}
+
+struct BufferSpan {
+    memory: Arc<Memory>,
+    start: usize,
+    end: usize,
+}
+struct BufferSnapshot {
+    span: BufferSpan,
+    bytes: Vec<u8>,
+}
+pub(super) struct Prepared {
+    operations: Vec<[u32; 64]>,
+    buffers: Vec<BufferSnapshot>,
+    writes: Vec<BufferSpan>,
+    _images: Vec<Arc<Memory>>,
+}
+impl Prepared {
+    pub(super) fn new(
+        bytes: &[u8],
+        attached: &BTreeMap<u64, Attachment>,
+    ) -> Result<Self, GpuBackendSubmitError> {
+        Self::prepare(bytes, attached).map_err(GpuBackendSubmitError::Rejected)
+    }
+    fn prepare(bytes: &[u8], attached: &BTreeMap<u64, Attachment>) -> Result<Self, &'static str> {
+        let mut prepared = Self {
+            operations: Vec::new(),
+            buffers: Vec::new(),
+            writes: Vec::new(),
+            _images: Vec::new(),
+        };
         if bytes.is_empty() {
-            return Ok(());
+            return Ok(prepared);
         }
+        let decoded = wire::decode(bytes).map_err(|_| "invalid GM20B submit wire")?;
+        let count = decoded.resource_len();
+        let mut spans: Vec<BufferSpan> = Vec::new();
+        spans
+            .try_reserve_exact(count)
+            .map_err(|_| "GPU snapshot allocation failed")?;
+        prepared
+            .writes
+            .try_reserve_exact(count)
+            .map_err(|_| "GPU snapshot allocation failed")?;
+        prepared
+            ._images
+            .try_reserve_exact(count)
+            .map_err(|_| "GPU snapshot allocation failed")?;
+        for i in 0..count {
+            let resource = decoded.resource(i).unwrap();
+            let memory = &attached
+                .get(&resource.attachment_token)
+                .ok_or("unauthorized attachment")?
+                .memory;
+            let end = resource
+                .range_offset
+                .checked_add(resource.range_size)
+                .ok_or("resource range overflow")?;
+            if end > memory.size {
+                return Err("resource range exceeds attachment");
+            }
+            if matches!(memory.kind, Kind::Buffer { .. }) {
+                spans.push(BufferSpan {
+                    memory: memory.clone(),
+                    start: resource.range_offset as usize,
+                    end: end as usize,
+                });
+                if resource.access & wire::ACCESS_WRITE != 0 {
+                    prepared.writes.push(BufferSpan {
+                        memory: memory.clone(),
+                        start: resource.range_offset as usize,
+                        end: end as usize,
+                    });
+                }
+            } else {
+                prepared._images.push(memory.clone());
+            }
+        }
+        // Merge overlapping aliases before sampling user backing. Otherwise a
+        // second snapshot could overwrite index bytes after they were checked.
+        // Disjoint ranges stay disjoint: reserved buffer capacity is not copied.
+        spans.sort_unstable_by_key(|span| (span.memory.va, span.start));
+        let mut merged: Vec<BufferSpan> = Vec::new();
+        merged
+            .try_reserve_exact(spans.len())
+            .map_err(|_| "GPU snapshot allocation failed")?;
+        for span in spans {
+            if let Some(last) = merged.last_mut() {
+                if last.memory.va == span.memory.va && span.start <= last.end {
+                    last.end = last.end.max(span.end);
+                    continue;
+                }
+            }
+            merged.push(span);
+        }
+        prepared
+            .buffers
+            .try_reserve_exact(merged.len())
+            .map_err(|_| "GPU snapshot allocation failed")?;
+        let mut total = 0usize;
+        for span in merged {
+            let size = span.end - span.start;
+            total = total
+                .checked_add(size)
+                .ok_or("GPU snapshot size overflow")?;
+            if total > 32 * 1024 * 1024 {
+                return Err("GPU snapshot budget exceeded");
+            }
+            let Kind::Buffer { paddr } = span.memory.kind else {
+                unreachable!()
+            };
+            let mut data = Vec::new();
+            data.try_reserve_exact(size)
+                .map_err(|_| "GPU buffer snapshot allocation failed")?;
+            // Snapshot immutable CPU-owned bytes without touching DMA backing
+            // still being read by an earlier accepted submission.
+            unsafe {
+                data.extend_from_slice(core::slice::from_raw_parts(
+                    (scarlet::vm::phys_to_virt(paddr) + span.start) as *const u8,
+                    size,
+                ));
+            }
+            prepared.buffers.push(BufferSnapshot { span, bytes: data });
+        }
+        prepared.operations = validate(&decoded, attached, &prepared.buffers)?;
+        Ok(prepared)
+    }
+}
+impl Shared {
+    pub(super) fn execute_prepared(
+        &self,
+        prepared: &Prepared,
+    ) -> Result<(), GpuBackendSubmitError> {
         let started = time::current_time_ns();
-        let decoded = wire::decode(bytes)
-            .map_err(|_| GpuBackendSubmitError::Rejected("invalid GM20B submit wire"))?;
-        let attached = self.context.attachments.lock();
-        let mut s = self.context.shared.state.lock();
+        let mut s = self.state.lock();
         if s.lost {
             return Err(GpuBackendSubmitError::DeviceLost("GM20B device lost"));
+        }
+        // Empty requests are ordered checkpoints, never early acknowledgments.
+        if prepared.operations.is_empty() {
+            return Ok(());
         }
         s.diagnostic_submissions = s.diagnostic_submissions.saturating_add(1);
         let sequence = s.diagnostic_submissions;
         let trace = sequence <= 4;
-        let acquired = time::current_time_ns();
-        let mut copied_bytes = 0u64;
-        let mut referenced_bytes = 0u64;
-        // Snapshot only the authorized ranges used by this submission, not
-        // the capacity reserved for future frames. The wire decoder checks
-        // every relocation lies inside its declared resource range.
-        // Keep independently retained GPU backing even for a small range.
-        // Validate indices from this snapshot, so a mutable user alias cannot
-        // race validation and cause a GPU fetch outside its authorized VBO.
-        for i in 0..decoded.resource_len() {
-            let resource = decoded.resource(i).unwrap();
-            let a = attached
-                .get(&resource.attachment_token)
-                .ok_or(GpuBackendSubmitError::Rejected("unauthorized attachment"))?;
-            if resource
-                .range_offset
-                .checked_add(resource.range_size)
-                .is_none_or(|end| end > a.memory.size)
-            {
-                return Err(GpuBackendSubmitError::Rejected(
-                    "resource range exceeds attachment",
-                ));
+        for buffer in &prepared.buffers {
+            let destination = buffer.span.memory.pages.as_vaddr() + buffer.span.start;
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    buffer.bytes.as_ptr(),
+                    destination as *mut u8,
+                    buffer.bytes.len(),
+                );
             }
-            if let Kind::Buffer { paddr } = &a.memory.kind {
-                let offset = resource.range_offset as usize;
-                let size = resource.range_size as usize;
-                let destination = a.memory.pages.as_vaddr() + offset;
-                copied_bytes += resource.range_size;
-                referenced_bytes += resource.range_size;
-                unsafe {
-                    core::ptr::copy_nonoverlapping(
-                        (scarlet::vm::phys_to_virt(*paddr) + offset) as *const u8,
-                        destination as *mut u8,
-                        size,
-                    );
-                }
-                arch::clean_dcache_to_poc_range(destination, size);
-            }
+            arch::clean_dcache_to_poc_range(destination, buffer.bytes.len());
         }
-        let snapshotted = time::current_time_ns();
-        let operations = validate(&decoded, &attached).map_err(|error| {
-            if trace {
-                scarlet::println!("gm20b: submit={} rejected: {}", sequence, error);
-            }
-            GpuBackendSubmitError::Rejected(error)
-        })?;
-        let validated = time::current_time_ns();
-        if trace {
-            let draws = operations.iter().filter(|w| w[0] == 2).count();
-            scarlet::println!(
-                "gm20b: submit={} ops={} draws={} objects={}",
-                sequence,
-                operations.len(),
-                draws,
-                decoded.resource_len()
-            );
-        }
-        if let Err(error) = s.power.dma.as_mut().unwrap().execute_graphics(&operations) {
-            if trace {
-                scarlet::println!("gm20b: submit={} execution failed: {:?}", sequence, error);
-            }
+        let uploaded = time::current_time_ns();
+        if let Err(error) = s
+            .power
+            .dma
+            .as_mut()
+            .unwrap()
+            .execute_graphics(&prepared.operations)
+        {
             if matches!(error, GpuBackendSubmitError::DeviceLost(_)) {
                 s.fault();
             }
             return Err(error);
         }
-        if trace {
-            let retired = time::current_time_ns();
-            scarlet::println!(
-                "gm20b: submit={} retired wait_us={} snapshot_us={} validate_us={} execute_us={} copied={} referenced={}",
-                sequence,
-                acquired.saturating_sub(started) / 1000,
-                snapshotted.saturating_sub(acquired) / 1000,
-                validated.saturating_sub(snapshotted) / 1000,
-                retired.saturating_sub(validated) / 1000,
-                copied_bytes,
-                referenced_bytes
-            );
+        // Reflect only declared writable ranges, after actual GPU retirement.
+        for span in &prepared.writes {
+            let Kind::Buffer { paddr } = span.memory.kind else {
+                unreachable!()
+            };
+            let size = span.end - span.start;
+            let source = span.memory.pages.as_vaddr() + span.start;
+            arch::invalidate_dcache_to_poc_range(source, size);
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    source as *const u8,
+                    (scarlet::vm::phys_to_virt(paddr) + span.start) as *mut u8,
+                    size,
+                );
+            }
         }
-        // Written buffer uploads are reflected back only after real GPU retire.
-        for i in 0..decoded.resource_len() {
-            let resource = decoded.resource(i).unwrap();
-            if resource.access & wire::ACCESS_WRITE == 0 {
-                continue;
-            }
-            let a = &attached[&resource.attachment_token];
-            if let Kind::Buffer { paddr } = &a.memory.kind {
-                let offset = resource.range_offset as usize;
-                let size = resource.range_size as usize;
-                let source = a.memory.pages.as_vaddr() + offset;
-                arch::invalidate_dcache_to_poc_range(source, size);
-                unsafe {
-                    core::ptr::copy_nonoverlapping(
-                        source as *const u8,
-                        (scarlet::vm::phys_to_virt(*paddr) + offset) as *mut u8,
-                        size,
-                    );
-                }
-            }
+        if trace {
+            scarlet::println!(
+                "gm20b: submit={} ops={} upload_us={} execute_us={} copied={}",
+                sequence,
+                prepared.operations.len(),
+                uploaded.saturating_sub(started) / 1000,
+                time::current_time_ns().saturating_sub(uploaded) / 1000,
+                prepared
+                    .buffers
+                    .iter()
+                    .map(|buffer| buffer.bytes.len())
+                    .sum::<usize>()
+            );
         }
         Ok(())
     }
@@ -792,6 +898,7 @@ impl GpuBackend for Backend {
 fn validate(
     decoded: &wire::DecodedSubmit<'_>,
     attached: &BTreeMap<u64, Attachment>,
+    buffers: &[BufferSnapshot],
 ) -> Result<Vec<[u32; 64]>, &'static str> {
     if decoded.commands_len() % wire::OPERATION_WORDS != 0
         || decoded.commands_len() > wire::MAX_COMMAND_WORDS
@@ -964,7 +1071,16 @@ fn validate(
                     {
                         return Err("index binding out of range");
                     }
-                    let p = index.0.pages.as_vaddr() + index.1 as usize;
+                    let snapshot = buffers
+                        .iter()
+                        .find(|buffer| {
+                            buffer.span.memory.va == index.0.va
+                                && buffer.span.start <= index.1 as usize
+                                && buffer.span.end >= (index.1 + u64::from(end) * element) as usize
+                        })
+                        .ok_or("index range missing immutable snapshot")?;
+                    let p =
+                        snapshot.bytes.as_ptr() as usize + index.1 as usize - snapshot.span.start;
                     for i in w[24]..end {
                         let value = if element == 2 {
                             unsafe {

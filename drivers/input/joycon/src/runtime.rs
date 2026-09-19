@@ -9,7 +9,7 @@ use scarlet::{
         manager::{DeviceManager, DriverPriority},
         platform::{PlatformDeviceDriver, PlatformDeviceInfo},
     },
-    sync::IrqSpinLock,
+    sync::{IrqSpinLock, Waker},
 };
 use scarlet_driver_tegra210::{
     TegraGpio, TegraUart, cell, delay_us, enable_rail_supply, gpio_for, pad, sleep_ms,
@@ -234,6 +234,7 @@ fn worker() {
     let mut first_input = [false; 2];
     let mut pair = Pair::default();
     let mut rails: [Option<Arc<Rail>>; 2] = [None, None];
+    let rx_waker = Arc::new(Waker::new_interruptible("joycon_rx"));
     emit(&event, &pair);
     loop {
         let now = scarlet::time::current_time_ns() / 1_000_000;
@@ -259,6 +260,7 @@ fn worker() {
                         changed = true;
                     }
                 }
+                rail.uart.enable_rx_interrupts(rx_waker.clone());
                 rails[n] = Some(rail.clone());
             }
         }
@@ -287,17 +289,20 @@ fn worker() {
                     );
                 }
             }
+            let mut bytes = [0; 256];
+            let received = rail.uart.receive_ready(&mut bytes);
+            // Drain residual input even after the rail detaches, so buffered
+            // bytes cannot keep the worker's readiness condition asserted.
             if !detected[n] {
                 continue;
             }
-            let mut bytes = [0; 256];
-            match rail.uart.receive_ready(&mut bytes) {
+            match received {
                 Ok(count) => {
                     received_bytes[n] += count as u64;
                     parsers[n].feed_each(&bytes[..count], |packet| {
                         received_packets[n] += 1;
                         let previous = link.stage;
-                        if let Some(report) = link.receive(&packet, now) {
+                        if let Some(report) = link.receive(packet, now) {
                             if !first_input[n] {
                                 scarlet::println!(
                                     "joycon: {:?} first HID id={:#x} buttons={:#x} stick=({}, {}) via={:?}",
@@ -312,7 +317,10 @@ fn worker() {
                             }
                             if report.differs_from(pair.halves[n]) {
                                 pair.set(rail.side, report);
-                                changed = true;
+                                // Preserve every report's button transitions,
+                                // including press/release pairs in one burst.
+                                emit(&event, &pair);
+                                changed = false;
                             }
                         }
                         if previous != link.stage && link.stage == Stage::Ready {
@@ -385,7 +393,30 @@ fn worker() {
         if changed {
             emit(&event, &pair);
         }
-        sleep_ms(8);
+        let now = scarlet::time::current_time_ns() / 1_000_000;
+        let mut deadline = next_detect;
+        for rail in rails.iter().flatten() {
+            if detected[rail.side.index()] {
+                deadline = deadline.min(links[rail.side.index()].next_deadline_ms());
+            }
+        }
+        let remaining_ms = deadline.saturating_sub(now);
+        if remaining_ms != 0 {
+            if let Some(task) = scarlet::task::mytask() {
+                rx_waker.wait_with_condition(
+                    task.get_id(),
+                    task.get_trapframe(),
+                    Some(remaining_ms * 1_000_000),
+                    0,
+                    || {
+                        rails
+                            .iter()
+                            .flatten()
+                            .any(|rail| rail.uart.rx_interrupt_pending())
+                    },
+                );
+            }
+        }
     }
 }
 fn probe(d: &PlatformDeviceInfo) -> Result<(), &'static str> {

@@ -127,6 +127,17 @@ impl RawImage {
         })
     }
 
+    pub(crate) fn upload_bgra(
+        &self,
+        bytes: &[u8],
+        stride: u32,
+        area: gpu_raw::GpuImageBgraRect,
+    ) -> HandleResult<()> {
+        self.context
+            .raw
+            .upload_image_bgra(&self.raw, bytes, stride, area)
+    }
+
     pub(crate) fn allocation_size(&self) -> u64 {
         self.layout.total_size
     }
@@ -275,7 +286,6 @@ pub(crate) struct ContextResources {
     pub(crate) images: Vec<Option<Arc<RawImage>>>,
     pub(crate) buffers: Vec<Option<Arc<RawBuffer>>>,
     scratch: Option<RawBuffer>,
-    pub(crate) async_arenas: Vec<Arc<crate::asynchronous::UploadArena>>,
 }
 
 impl ContextResources {
@@ -289,7 +299,6 @@ impl ContextResources {
             images: empty_slots(ir::MAX_TEXTURES)?,
             buffers: empty_slots(ir::MAX_BUFFERS)?,
             scratch: None,
-            async_arenas: Vec::new(),
         })
     }
 
@@ -426,7 +435,7 @@ impl ContextResources {
     pub(crate) fn buffer(
         &mut self,
         reference: ir::BufferRef<'_>,
-    ) -> Result<&RawBuffer, IrSubmitError> {
+    ) -> Result<&Arc<RawBuffer>, IrSubmitError> {
         let slot = reference.slot();
         if slot >= self.buffers.len() {
             return Err(IrSubmitError::ResourceTableMismatch);
@@ -439,7 +448,7 @@ impl ContextResources {
             )?));
         }
         self.buffers[slot]
-            .as_deref()
+            .as_ref()
             .ok_or(IrSubmitError::ResourceTableMismatch)
     }
 

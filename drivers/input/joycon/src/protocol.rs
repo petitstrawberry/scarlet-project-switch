@@ -279,6 +279,10 @@ impl Link {
     pub fn stale(&self, now: u64) -> bool {
         self.stage != Stage::Ready || now.saturating_sub(self.last_input_ms) >= 250
     }
+    /// Next protocol transmit deadline; RX delivery is independent of polling.
+    pub fn next_deadline_ms(&self) -> u64 {
+        self.due
+    }
 }
 
 #[derive(Default)]

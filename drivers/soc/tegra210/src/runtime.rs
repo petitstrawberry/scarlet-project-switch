@@ -4,6 +4,7 @@ use alloc::{boxed::Box, string::ToString, sync::Arc, vec, vec::Vec};
 use core::sync::atomic::{AtomicU64, Ordering};
 use scarlet::{
     device::{
+        events::InterruptCapableDevice,
         i2c::{I2cBus, I2cError, I2cMessage, I2cMessageFlags},
         manager::{DeviceManager, DriverPriority, PROBE_DEFER},
         platform::{
@@ -12,10 +13,11 @@ use scarlet::{
         },
     },
     interrupt::{
-        Hwirq, InterruptError, InterruptResult, controllers::ExternalInterruptGate,
-        register_external_interrupt_gate,
+        Hwirq, InterruptClaim, InterruptError, InterruptId, InterruptResult,
+        controllers::ExternalInterruptGate, register_and_enable_platform_irq_device,
+        register_external_interrupt_gate, resolve_platform_irq,
     },
-    sync::{IrqSpinLock, SpinLock},
+    sync::{IrqSpinLock, SpinLock, Waker},
 };
 
 #[derive(Clone, Copy)]
@@ -452,7 +454,18 @@ pub struct TegraUart {
     instance: u8,
     source: usize,
     car: Arc<Car>,
-    lock: SpinLock<()>,
+    // DLAB aliases RBR/IER while changing baud. RX IRQs use the same lock,
+    // with local interrupts masked, as serial-tegra.c's uart_port lock does.
+    lock: IrqSpinLock<()>,
+    interrupt_id: InterruptId,
+    rx_interrupt: IrqSpinLock<UartRxInterrupt>,
+}
+struct UartRxInterrupt {
+    waker: Option<Arc<Waker>>,
+    bytes: [u8; 512],
+    head: usize,
+    len: usize,
+    errors: u32,
 }
 pub struct UartRxError {
     status: u32,
@@ -473,6 +486,8 @@ impl core::fmt::Display for UartRxError {
 impl TegraUart {
     // L4T's PIO receive trigger and 16-byte transmit trigger.
     const FIFO_CONTROL: u32 = 1 | (3 << 6);
+    // serial-tegra.c PIO: receive data, line status and receive timeout.
+    const RX_INTERRUPTS: u32 = 1 | (1 << 2) | (1 << 4);
     pub fn instance(&self) -> u8 {
         self.instance
     }
@@ -480,6 +495,12 @@ impl TegraUart {
         let _lock = self.lock.lock();
         self.car.uart_baud(self.source, baud)?;
         self.regs.write(4, 0);
+        {
+            let mut rx = self.rx_interrupt.lock();
+            rx.head = 0;
+            rx.len = 0;
+            rx.errors = 0;
+        }
         self.regs.write(0x0c, 0x83);
         self.regs.write(0, 1);
         self.regs.write(4, 0);
@@ -498,7 +519,23 @@ impl TegraUart {
         let _ = self.regs.read(0x1c);
         // Linux waits two character intervals after changing the divisor.
         delay_us(22_000_000u64.div_ceil(baud as u64));
+        if self.rx_interrupt.lock().waker.is_some() {
+            self.regs.write(4, Self::RX_INTERRUPTS);
+            let _ = self.regs.read(4);
+        }
         Ok(())
+    }
+    /// Hand RX delivery to a sleeping transport consumer after polled bring-up.
+    /// IRQs drain the hardware FIFO into bounded storage, as Linux PIO does.
+    pub fn enable_rx_interrupts(&self, waker: Arc<Waker>) {
+        let _lock = self.lock.lock();
+        self.rx_interrupt.lock().waker = Some(waker);
+        self.regs.write(4, Self::RX_INTERRUPTS);
+        let _ = self.regs.read(4);
+    }
+    pub fn rx_interrupt_pending(&self) -> bool {
+        let rx = self.rx_interrupt.lock();
+        rx.len != 0 || rx.errors != 0
     }
     fn clear_fifos(&self, clear: u32, baud: u32) {
         // serial-tegra.c: T210 must leave FIFO mode before resetting a FIFO.
@@ -545,10 +582,27 @@ impl TegraUart {
     pub fn receive(&self, bytes: &mut [u8]) -> Result<usize, UartRxError> {
         self.receive_with_wait(bytes, true)
     }
-    /// Drain a ready RX burst without spinning when the FIFO is empty. Once a
-    /// byte arrives, keep the normal inter-byte wait for a complete packet.
+    /// Consume buffered PIO input without probing an empty hardware FIFO or
+    /// masking/unmasking LIC and GIC for each fragment. The parser retains
+    /// incomplete packets; the next RX IRQ wakes it when more bytes arrive.
     pub fn receive_ready(&self, bytes: &mut [u8]) -> Result<usize, UartRxError> {
-        self.receive_with_wait(bytes, false)
+        let _lock = self.lock.lock();
+        let mut rx = self.rx_interrupt.lock();
+        let count = bytes.len().min(rx.len);
+        for byte in &mut bytes[..count] {
+            *byte = rx.bytes[rx.head];
+            rx.head = (rx.head + 1) % rx.bytes.len();
+        }
+        rx.len -= count;
+        let errors = core::mem::take(&mut rx.errors);
+        if errors == 0 {
+            return Ok(count);
+        }
+        rx.head = 0;
+        rx.len = 0;
+        drop(rx);
+        self.recover_rx();
+        Err(Self::rx_error(errors, &bytes[..count]))
     }
     fn receive_with_wait(
         &self,
@@ -556,55 +610,115 @@ impl TegraUart {
         wait_for_first: bool,
     ) -> Result<usize, UartRxError> {
         let _lock = self.lock.lock();
-        if !wait_for_first && self.regs.read(0x14) & 0x1f == 0 {
+        // Reading LSR acknowledges line errors. Keep this first sample for
+        // the drain loop instead of losing its error bits in the ready check.
+        let mut status = self.regs.read(0x14);
+        if !wait_for_first && status & 0x1f == 0 {
             return Ok(0);
         }
-        // A live 3-Mbps rail byte takes about 3.3 us. The worker's parser
-        // retains partial packets, so it needs only a short inter-byte gap;
-        // initialization keeps the wider wait used for handshake replies.
-        let idle_gap_ns = if wait_for_first { 250_000 } else { 40_000 };
+        // Only synchronous initialization needs an inter-byte wait. Runtime
+        // RX is interrupt-driven and bounded by the caller's buffer length.
+        let idle_gap_ns = 250_000;
         let deadline = scarlet::time::current_time_ns().saturating_add(2_000_000);
         let mut idle = scarlet::time::current_time_ns().saturating_add(idle_gap_ns);
         let mut n = 0;
         let mut errors = 0;
         while n < bytes.len() {
-            let status = self.regs.read(0x14);
             // Bit 7 summarizes an error somewhere in the FIFO. Linux uses
             // the per-character overrun/parity/framing/break bits instead.
             errors |= status & 0x1e;
             if status & 1 != 0 {
                 bytes[n] = self.regs.read(0) as u8;
                 n += 1;
-                idle = scarlet::time::current_time_ns().saturating_add(idle_gap_ns);
-            } else if scarlet::time::current_time_ns() >= idle {
+                if wait_for_first {
+                    idle = scarlet::time::current_time_ns().saturating_add(idle_gap_ns);
+                }
+            } else if !wait_for_first || scarlet::time::current_time_ns() >= idle {
                 break;
             }
-            if scarlet::time::current_time_ns() >= deadline {
+            if wait_for_first && scarlet::time::current_time_ns() >= deadline {
                 break;
             }
+            status = self.regs.read(0x14);
         }
         if errors != 0 {
-            let mut sample = [0; 16];
-            let sample_len = n.min(sample.len());
-            sample[..sample_len].copy_from_slice(&bytes[..sample_len]);
-            self.regs.write(0x10, 0);
-            // The source divider selects exactly baud * 16 with divisor 1.
-            let baud = if self.regs.read(0x0c) & 4 != 0 {
-                3_000_000
-            } else {
-                1_000_000
-            };
-            self.clear_fifos(2, baud);
-            self.regs.write(0x10, (1 << 5) | (1 << 6));
-            let _ = self.regs.read(0x1c);
-            Err(UartRxError {
-                status: errors,
-                received: n,
-                sample,
-            })
+            self.recover_rx();
+            Err(Self::rx_error(errors, &bytes[..n]))
         } else {
             Ok(n)
         }
+    }
+    fn recover_rx(&self) {
+        self.regs.write(0x10, 0);
+        // The source divider selects exactly baud * 16 with divisor 1.
+        let baud = if self.regs.read(0x0c) & 4 != 0 {
+            3_000_000
+        } else {
+            1_000_000
+        };
+        self.clear_fifos(2, baud);
+        self.regs.write(0x10, (1 << 5) | (1 << 6));
+        let _ = self.regs.read(0x1c);
+    }
+    fn rx_error(status: u32, bytes: &[u8]) -> UartRxError {
+        let mut sample = [0; 16];
+        let sample_len = bytes.len().min(sample.len());
+        sample[..sample_len].copy_from_slice(&bytes[..sample_len]);
+        UartRxError {
+            status,
+            received: bytes.len(),
+            sample,
+        }
+    }
+}
+impl InterruptCapableDevice for TegraUart {
+    fn handle_interrupt(&self) -> InterruptResult<()> {
+        let _ = self.claim_interrupt()?;
+        Ok(())
+    }
+    fn interrupt_id(&self) -> Option<InterruptId> {
+        Some(self.interrupt_id)
+    }
+    fn claim_interrupt(&self) -> InterruptResult<InterruptClaim> {
+        let lock = self.lock.lock();
+        if self.regs.read(8) & 1 != 0 {
+            // These UARTs own dedicated LIC/GIC lines. The worker can drain
+            // RX before an already-pending controller delivery reaches us.
+            // Like serial-tegra.c, acknowledge that late delivery as handled.
+            return Ok(InterruptClaim::Handled);
+        }
+        let waker = {
+            let mut rx = self.rx_interrupt.lock();
+            // Bounded top half: only drain already available data, never
+            // wait for the next character. A still-asserted level retriggers.
+            // Parsing and input-event publication remain in the worker.
+            for _ in 0..256 {
+                let status = self.regs.read(0x14);
+                rx.errors |= status & 0x1e;
+                if status & 1 == 0 {
+                    break;
+                }
+                let byte = self.regs.read(0) as u8;
+                if rx.len < rx.bytes.len() {
+                    let tail = (rx.head + rx.len) % rx.bytes.len();
+                    rx.bytes[tail] = byte;
+                    rx.len += 1;
+                } else {
+                    // Do not silently splice packets across software overrun.
+                    rx.errors |= 2;
+                }
+            }
+            if rx.len != 0 || rx.errors != 0 {
+                rx.waker.clone()
+            } else {
+                None
+            }
+        };
+        drop(lock);
+        if let Some(waker) = waker {
+            waker.wake_one();
+        }
+        Ok(InterruptClaim::Handled)
     }
 }
 pub fn uart(parent: u32) -> Result<Arc<TegraUart>, &'static str> {
@@ -732,15 +846,37 @@ fn probe_uart(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
         gpio.peripheral(pin)?;
     }
     let regs = map_resource(d, addr, 0x40)?;
+    let irq = d
+        .get_resources()
+        .iter()
+        .find(|resource| resource.res_type == PlatformDeviceResourceType::IRQ)
+        .ok_or("Tegra UART IRQ missing")?;
+    let interrupt_id = resolve_platform_irq(irq).map_err(|_| "Tegra UART IRQ resolution failed")?;
     car.enable(reset, source, 2);
     let uart = Arc::new(TegraUart {
         regs,
         instance: index as u8,
         source,
         car,
-        lock: SpinLock::new(()),
+        lock: IrqSpinLock::new(()),
+        interrupt_id,
+        rx_interrupt: IrqSpinLock::new(UartRxInterrupt {
+            waker: None,
+            bytes: [0; 512],
+            head: 0,
+            len: 0,
+            errors: 0,
+        }),
     });
     uart.configure(1_000_000)?;
+    // IER remains masked through synchronous Joy-Con initialization. The
+    // worker enables RX only after its parser and wake queue are installed.
+    register_and_enable_platform_irq_device(
+        irq,
+        uart.clone(),
+        scarlet::arch::get_cpu().get_cpuid() as u32,
+    )
+    .map_err(|_| "Tegra UART IRQ registration failed")?;
     UARTS.lock().push((id, uart));
     scarlet::println!("tegra210-uart: rail transport at {:#x} ready", addr);
     Ok(())

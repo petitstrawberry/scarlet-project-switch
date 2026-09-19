@@ -17,8 +17,9 @@ use std::{
     poll::{POLLIN, PollHandle, poll},
 };
 
-use crate::asynchronous::{DispatchOwner, UploadArena};
+use crate::asynchronous::DispatchOwner;
 use crate::completion::{completion_status, monotonic_time_ns, remaining_timeout_ns};
+use crate::resource::{RawBuffer, RawImage};
 use crate::scheduler::{AdmissionError, DispatchError, Scheduler, Transport};
 use crate::{Handle, HandleError, HandleResult, IrSubmitError};
 use sgfx_core::backend::CompletionStatus;
@@ -186,75 +187,97 @@ impl Signal {
     }
 }
 
-pub(crate) struct Chunk {
-    pub(crate) commands: Vec<u8>,
-    pub(crate) arena: Arc<UploadArena>,
-    pub(crate) uploads: Vec<(u64, Vec<u8>)>,
+pub(crate) enum Chunk {
+    Commands(Vec<u8>),
+    WriteBuffer {
+        buffer: Arc<RawBuffer>,
+        offset: u64,
+        data: Vec<u8>,
+    },
+    WriteImage {
+        image: Arc<RawImage>,
+        data: Vec<u8>,
+        bytes_per_row: u32,
+        area: gpu_raw::GpuImageBgraRect,
+    },
+}
+
+enum Receipt {
+    Native(Arc<GpuCompletion>),
+    Uploaded,
 }
 
 struct Native;
 
 impl Transport for Native {
     type Chunk = Chunk;
-    // Retain the attachment owner, as well as the queue, until every queued
-    // chunk has been submitted and retired. Session/receipt drop cannot detach
-    // resources needed by chunks that have not reached the kernel yet.
+    // Session/receipt drop cannot detach resources still needed by the worker.
     type Owner = Arc<DispatchOwner>;
-    type Receipt = Arc<GpuCompletion>;
+    type Receipt = Receipt;
     type Signal = Arc<Signal>;
     type Error = Failure;
 
     fn size(chunk: &Chunk) -> usize {
-        chunk
-            .uploads
-            .iter()
-            .fold(chunk.commands.len(), |size, (_, bytes)| {
-                size.saturating_add(bytes.len())
-            })
+        match chunk {
+            Chunk::Commands(bytes) => bytes.len(),
+            Chunk::WriteBuffer { data, .. } | Chunk::WriteImage { data, .. } => data.len(),
+        }
     }
 
-    fn ready(&self, chunk: &Chunk) -> Result<bool, Failure> {
-        let previous = lock(&chunk.arena.completion).clone();
-        previous
-            .as_ref()
-            .map_or(Ok(true), |completion| native_status(completion))
+    fn requires_idle(chunk: &Chunk) -> bool {
+        !matches!(chunk, Chunk::Commands(_))
+    }
+
+    fn ready(&self, _: &Chunk) -> Result<bool, Failure> {
+        Ok(true)
     }
 
     fn submit(
         &self,
         owner: &Arc<DispatchOwner>,
         chunk: &Chunk,
-    ) -> Result<Arc<GpuCompletion>, DispatchError<Failure>> {
-        // This arena's previous native use has retired. Upload writes happen
-        // only on the worker, before submission; a Busy response can retry
-        // these same bytes without changing anything consumed by pending work.
-        for (offset, bytes) in &chunk.uploads {
-            chunk
-                .arena
-                .buffer
-                .write(*offset, bytes)
-                .map_err(|error| DispatchError::Failed(Failure::Backend(error)))?;
-        }
-        match owner.queue.submit_async(&chunk.commands) {
-            Ok(completion) => {
-                let completion = Arc::new(completion);
-                *lock(&chunk.arena.completion) = Some(Arc::clone(&completion));
-                Ok(completion)
+    ) -> Result<Receipt, DispatchError<Failure>> {
+        let commands = match chunk {
+            Chunk::Commands(commands) => commands,
+            Chunk::WriteBuffer {
+                buffer,
+                offset,
+                data,
+            } => {
+                buffer
+                    .write(*offset, data)
+                    .map_err(|error| DispatchError::Failed(Failure::Backend(error)))?;
+                return Ok(Receipt::Uploaded);
             }
+            Chunk::WriteImage {
+                image,
+                data,
+                bytes_per_row,
+                area,
+            } => {
+                image
+                    .upload_bgra(data, *bytes_per_row, *area)
+                    .map_err(|error| DispatchError::Failed(Failure::Backend(error)))?;
+                return Ok(Receipt::Uploaded);
+            }
+        };
+        match owner.queue.submit_async(commands) {
+            Ok(completion) => Ok(Receipt::Native(Arc::new(completion))),
             Err(GpuSubmitError::Busy) => Err(DispatchError::Busy),
             Err(GpuSubmitError::Rejected(error) | GpuSubmitError::Failed { error, .. }) => {
-                // Acceptance happened at logical enqueue. Any later rejection
-                // or uncertain native acceptance fails the receipt and poisons
-                // the queue, never replays it. Kernel-owned references protect
-                // possibly accepted work after these observation handles drop.
+                // Logical admission already happened: fail the receipt without
+                // replaying any accepted prefix, even on uncertain acceptance.
                 Err(DispatchError::Failed(Failure::Backend(error)))
             }
             Err(_) => Err(DispatchError::Failed(Failure::Unavailable)),
         }
     }
 
-    fn poll(&self, receipt: &Arc<GpuCompletion>) -> Result<bool, Failure> {
-        native_status(receipt)
+    fn poll(&self, receipt: &Receipt) -> Result<bool, Failure> {
+        match receipt {
+            Receipt::Native(completion) => native_status(completion),
+            Receipt::Uploaded => Ok(true),
+        }
     }
     fn complete(&self, signal: &Arc<Signal>, result: Result<(), Failure>) {
         signal.complete(result);
@@ -362,11 +385,13 @@ fn run(shared: Arc<Shared>) {
             {
                 return;
             }
-            handles.extend(
-                scheduler
-                    .receipts()
-                    .map(|receipt| PollHandle::new(receipt.as_handle().as_raw() as u32, POLLIN)),
-            );
+            handles.extend(scheduler.receipts().filter_map(|receipt| match receipt {
+                Receipt::Native(completion) => Some(PollHandle::new(
+                    completion.as_handle().as_raw() as u32,
+                    POLLIN,
+                )),
+                Receipt::Uploaded => None,
+            }));
             (progressed, !scheduler.is_empty())
         };
         if progressed {

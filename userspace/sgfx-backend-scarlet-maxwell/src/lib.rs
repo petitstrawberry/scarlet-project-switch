@@ -631,11 +631,17 @@ impl sgfx_core::backend::CommandExecutor for Executor<'_> {
 impl sgfx_core::backend::CommandSubmitter for Executor<'_> {
     type Submission = Submission;
 
+    fn supports_async_submission(&self) -> bool {
+        self.queue.query_async().is_ok_and(|info| {
+            info.result == GPU_RESULT_SUCCESS && info.max_pending_submissions != 0
+        })
+    }
+
     /// Submit owned GPU work without waiting for its completion or capacity.
     ///
     /// Requires a queue which genuinely advertises asynchronous ownership.
-    /// The initial synchronous GM20B queue returns AsyncUnsupported before
-    /// admission. It never substitutes a blocking submit for enqueue.
+    /// Older synchronous GM20B queues return AsyncUnsupported before admission.
+    /// It never substitutes a blocking submit for enqueue.
     fn submit<'r, 'data>(
         &mut self,
         commands: &ir::CommandBuffer<'r, 'data>,

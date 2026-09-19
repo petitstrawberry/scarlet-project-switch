@@ -12,6 +12,7 @@ use scarlet::{
     arch,
     device::{
         Device, DeviceType,
+        events::InterruptCapableDevice,
         gpu::GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4,
         graphics::{
             FramebufferConfig, GpuDisplayResource, GpuPresentOptions, GraphicsDevice, PixelFormat,
@@ -24,9 +25,13 @@ use scarlet::{
         },
     },
     earlyfb,
+    interrupt::{
+        InterruptClaim, InterruptId, InterruptResult, register_and_enable_platform_irq_device,
+        resolve_platform_irq,
+    },
     mem::page::ContiguousPages,
     object::capability::{ControlOps, MemoryMappingOps, Selectable},
-    sync::Mutex,
+    sync::{IrqSpinLock, Mutex, Waker},
     time,
     vm::{self, vmem::MemoryAttribute},
 };
@@ -58,6 +63,7 @@ const UV_BUFFER_STRIDE: usize = 0x70c;
 const MEM_HIGH_PRIORITY: usize = 0x403;
 const MEM_HIGH_PRIORITY_TIMER: usize = 0x404;
 const ACT_REQ: u32 = 3; // GENERAL and window A.
+const FRAME_END: u32 = 1 << 1;
 const VBLANK: u32 = 1 << 2;
 const WINDOW_A_FETCH_EVENTS: u32 = (1 << 8) | (1 << 14);
 const WINDOW_B_FETCH_EVENTS: u32 = (1 << 9) | (1 << 15);
@@ -125,6 +131,13 @@ struct Display {
     diagnostic_frames: AtomicUsize,
     last_underflow_a: AtomicU32,
     last_underflow_b: AtomicU32,
+    interrupt_id: InterruptId,
+    irq_ready: AtomicBool,
+    irq_lock: IrqSpinLock<()>,
+    flip_pending: AtomicBool,
+    flip_complete: AtomicBool,
+    flip_waker: Waker,
+    delayed_flip_irqs: AtomicUsize,
 }
 
 impl Display {
@@ -157,8 +170,8 @@ impl Display {
     }
 
     fn activate(&self) -> Result<(), &'static str> {
-        // Hekate starts with event generation disabled. Enable VBlank and
-        // fetch-error status while masking their CPU IRQs; no GIC is claimed.
+        // Hekate starts with event generation disabled. Enable frame and
+        // fetch-error status. Only FRAME_END is unmasked during an armed flip.
         self.write(INT_MASK, self.read(INT_MASK) & !self.event_mask);
         self.write(INT_ENABLE, self.read(INT_ENABLE) | self.event_mask);
         // T210 window.c resets the fetch FIFO before updating a window.
@@ -180,13 +193,95 @@ impl Display {
         if self.read(ACT_CONTROL) & activation_mask != 0 {
             return Err("Tegra DC V-counter activation did not latch");
         }
-        self.write(STATE_CONTROL, request);
-        self.wait(STATE_CONTROL, |value| value & request == 0)?;
-        // A completed latch alone does not retire outstanding old scanout
-        // fetches. Keep both allocations through another full frame boundary.
-        self.write(INT_STATUS, VBLANK);
-        self.wait(INT_STATUS, |value| value & VBLANK != 0)?;
+        // Linux's continuous-mode IRQ retires windows at FRAME_END once
+        // ACT_REQ has cleared, then ext/dev.c releases the old front buffers.
+        // Clear the sticky event BEFORE arming this flip, so its own boundary
+        // can satisfy both conditions. Clearing it after promotion would
+        // impose a second frame wait and cap 60-Hz scanout at 30 presents/s.
+        let use_irq = self.irq_ready.load(Ordering::Acquire) && scarlet::task::mytask().is_some();
+        {
+            let _irq = self.irq_lock.lock();
+            self.flip_complete.store(false, Ordering::Release);
+            self.write(INT_STATUS, FRAME_END);
+            self.flip_pending.store(use_irq, Ordering::Release);
+            self.write(STATE_CONTROL, request);
+            if use_irq {
+                self.write(INT_MASK, self.read(INT_MASK) | FRAME_END);
+            }
+        }
+        if use_irq {
+            let deadline = time::current_time_ns().saturating_add(100_000_000);
+            let task = scarlet::task::mytask().ok_or("DC flip lost its waiting task")?;
+            while !self.flip_complete.load(Ordering::Acquire) {
+                let remaining = deadline.saturating_sub(time::current_time_ns());
+                if remaining == 0 {
+                    // A delayed IRQ is not a failed flip. Recheck the same
+                    // hardware retirement proof as the ISR while excluding
+                    // it, before revoking pending ownership or losing DC.
+                    let (complete, status, activation, mask, enable) = {
+                        let _irq = self.irq_lock.lock();
+                        let status = self.read(INT_STATUS);
+                        self.retire_flip_locked(status);
+                        let complete = self.flip_complete.load(Ordering::Acquire);
+                        let snapshot = (
+                            complete,
+                            status,
+                            self.read(STATE_CONTROL),
+                            self.read(INT_MASK),
+                            self.read(INT_ENABLE),
+                        );
+                        self.write(INT_MASK, self.read(INT_MASK) & !FRAME_END);
+                        self.flip_pending.store(false, Ordering::Release);
+                        snapshot
+                    };
+                    if !complete {
+                        scarlet::println!(
+                            "tegra-dc: flip timeout status={:#x} act={:#x} mask={:#x} enable={:#x}",
+                            status,
+                            activation,
+                            mask,
+                            enable
+                        );
+                        return Err("Tegra DC FRAME_END interrupt timeout");
+                    }
+                    if self.delayed_flip_irqs.fetch_add(1, Ordering::Relaxed) < 4 {
+                        scarlet::println!(
+                            "tegra-dc: retired completed flip after delayed FRAME_END IRQ"
+                        );
+                    }
+                    break;
+                }
+                self.flip_waker.wait_with_condition(
+                    task.get_id(),
+                    task.get_trapframe(),
+                    Some(remaining),
+                    0,
+                    || self.flip_complete.load(Ordering::Acquire),
+                );
+            }
+        } else {
+            // Native adoption precedes scheduler/IRQ initialization.
+            self.wait(STATE_CONTROL, |value| value & request == 0)?;
+            self.wait(INT_STATUS, |value| value & FRAME_END != 0)?;
+        }
         Ok(())
+    }
+
+    /// Caller holds irq_lock; both ISR and timeout observation use the same
+    /// post-arm FRAME_END plus cleared activation proof before releasing DMA.
+    fn retire_flip_locked(&self, status: u32) -> bool {
+        let completed = status & FRAME_END != 0
+            && self.flip_pending.load(Ordering::Acquire)
+            && self.read(STATE_CONTROL) & (ACT_REQ | (1 << 2)) == 0;
+        if status & FRAME_END != 0 {
+            self.write(INT_STATUS, FRAME_END);
+        }
+        if completed {
+            self.write(INT_MASK, self.read(INT_MASK) & !FRAME_END);
+            self.flip_pending.store(false, Ordering::Release);
+            self.flip_complete.store(true, Ordering::Release);
+        }
+        completed
     }
 
     fn activation_mask(&self) -> u32 {
@@ -665,6 +760,26 @@ impl Display {
     }
 }
 
+impl InterruptCapableDevice for Display {
+    fn interrupt_id(&self) -> Option<InterruptId> {
+        Some(self.interrupt_id)
+    }
+    fn handle_interrupt(&self) -> InterruptResult<()> {
+        self.claim_interrupt().map(|_| ())
+    }
+    fn claim_interrupt(&self) -> InterruptResult<InterruptClaim> {
+        let completed = {
+            let _irq = self.irq_lock.lock();
+            self.retire_flip_locked(self.read(INT_STATUS))
+        };
+        if completed {
+            self.flip_waker.wake_one();
+        }
+        // Dedicated DC0 line, including a controller delivery after masking.
+        Ok(InterruptClaim::Handled)
+    }
+}
+
 impl Drop for Display {
     fn drop(&mut self) {
         if self.state.get_mut().changed && self.restore().is_err() {
@@ -883,6 +998,7 @@ impl GraphicsDevice for Display {
             !state.initialized || self.keep_console,
         ) {
             state.lost = true;
+            scarlet::println!("tegra-dc: GPU page flip failed: {}", error);
             return Err(error);
         }
         if !direct {
@@ -922,6 +1038,12 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     if REGISTERED.load(Ordering::Acquire) {
         return Err("Tegra DC is already registered");
     }
+    let irq = device
+        .get_resources()
+        .iter()
+        .find(|resource| resource.res_type == PlatformDeviceResourceType::IRQ)
+        .ok_or("Tegra DC IRQ missing")?;
+    let interrupt_id = resolve_platform_irq(irq).map_err(|_| "Tegra DC IRQ resolution failed")?;
     let resource = device
         .get_resources()
         .iter()
@@ -1086,7 +1208,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
             };
         }
     }
-    let event_mask = VBLANK | WINDOW_A_FETCH_EVENTS | WINDOW_B_FETCH_EVENTS;
+    let event_mask = FRAME_END | VBLANK | WINDOW_A_FETCH_EVENTS | WINDOW_B_FETCH_EVENTS;
     let display = Arc::new(Display {
         base,
         mc,
@@ -1108,6 +1230,13 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         diagnostic_frames: AtomicUsize::new(0),
         last_underflow_a: AtomicU32::new(underflow_a),
         last_underflow_b: AtomicU32::new(underflow_b),
+        interrupt_id,
+        irq_ready: AtomicBool::new(false),
+        irq_lock: IrqSpinLock::new(()),
+        flip_pending: AtomicBool::new(false),
+        flip_complete: AtomicBool::new(false),
+        flip_waker: Waker::new_uninterruptible("tegra-dc-flip"),
+        delayed_flip_irqs: AtomicUsize::new(0),
         state: Mutex::new(State {
             initialized: false,
             changed: false,
@@ -1126,6 +1255,19 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         return Err(error);
     }
     REGISTERED.store(true, Ordering::Release);
+    match register_and_enable_platform_irq_device(
+        irq,
+        display.clone(),
+        arch::get_cpu().get_cpuid() as u32,
+    ) {
+        Ok(_) => {
+            display.irq_ready.store(true, Ordering::Release);
+            scarlet::println!("tegra-dc: FRAME_END interrupt page-flip retirement enabled");
+        }
+        Err(_) => {
+            scarlet::println!("tegra-dc: IRQ registration failed; polled page-flip retirement")
+        }
+    }
     Ok(())
 }
 

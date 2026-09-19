@@ -44,6 +44,7 @@ pub struct Graphics {
     texture: ContiguousPages,
     tile: ContiguousPages,
     sequence: u32,
+    encoder: Push,
 }
 impl Graphics {
     pub fn allocate(gpu_base: usize) -> Result<Self, &'static str> {
@@ -60,6 +61,7 @@ impl Graphics {
             texture: pages(1)?,
             tile: pages_aligned(TILE_SIZE / 4096, 8192)?,
             sequence: 0x53474700,
+            encoder: Push::new(),
         })
     }
     pub fn mappings(&self) -> [(usize, &ContiguousPages); 9] {
@@ -135,7 +137,8 @@ impl Graphics {
         operations: &[[u32; 64]],
     ) -> Result<(), GpuBackendSubmitError> {
         let started = time::current_time_ns();
-        let mut push = Push::new();
+        let push = &mut self.encoder;
+        push.reset();
         let sequence = self
             .sequence
             .checked_add(1)
@@ -565,10 +568,56 @@ fn proof_error(error: GpuBackendSubmitError) -> &'static str {
 
 struct Push {
     words: Vec<u32>,
+    uniforms: Option<[u32; 20]>,
+    tic: Option<[u32; 8]>,
+    tsc: Option<[u32; 8]>,
+    texture_handle_initialized: bool,
 }
 impl Push {
     fn new() -> Self {
-        Self { words: Vec::new() }
+        Self {
+            words: Vec::new(),
+            uniforms: None,
+            tic: None,
+            tsc: None,
+            texture_handle_initialized: false,
+        }
+    }
+    fn reset(&mut self) {
+        // Retain command storage, but never infer state across submissions or
+        // contexts. The previous DMA use has retired before execute returns.
+        self.words.clear();
+        self.uniforms = None;
+        self.tic = None;
+        self.tsc = None;
+        self.texture_handle_initialized = false;
+    }
+    fn packet_header(
+        &mut self,
+        opcode: u32,
+        sub: u32,
+        method: u32,
+        count: usize,
+    ) -> Result<(), &'static str> {
+        if count == 0
+            || count > 0x1fff
+            || method & 3 != 0
+            || method >= 0x8000
+            || sub > 7
+            || self
+                .words
+                .len()
+                .checked_add(count + 1)
+                .is_none_or(|n| n > PUSH_SIZE / 4)
+        {
+            return Err("trusted graphics packet budget invalid");
+        }
+        self.words
+            .try_reserve(count + 1)
+            .map_err(|_| "graphics push allocation failed")?;
+        self.words
+            .push((opcode << 29) | ((count as u32) << 16) | (sub << 13) | (method >> 2));
+        Ok(())
     }
     fn packet(
         &mut self,
@@ -577,24 +626,7 @@ impl Push {
         method: u32,
         data: &[u32],
     ) -> Result<(), &'static str> {
-        if data.is_empty()
-            || data.len() > 0x1fff
-            || method & 3 != 0
-            || method >= 0x8000
-            || sub > 7
-            || self
-                .words
-                .len()
-                .checked_add(data.len() + 1)
-                .is_none_or(|n| n > PUSH_SIZE / 4)
-        {
-            return Err("trusted graphics packet budget invalid");
-        }
-        self.words
-            .try_reserve(data.len() + 1)
-            .map_err(|_| "graphics push allocation failed")?;
-        self.words
-            .push((opcode << 29) | ((data.len() as u32) << 16) | (sub << 13) | (method >> 2));
+        self.packet_header(opcode, sub, method, data.len())?;
         self.words.extend_from_slice(data);
         Ok(())
     }
@@ -609,13 +641,10 @@ impl Push {
     }
     fn cb(&mut self, address: u64, offset: u32, data: &[u32]) -> Result<(), &'static str> {
         self.method(0, CB_SIZE, &[256, (address >> 32) as u32, address as u32])?;
-        let mut payload = Vec::new();
-        payload
-            .try_reserve(data.len() + 1)
-            .map_err(|_| "CB upload allocation failed")?;
-        payload.push(offset);
-        payload.extend_from_slice(data);
-        self.packet(5, 0, CB_POS, &payload)
+        self.packet_header(5, 0, CB_POS, data.len() + 1)?;
+        self.words.push(offset);
+        self.words.extend_from_slice(data);
+        Ok(())
     }
     fn initialize(&mut self) -> Result<(), &'static str> {
         self.method(0, 0, &[0xb197])?;
@@ -756,8 +785,16 @@ impl Push {
         let variant = PipelineVariant::from_raw(w[21]).ok_or("invalid pipeline variant")?;
         let (vs, fs) = variant.shaders();
         self.target(w)?;
-        self.one(SERIALIZE, 0)?; // retire previous draw before shared CB/descriptor writes
-        self.cb(AUX_VA as u64, 0, &w[32..52])?;
+        let uniforms: [u32; 20] = w[32..52].try_into().unwrap();
+        let uniforms_changed = self.uniforms != Some(uniforms);
+        if uniforms_changed {
+            // Like Mesa's dirty constant/descriptor validation, only upload
+            // changed contents. Our single shared slots still require prior
+            // readers to retire before an overwrite; identical draws do not.
+            self.one(SERIALIZE, 0)?;
+            self.cb(AUX_VA as u64, 0, &uniforms)?;
+            self.uniforms = Some(uniforms);
+        }
         let sx = w[10] as f32 * 0.5;
         let sy = w[11] as f32 * 0.5;
         // SGFX upper-left viewport, depth -1..1 -> 0..1.
@@ -885,11 +922,27 @@ impl Push {
                 0,
                 0,
             ];
-            self.cb(DESCRIPTOR_VA as u64, 0, &tic)?;
-            self.cb((DESCRIPTOR_VA + 0x200) as u64, 0, &tsc)?;
-            self.cb((AUX_VA + 0x400) as u64, 0x20, &[0])?;
-            self.one(TIC_FLUSH, 0)?;
-            self.one(TSC_FLUSH, 0)?;
+            let tic_changed = self.tic != Some(tic);
+            let tsc_changed = self.tsc != Some(tsc);
+            if (tic_changed || tsc_changed) && !uniforms_changed {
+                self.one(SERIALIZE, 0)?;
+            }
+            if tic_changed {
+                self.cb(DESCRIPTOR_VA as u64, 0, &tic)?;
+                self.one(TIC_FLUSH, 0)?;
+                self.tic = Some(tic);
+            }
+            if tsc_changed {
+                self.cb((DESCRIPTOR_VA + 0x200) as u64, 0, &tsc)?;
+                self.one(TSC_FLUSH, 0)?;
+                self.tsc = Some(tsc);
+            }
+            if !self.texture_handle_initialized {
+                self.cb((AUX_VA + 0x400) as u64, 0x20, &[0])?;
+                self.texture_handle_initialized = true;
+            }
+            // Unchanged descriptors do not imply unchanged pixels: a prior
+            // draw/copy in this batch may have written the sampled image.
             self.one(TEX_CACHE_CTL, 0)?;
         }
         self.one(VB_ELEMENT_BASE, w[27])?;

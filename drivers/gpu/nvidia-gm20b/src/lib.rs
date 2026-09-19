@@ -13,6 +13,8 @@
 extern crate alloc;
 
 #[cfg(target_os = "none")]
+mod asynchronous;
+#[cfg(target_os = "none")]
 mod clock;
 #[cfg(target_os = "none")]
 mod context;

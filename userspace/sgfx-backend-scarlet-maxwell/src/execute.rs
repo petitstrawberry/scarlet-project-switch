@@ -589,12 +589,12 @@ pub(crate) fn validate_fixed_command_subset(
     Ok(())
 }
 
-struct PreparedBgraUpload<'data> {
-    pixels: Cow<'data, [u8]>,
-    bytes_per_row: u32,
+pub(crate) struct PreparedBgraUpload<'data> {
+    pub(crate) pixels: Cow<'data, [u8]>,
+    pub(crate) bytes_per_row: u32,
 }
 
-fn prepare_bgra_upload<'data>(
+pub(crate) fn prepare_bgra_upload<'data>(
     format: ir::TextureFormat,
     write: ir::TextureWrite<'data>,
 ) -> Result<PreparedBgraUpload<'data>, IrSubmitError> {
