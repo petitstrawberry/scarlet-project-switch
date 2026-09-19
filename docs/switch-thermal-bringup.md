@@ -107,6 +107,14 @@ exclusively owns each cooling device, avoiding competing state requests. This
 is still less than Linux's complete thermal framework: it does not yet offer
 shared-cooler arbitration or hardware thermal-shutdown programming.
 
+The kernel now exposes read-only `/dev/thermal` snapshots for every registered
+zone. Each snapshot contains the last sampled temperature, sample/failure
+counts and applied cooler state. Task Manager's Thermal tab displays these
+values alongside its GPU device-frequency tab. `switch-pwm-fan` is the duty
+command (`0..255`), not a measured fan RPM. This Task Manager image has been
+built and packaged, but its new thermal readout has not yet been checked on
+hardware.
+
 The Tegra210 driver registers the ODIN fan and TMP451 through its **existing
 driver initcall**. It has no new `force_link` path. The GPU driver waits for
 the completed fan thermal zone before powering GM20B and does not write the
