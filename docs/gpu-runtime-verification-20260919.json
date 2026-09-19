@@ -1,0 +1,84 @@
+{
+  "date": "2026-09-19",
+  "hardware": "Nintendo Switch Erista T210 / GM20B",
+  "transport": "Existing Switchvisor bundle, reset and USB UART facilities",
+  "bundle": {
+    "bl33.bin": {
+      "path": "/Users/petitstrawberry/Development/Rust/scarlet-project-switch/projects/aarch64-switch-console/.scarlet/bootstack/bl33.bin",
+      "size": 390884,
+      "sha256": "b492a4017580ca11c9cd49075a899a65f62069d3750615217fc10308954c9faa"
+    },
+    "uImage-runtime-vm": {
+      "path": "/Users/petitstrawberry/Development/Rust/scarlet-project-switch/.cache/gm20b-linux-audit/uImage-runtime-vm",
+      "size": 1563862,
+      "sha256": "7cca14c46d3403b0961c268b9a9e096cc3012f14d9b96202d80b5455defcd4c9"
+    },
+    "initramfs-runtime-vm": {
+      "path": "/Users/petitstrawberry/Development/Rust/scarlet-project-switch/.cache/gm20b-linux-audit/initramfs-runtime-vm",
+      "size": 73369588,
+      "sha256": "985a706cccc40c67236590119b7e28fcff45e0f9e8a374e39e61f74bd33e6e29"
+    }
+  },
+  "uart_log": {
+    "path": ".cache/gm20b-linux-audit/guest-uart-runtime-vm.log",
+    "bytes": 223624,
+    "sha256": "fe370a93ddb6b2071b68b200cc9fbd67190a2d0c3ccd21d1b46973cad632f79a"
+  },
+  "build_log": ".cache/gm20b-linux-audit/build-runtime-vm.log",
+  "bootargs": "init=/init init.console=/dev/null maxcpus=4 scarlet.switch=1",
+  "sgfx_source": ".cache/sgfx-maxwell-runtime (fix/switch-maxwell-runtime)",
+  "gpu_address_space_mib": 512,
+  "gpu_small_page_tables": 8,
+  "observed": {
+    "sws_gpu_composition_enabled": true,
+    "scarlet_ui_maxwell_instances": 3,
+    "late_kernel_snapshots_seconds": [
+      25,
+      55
+    ],
+    "sampled_retired_submissions": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      16,
+      32,
+      64,
+      128,
+      256,
+      512
+    ],
+    "sampled_scanout_sequences": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      16,
+      32
+    ],
+    "errors": {
+      "allocation failed": 0,
+      "GPU composition failed": 0,
+      "command execution failed": 0,
+      "frame not presented": 0,
+      "shell exited": 0,
+      "DeviceLost": 0,
+      "panic": 0
+    }
+  },
+  "limits": [
+    "Physical panel appearance and Joy-Con response not yet confirmed by user for this run.",
+    "DC still uses CPU linear-to-block-linear conversion before scanout.",
+    "GPU clock remains measured 19.2 MHz reference bypass; no performance claim.",
+    "Ordinary kernel logging does not wake a caught-up /dev/kmsg reader; delayed readers are diagnostic-image-only.",
+    "No changes to Switchvisor, SMP or early-console plumbing in this runtime iteration."
+  ]
+}

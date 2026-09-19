@@ -16,6 +16,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "projects/aarch64-switch-l4t/.scarlet/l4t"
 CONSOLE_PACKAGE = ROOT / "projects/aarch64-switch-console/.scarlet/l4t"
+SWITCHVISOR_PACKAGE = ROOT / "projects/aarch64-switch-console/.scarlet/switchvisor"
 EXPECTED_BYTES = 123773911040
 EXPECTED_PARTITIONS = {1: 105054208 * 512, 2: 32 * 1024**3,
                        3: 61143040 * 512, 4: 4 * 1024**3}
@@ -68,14 +69,31 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mount", type=Path, required=True, help='e.g. "/Volumes/SWITCH SD"; rediscover the current SD')
     parser.add_argument("--write", action="store_true", help="copy the verified files (default: dry run)")
-    parser.add_argument("--console", action="store_true", help="install the SWS console entry instead of the diagnostic entry")
+    profile = parser.add_mutually_exclusive_group()
+    profile.add_argument("--console", action="store_true", help="install the SWS console entry instead of the diagnostic entry")
+    profile.add_argument("--switchvisor", action="store_true", help="install the USB UART/control entry")
     args = parser.parse_args()
     mount = args.mount.resolve(strict=True)
     device = validate_mount(mount)
-    package = CONSOLE_PACKAGE if args.console else PACKAGE
-    boot_directory = "scarlet-console" if args.console else "scarlet"
-    entry_file = "L4T-scarlet-console.ini" if args.console else "L4T-scarlet.ini"
-    protected = PROTECTED + ["bootloader/ini/L4T-scarlet.ini", "switchroot/scarlet"] if args.console else PROTECTED
+    if args.switchvisor:
+        package = SWITCHVISOR_PACKAGE
+        boot_directory = "scarlet-switchvisor"
+        entry_file = "L4T-scarlet-switchvisor.ini"
+        protected = PROTECTED + [
+            "bootloader/ini/L4T-scarlet.ini", "switchroot/scarlet",
+            "bootloader/ini/L4T-scarlet-console.ini", "switchroot/scarlet-console",
+            "switchroot/scarlet-console-logs",
+        ]
+    elif args.console:
+        package = CONSOLE_PACKAGE
+        boot_directory = "scarlet-console"
+        entry_file = "L4T-scarlet-console.ini"
+        protected = PROTECTED + ["bootloader/ini/L4T-scarlet.ini", "switchroot/scarlet"]
+    else:
+        package = PACKAGE
+        boot_directory = "scarlet"
+        entry_file = "L4T-scarlet.ini"
+        protected = PROTECTED
     manifest = json.loads((package / "manifest.json").read_text())
     files = []
     for relative, expected in manifest["sha256"].items():

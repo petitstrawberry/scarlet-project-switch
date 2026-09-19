@@ -26,6 +26,7 @@ pub struct Proof {
 
 pub struct Gr {
     base: usize,
+    bar1: usize,
     instance: ContiguousPages,
     hs: ContiguousPages,
     shadow: ContiguousPages,
@@ -44,7 +45,7 @@ struct Queue {
 }
 
 impl Gr {
-    pub fn allocate(base: usize, firmware: Firmware) -> Result<Self, &'static str> {
+    pub fn allocate(base: usize, bar1: usize, firmware: Firmware) -> Result<Self, &'static str> {
         // These are index-selector writes, not WPR base/size programming.
         // Tegra WPR is reserved by firmware; ACR copies our private shadow.
         let read = |offset| unsafe { arch::mmio::read32(base + offset) };
@@ -80,6 +81,7 @@ impl Gr {
         );
         Ok(Self {
             base,
+            bar1,
             instance: pages(1)?,
             hs: pages(firmware.acr.image.len().div_ceil(PAGE))?,
             shadow: pages(shadow_size.div_ceil(PAGE))?,
@@ -178,6 +180,15 @@ impl Gr {
             self.read(0x400110),
             self.read(0x404200),
             self.read(0x40420c)
+        );
+        scarlet::println!(
+            "gm20b: GR trap={:#010x} dispatch={:#010x} m2mf={:#010x} ccache={:#010x} gpc={:#010x} rop={:#010x}",
+            self.read(0x400108),
+            self.read(0x404000),
+            self.read(0x404600),
+            self.read(0x408030),
+            self.read(0x400118),
+            self.read(0x40011c)
         );
         scarlet::println!(
             "gm20b: PMU fault cpu={:#010x} mbox={:#010x}/{:#010x} intr={:#010x} bind={:#010x} msg={:#x}/{:#x}",
@@ -308,6 +319,23 @@ impl Gr {
         delay_us(20);
         self.mask(0x200, 0x2000, 0x2000)?;
         self.wait_reg("PMU SRAM scrub", PMU + 0x10c, |value| value & 6 == 0)?;
+        // Switchroot nvgpu gm20b_gating_reglist: keep PMU SLCG/BLCG disabled
+        // while bringing up its external-memory Falcon loader.
+        for (offset, value) in [
+            (0x10a17c, 0x0003fffe),
+            (0x10aa74, 0x00007ffe),
+            (0x10ae74, 0x0000000f),
+            (0x10aa70, 0),
+        ] {
+            self.write(offset, value);
+        }
+        scarlet::println!(
+            "gm20b: PMU gating slcg={:#010x}/{:#010x}/{:#010x} blcg={:#010x}",
+            self.read(0x10a17c),
+            self.read(0x10aa74),
+            self.read(0x10ae74),
+            self.read(0x10aa70)
+        );
         let (imem, dmem) = self.limits(PMU)?;
         let wpr = self.firmware.wpr(self.wpr_start, dmem)?;
         let mut hs = self.firmware.acr.image.clone();
@@ -333,6 +361,23 @@ impl Gr {
         };
         copy(&self.shadow, &wpr);
         copy(&self.hs, &hs);
+        for offset in [
+            0,
+            self.firmware.acr.secure_offset as usize,
+            self.firmware.acr.data_offset as usize,
+        ] {
+            let expected = u32::from_le_bytes(hs[offset..offset + 4].try_into().unwrap());
+            let actual = unsafe { arch::mmio::read32(self.bar1 + HS_VA + offset) };
+            scarlet::println!(
+                "gm20b: ACR BAR1 image[{:#x}] expected={:#010x} read={:#010x}",
+                offset,
+                expected,
+                actual
+            );
+            if actual != expected {
+                return Err("ACR image not visible through BAR1");
+            }
+        }
         clean(&self.instance);
         self.write(PMU + 0x084, self.read(0));
         self.mask(PMU + 0x048, 1, 1)?;
@@ -341,9 +386,12 @@ impl Gr {
             self.write(PMU + offset, value);
         }
         self.mask(PMU + 0x090, 0x10000, 0x10000)?;
+        // PMU is an explicit exception to nvgpu's Tegra aperture helper:
+        // gm20b_bl_bootstrap selects SYS_NCOH (3) directly on this platform.
+        // Nouveau gm200_pmu_flcn_bind_inst uses the same target here.
         self.write(
             PMU + 0x480,
-            (1 << 30) | (self.instance.as_paddr() >> 12) as u32,
+            (1 << 30) | (3 << 28) | (self.instance.as_paddr() >> 12) as u32,
         );
         self.wait("PMU instance bind", || {
             self.write(PMU + 0x200, 0x30e);
@@ -383,23 +431,28 @@ impl Gr {
             0,
             0,
             0,
-            0,
-            (HS_VA >> 8) as u32,
+            1,                   // ctx_dma = FALCON_DMAIDX_VIRT
+            (HS_VA >> 8) as u32, // GM20B's legacy descriptor uses 256-byte units
             acr.nonsecure_offset,
             acr.nonsecure_size,
             acr.secure_offset,
             acr.secure_size,
-            0,
+            0, // code_entry_point
             ((HS_VA + acr.data_offset as usize) >> 8) as u32,
             acr.data_size,
-            0,
-            0,
+            0, // code_dma_base1
+            0, // data_dma_base1
         ];
         let mut descriptor = [0; 76];
         for (chunk, value) in descriptor.chunks_exact_mut(4).zip(words) {
             chunk.copy_from_slice(&value.to_le_bytes());
         }
         self.dmem_write(PMU, 0, &descriptor, dmem)?;
+        let mut loaded = [0; 76];
+        self.dmem_read(0, &mut loaded, dmem)?;
+        if loaded != descriptor {
+            return Err("PMU boot descriptor DMEM readback mismatch");
+        }
         scarlet::println!(
             "gm20b: ACR starting signed loader; imem={} dmem={} debug={}",
             imem,
@@ -409,7 +462,57 @@ impl Gr {
         self.write(PMU + 0x040, 0xcafebeef);
         self.write(PMU + 0x104, acr.boot.address);
         self.write(PMU + 0x100, 2);
-        self.wait_reg("ACR loader halt", PMU + 0x100, |value| value & 0x10 != 0)?;
+        let halt = self.wait_reg("ACR loader halt", PMU + 0x100, |value| value & 0x10 != 0);
+        if halt.is_err() {
+            let trace_index = self.read(PMU + 0x148);
+            scarlet::println!(
+                "gm20b: PMU loader state bootvec={:#010x} inst={:#010x} bind={:#010x} trace={:#010x}/{:#010x}",
+                self.read(PMU + 0x104),
+                self.read(PMU + 0x480),
+                self.read(PMU + 0x20c),
+                self.read(PMU + 0x240),
+                trace_index
+            );
+            scarlet::println!(
+                "gm20b: PMU loader DMA ctl={:#010x} base={:#010x}/{:#010x} offs={:#010x} cmd={:#010x} fb={:#010x}",
+                self.read(PMU + 0x10c),
+                self.read(PMU + 0x110),
+                self.read(PMU + 0x128),
+                self.read(PMU + 0x114),
+                self.read(PMU + 0x118),
+                self.read(PMU + 0x11c)
+            );
+            scarlet::println!(
+                "gm20b: PMU loader DMAIDX={:#x}/{:#x}/{:#x}/{:#x}/{:#x} FBIF={:#x}/{:#x}/{:#x}",
+                self.read(PMU + 0xe00),
+                self.read(PMU + 0xe04),
+                self.read(PMU + 0xe08),
+                self.read(PMU + 0xe0c),
+                self.read(PMU + 0xe10),
+                self.read(PMU + 0x600),
+                self.read(PMU + 0x604),
+                self.read(PMU + 0x624)
+            );
+            scarlet::println!(
+                "gm20b: PMU loader context={:#x}/{:#x}/{:#x} PDB={:#010x}/{:#010x}/{:#010x}",
+                self.read(PMU + 0x048),
+                self.read(PMU + 0x090),
+                self.read(PMU + 0x058),
+                self.read(0x100cb8),
+                self.read(0x100cbc),
+                self.read(0x100c80)
+            );
+            // Linux gm200_flcn_tracepc: select each retained Falcon PC.
+            for slot in 0..((trace_index >> 16) & 0xff).min(16) {
+                self.write(PMU + 0x148, slot);
+                scarlet::println!(
+                    "gm20b: PMU loader TRACEPC[{}]={:#010x}",
+                    slot,
+                    self.read(PMU + 0x14c)
+                );
+            }
+        }
+        halt?;
         let mbox0 = self.read(PMU + 0x040);
         let mbox1 = self.read(PMU + 0x044);
         scarlet::println!(
@@ -597,8 +700,18 @@ impl Gr {
         // GM20B is one GPC with up to two TPCs. Preserve fuse-derived counts;
         // this is gf117_gr_init_zcull's single-GPC case, tile row offset one.
         let gpcs = self.read(0x409604) & 0x1f;
-        let tpcs = self.read(0x502608);
+        // Nouveau stores GPC_UNIT(0, 0x2608) in u8: upper bits are not the
+        // active TPC count (the Switch reports 0x00040002 for two TPCs).
+        let tpc_register = self.read(0x502608);
+        let tpcs = tpc_register & 0xff;
         if gpcs != 1 || !(1..=2).contains(&tpcs) {
+            scarlet::println!(
+                "gm20b: GR invalid topology mc={:#010x} gpc={:#010x} tpc={:#010x} ppc={:#010x}",
+                self.read(0x200),
+                self.read(0x409604),
+                tpc_register,
+                self.read(0x500c30)
+            );
             return Err("GR topology is not supported GM20B geometry");
         }
         let magic = 0x00800000u32.div_ceil(tpcs);
@@ -622,7 +735,9 @@ impl Gr {
         scarlet::println!("gm20b: GR topology gpc={} tpc={} fbp={}", gpcs, tpcs, fbp);
         self.write(0x400500, 0x00010001);
         self.write(0x400100, u32::MAX);
-        self.write(0x40013c, 0); // CPU interrupts remain masked; poll this bring-up.
+        // gk20a_gr_init enables internal GR exception routing. MC INTA/INTB
+        // remain masked in runtime; poll the same status without a CPU IRQ.
+        self.write(0x40013c, u32::MAX);
         self.write(0x409c24, 0x000f0000);
         for offset in [0x404000, 0x404600] {
             self.write(offset, 0xc0000000);
@@ -658,13 +773,49 @@ impl Gr {
         self.imem_write(0x41a000, 0, 0, &self.firmware.gpccs_inst, imem)?;
         self.boot_fecs(dmem)?;
         self.write(0x260, 1);
+        scarlet::println!(
+            "gm20b: GR falcons before start FECS cpu={:#010x} boot={:#010x} scr={:#010x} GPCCS cpu={:#010x} boot={:#010x} scr={:#010x}",
+            self.read(0x409100),
+            self.read(0x409104),
+            self.read(0x40910c),
+            self.read(0x41a100),
+            self.read(0x41a104),
+            self.read(0x41a10c)
+        );
         self.write(0x409800, 0);
         self.write(0x41a10c, 0);
         self.write(0x40910c, 0);
         for falcon in [0x41a000, 0x409000] {
             self.start(falcon)?;
         }
-        self.wait_reg("FECS ready", 0x409800, |value| value & 1 != 0)?;
+        let ready = self.wait_reg("FECS ready", 0x409800, |value| value & 1 != 0);
+        if ready.is_err() {
+            for (name, falcon) in [("FECS", 0x409000), ("GPCCS", 0x41a000)] {
+                let trace_index = self.read(falcon + 0x148);
+                scarlet::println!(
+                    "gm20b: {} cpu={:#010x} boot={:#010x} scr={:#010x} mailbox={:#010x}/{:#010x} trace={:#010x}/{:#010x} sctl={:#010x}",
+                    name,
+                    self.read(falcon + 0x100),
+                    self.read(falcon + 0x104),
+                    self.read(falcon + 0x10c),
+                    self.read(falcon + 0x040),
+                    self.read(falcon + 0x044),
+                    self.read(falcon + 0x240),
+                    trace_index,
+                    self.read(falcon + 0x800)
+                );
+                for slot in 0..((trace_index >> 16) & 0xff).min(8) {
+                    self.write(falcon + 0x148, slot);
+                    scarlet::println!(
+                        "gm20b: {} TRACEPC[{}]={:#010x}",
+                        name,
+                        slot,
+                        self.read(falcon + 0x14c)
+                    );
+                }
+            }
+        }
+        ready?;
         self.write(0x409800, 0);
         self.write(0x409500, 0x7fffffff);
         self.write(0x409504, 0x21);
@@ -681,6 +832,7 @@ impl Gr {
             proof.performance_size
         );
         proof.golden_checksum = self.context.generate(self, proof.context_size)?;
+        self.check_execution()?;
         Ok(proof)
     }
 }

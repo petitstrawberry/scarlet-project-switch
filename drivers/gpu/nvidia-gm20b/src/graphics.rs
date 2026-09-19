@@ -11,7 +11,7 @@ use crate::{
 };
 use alloc::vec::Vec;
 use maxwell_shader_pack::{PACK_SIZE, PipelineVariant, copy_pack};
-use scarlet::{arch, device::gpu::GpuBackendSubmitError, mem::page::ContiguousPages};
+use scarlet::{arch, device::gpu::GpuBackendSubmitError, mem::page::ContiguousPages, time};
 
 pub const PROGRAM_VA: usize = 0x270000;
 const AUX_VA: usize = 0x280000;
@@ -119,6 +119,7 @@ impl Graphics {
         gr: &Gr,
         operations: &[[u32; 64]],
     ) -> Result<(), GpuBackendSubmitError> {
+        let started = time::current_time_ns();
         let mut push = Push::new();
         let sequence = self
             .sequence
@@ -149,6 +150,7 @@ impl Graphics {
         })()
         .map_err(GpuBackendSubmitError::Rejected)?;
         self.sequence = sequence;
+        let encoded = time::current_time_ns();
         unsafe {
             core::ptr::copy_nonoverlapping(
                 push.words.as_ptr(),
@@ -156,8 +158,21 @@ impl Graphics {
                 push.words.len(),
             );
         }
-        clean(&self.push);
+        arch::clean_dcache_to_poc_range(self.push.as_vaddr(), push.words.len() * 4);
+        let published = time::current_time_ns();
         let result = fifo.graphics(PUSH_VA, push.words.len() as u32, CONTEXT_VA, self.sequence);
+        let retired = time::current_time_ns();
+        let count = self.sequence - 0x53474700;
+        if count <= 4 {
+            scarlet::println!(
+                "gm20b: graphics={} words={} encode_us={} publish_us={} fifo_us={}",
+                count,
+                push.words.len(),
+                encoded.saturating_sub(started) / 1000,
+                published.saturating_sub(encoded) / 1000,
+                retired.saturating_sub(published) / 1000
+            );
+        }
         if result.is_err() {
             gr.diagnose();
         }
@@ -527,11 +542,12 @@ impl Push {
             (POLYGON_MODE_FRONT, 0x1b02),
             (POLYGON_MODE_BACK, 0x1b02),
             (LOCAL_BASE, 0xff000000),
-            (0x021c, 0x1011),
-            (0x142c, 0),
+            (INVALIDATE_SHADER_CACHES, INVALIDATE_SHADER_CACHE_READS),
         ] {
             self.one(m, v)?;
         }
+        // Mesa nvc0_vbo emits VERTEX_ARRAY_FLUSH (0x142c) only before
+        // GM107. It is absent from Maxwell B's class and raises ILLEGAL_MTHD.
         self.method(0, RT_COMP_ENABLE, &[0; 8])?;
         self.method(0, WINDOW_OFFSET_X, &[0, 0])?;
         // The documented Mesa GM200 branch, excluding old-Fermi methods.
@@ -794,7 +810,7 @@ impl Push {
         let src = [0, w[17], 0, w[18]];
         self.method(3, 0x8d0, &src)?;
         self.one(SERIALIZE, 0)?;
-        self.one(0x021c, 0x1111)?;
+        self.one(INVALIDATE_SHADER_CACHES, INVALIDATE_SHADER_CACHE_READS)?;
         self.one(TEX_CACHE_CTL, 0)
     }
 }

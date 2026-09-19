@@ -3,7 +3,8 @@
 //! Formats and ordering follow Linux Nouveau v6.12 vmmgk104/vmmgf100 and
 //! Switchroot nvgpu 1ae0167d360287ca78f5a2572f0de42594140312 mm_gk20a,
 //! fb_gm20b and bus_gm20b. Tegra's video aperture addresses ordinary DRAM;
-//! it does not provide CPU cache coherency (see Nouveau gk20a_vmm_aper).
+//! it does not provide CPU cache coherency. See nvgpu_aperture_mask_raw and
+//! the Tegra platform's honors_aperture=false, not the PCI platform defaults.
 //! GPU addresses with bit 34 set select Tegra SMMU translation. This private
 //! address space only publishes PMM physical backing below that selector.
 
@@ -18,7 +19,13 @@ const PAGE: usize = 4096;
 const IOMMU_SELECTOR: u64 = 1 << 34;
 const VA_A: usize = PAGE;
 const VA_B: usize = 2 * PAGE;
-pub const VA_LIMIT: u32 = 64 * 1024 * 1024;
+// gk20a_mm_levels_64k: PDE index starts at bit 26; the small-page
+// index uses bits 25:12 and each PTE occupies eight bytes. Runtime SWS
+// and ScarletUI allocations share this serialized channel's address space.
+const PDE_SPAN: usize = 1 << 26;
+const PTE_TABLE_PAGES: usize = PDE_SPAN / PAGE * 8 / PAGE;
+const PDE_COUNT: usize = 8;
+pub const VA_LIMIT: u32 = (PDE_COUNT * PDE_SPAN) as u32;
 const MC_ELPG_ENABLE: usize = 0x20c;
 const ELPG_MEMORY_UNITS: u32 = 0x20100004; // HUB, PFB and XBAR, GM20B hw_mc.
 const BAR1_BLOCK: usize = 0x1704;
@@ -27,6 +34,14 @@ const MMU_CTRL: usize = 0x100c80;
 const INVALIDATE_PDB: usize = 0x100cb8;
 const INVALIDATE: usize = 0x100cbc;
 const FLUSH: usize = 0x70000;
+const LTC_INVALIDATE: usize = 0x70004;
+const LTC_FLUSH: usize = 0x70010;
+// Encodings are field-specific: VIDMEM is 1 in a valid PDE, but 0 in
+// PDB/PTE/CCSR/invalidate targets. VOL bypasses LTC for control structures;
+// it does not make the CPU's cached direct mapping DMA coherent.
+const PDE_VIDEO_VOLATILE: u32 = 1 | 4;
+const PDB_VIDEO_VOLATILE_64K: u32 = 4 | (1 << 11);
+const PTE_VOLATILE: u32 = 1 << 3;
 
 pub struct Gmmu {
     pub mc_base: usize,
@@ -35,8 +50,9 @@ pub struct Gmmu {
     base: usize,
     bar1: usize,
     directory: ContiguousPages,
-    // With 64-KiB big pages, one PDE covers 64 MiB and its full small-page
-    // table has 16384 entries. Keep unused PTEs invalid, including VA zero.
+    // Each 64-MiB PDE points at its own 16384-entry small-page table.
+    // The tables are contiguous here, so a global VA/PAGE index still
+    // addresses the correct PTE. Unused PTEs, including VA zero, stay invalid.
     table: ContiguousPages,
     instance: ContiguousPages,
     scratch: ContiguousPages,
@@ -78,7 +94,7 @@ impl Gmmu {
             base,
             bar1,
             directory: pages(1)?,
-            table: pages(32)?,
+            table: pages(PDE_COUNT * PTE_TABLE_PAGES)?,
             instance: pages(1)?,
             scratch: pages(2)?,
             flush: pages(1)?,
@@ -122,29 +138,45 @@ impl Gmmu {
         }
     }
 
-    fn map_scratch(&self, va: usize, paddr: u64) {
+    fn map_page(&self, va: usize, paddr: u64, cacheable: bool) {
         debug_assert!(va < VA_LIMIT as usize && va.is_multiple_of(PAGE));
         let word = (va / PAGE) * 2;
         store(&self.table, word, ((paddr >> 12) as u32) << 4 | 1);
-        // Pitch kind, video aperture (Tegra DRAM), volatile: bypass GPU L2.
-        store(&self.table, word + 1, 1);
+        // The Tegra nvgpu aperture helper selects VIDEO (0), even when the
+        // allocation is system DRAM. USERD uses a volatile BAR1 mapping.
+        store(
+            &self.table,
+            word + 1,
+            if cacheable { 0 } else { PTE_VOLATILE },
+        );
     }
 
     fn instance_pdb(&self, instance: &ContiguousPages) {
         let pdb = self.directory.as_paddr();
-        store(instance, 128, (pdb as u32 & 0xfffff000) | 4 | (1 << 11));
+        store(
+            instance,
+            128,
+            (pdb as u32 & 0xfffff000) | PDB_VIDEO_VOLATILE_64K,
+        );
         store(instance, 129, (pdb >> 32) as u32);
         store(instance, 130, (VA_LIMIT - 1) & !0xfff);
         store(instance, 131, 0);
     }
 
-    pub fn initialize_fifo_hardware(&self, reference_hz: u32) -> Result<(), &'static str> {
+    pub fn reset_fifo(&self, reference_hz: u32) -> Result<(), &'static str> {
+        self.fifo.reset_enable(reference_hz)
+    }
+
+    pub fn initialize_fifo_hardware(&self) -> Result<(), &'static str> {
         for (va, memory) in self.fifo.mappings() {
-            self.map_private(va, memory)?;
+            // nvgpu_dma_alloc_map_sys maps FIFO control backing without
+            // NVGPU_VM_MAP_CACHEABLE. In particular, BAR1 USERD must not
+            // retain stale copies of PBDMA's physical-memory updates.
+            self.map_private_with_cache(va, memory, false)?;
         }
         self.instance_pdb(self.fifo.instance());
         self.invalidate()?;
-        self.fifo.prepare_hardware(reference_hz)
+        self.fifo.prepare_hardware()
     }
 
     pub fn prove_fifo_host(&self) -> Result<Proof, &'static str> {
@@ -160,6 +192,15 @@ impl Gmmu {
         &self,
         va: usize,
         memory: &ContiguousPages,
+    ) -> Result<(), &'static str> {
+        self.map_private_with_cache(va, memory, true)
+    }
+
+    fn map_private_with_cache(
+        &self,
+        va: usize,
+        memory: &ContiguousPages,
+        cacheable: bool,
     ) -> Result<(), &'static str> {
         let size = memory
             .len()
@@ -186,13 +227,13 @@ impl Gmmu {
             {
                 return Err("private GPU mapping would replace a valid PTE");
             }
-            self.map_scratch(address, memory.as_paddr() + (page * PAGE) as u64);
+            self.map_page(address, memory.as_paddr() + (page * PAGE) as u64, cacheable);
         }
         Ok(())
     }
 
     pub fn initialize_gr(&mut self, firmware: Firmware) -> Result<crate::gr::Proof, &'static str> {
-        self.gr = Some(Gr::allocate(self.base, firmware)?);
+        self.gr = Some(Gr::allocate(self.base, self.bar1, firmware)?);
         let gr = self.gr.as_ref().unwrap();
         for (va, memory) in gr.mappings() {
             self.map_private(va, memory)?;
@@ -201,7 +242,9 @@ impl Gmmu {
             self.instance_pdb(instance);
             clean(instance);
         }
-        self.invalidate()?;
+        // PMU Falcon DMA consumes the newly mapped HS image; HUB_ONLY would
+        // invalidate BAR1 but leave non-BAR engine translations untouched.
+        self.invalidate_all()?;
         gr.initialize()
     }
 
@@ -231,8 +274,13 @@ impl Gmmu {
                 operations,
             )
     }
+
+    pub fn idle(&self) -> Result<(), &'static str> {
+        self.fifo.idle()?;
+        self.gr.as_ref().ok_or("GR missing")?.idle()
+    }
     pub fn invalidate_all(&self) -> Result<(), &'static str> {
-        clean(&self.table);
+        self.publish_page_table()?;
         self.wait(MMU_CTRL, |v| v & 0x00ff0000 != 0)?;
         self.write(
             INVALIDATE_PDB,
@@ -260,7 +308,7 @@ impl Gmmu {
     }
 
     fn invalidate(&self) -> Result<(), &'static str> {
-        clean(&self.table);
+        self.publish_page_table()?;
         self.wait(MMU_CTRL, |value| value & 0x00ff0000 != 0)?;
         self.write(
             INVALIDATE_PDB,
@@ -272,9 +320,25 @@ impl Gmmu {
         Ok(())
     }
 
+    fn publish_page_table(&self) -> Result<(), &'static str> {
+        clean(&self.table);
+        // The CPU mapping is not coherent with the GPU's L2.  Nouveau's
+        // gk20a instance-memory release invalidates LTC after CPU writes;
+        // a GMMU TLB invalidate alone can still reuse a cached old PTE.
+        self.write(LTC_INVALIDATE, 1);
+        self.wait(LTC_INVALIDATE, |value| value & 3 == 0)?;
+        Ok(())
+    }
+
     fn flush_bar(&self) -> Result<(), &'static str> {
         self.write(FLUSH, 1);
         self.wait(FLUSH, |value| value & 3 == 0)?;
+        Ok(())
+    }
+
+    fn flush_ltc(&self) -> Result<(), &'static str> {
+        self.write(LTC_FLUSH, 1);
+        self.wait(LTC_FLUSH, |value| value & 3 == 0)?;
         Ok(())
     }
 
@@ -312,14 +376,23 @@ impl Gmmu {
         crate::hardware::initialize_memory(self.base)?;
         self.write(MMU_CTRL, self.read(MMU_CTRL) | (1 << 11));
 
-        // Small-page PDE is the high word. Big-page PDE remains invalid.
-        store(
-            &self.directory,
-            1,
-            ((self.table.as_paddr() >> 12) as u32) << 4 | 1 | 4,
+        // update_gmmu_pde_locked places the small-page table in the high
+        // word of each 8-byte PDE. Big-page entries remain invalid.
+        for index in 0..PDE_COUNT {
+            let table = self.table.as_paddr() + (index * PTE_TABLE_PAGES * PAGE) as u64;
+            store(
+                &self.directory,
+                index * 2 + 1,
+                ((table >> 12) as u32) << 4 | PDE_VIDEO_VOLATILE,
+            );
+        }
+        scarlet::println!(
+            "gm20b: GMMU address space={} MiB small-page tables={}",
+            VA_LIMIT / (1024 * 1024),
+            PDE_COUNT
         );
-        self.map_scratch(VA_A, self.scratch.as_paddr());
-        self.map_scratch(VA_B, self.scratch.as_paddr() + PAGE as u64);
+        self.map_page(VA_A, self.scratch.as_paddr(), true);
+        self.map_page(VA_B, self.scratch.as_paddr() + PAGE as u64, true);
         let pdb = self.directory.as_paddr();
         self.instance_pdb(&self.instance);
         store(&self.scratch, 0, 0x53474131);
@@ -369,13 +442,14 @@ impl Gmmu {
         unsafe { arch::mmio::write32(self.bar1 + VA_A, 0x53475733) };
         arch::io_mb();
         self.flush_bar()?;
+        self.flush_ltc()?;
         arch::invalidate_dcache_to_poc_range(self.scratch.as_vaddr(), PAGE);
         let written = unsafe { core::ptr::read_volatile(self.scratch.as_vaddr() as *const u32) };
         if written != 0x53475733 {
             scarlet::println!("gm20b: GMMU BAR1 write readback={:#010x}", written);
             return Err("GMMU BAR1 write did not reach physical backing");
         }
-        self.map_scratch(VA_A, self.scratch.as_paddr() + PAGE as u64);
+        self.map_page(VA_A, self.scratch.as_paddr() + PAGE as u64, true);
         self.invalidate()?;
         let remapped = unsafe { arch::mmio::read32(self.bar1 + VA_A) };
         scarlet::println!(
@@ -386,7 +460,7 @@ impl Gmmu {
         if remapped != 0x53474232 {
             return Err("GMMU TLB invalidation retained the old mapping");
         }
-        self.map_scratch(VA_A, self.scratch.as_paddr());
+        self.map_page(VA_A, self.scratch.as_paddr(), true);
         self.invalidate()?;
         scarlet::println!("gm20b: GMMU BAR1 read/write/remap passed; channels pending");
         Ok(())

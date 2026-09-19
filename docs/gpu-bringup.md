@@ -1,5 +1,17 @@
 # GM20B and SGFX bring-up
 
+The [2026-09-19 Linux comparison](gpu-linux-audit-20260919.md) records the
+current initialization audit and Switchvisor UART evidence. Both private
+FIFO submissions now complete on hardware, including retirement and physical
+backing checks. All 13 canonical shader pipelines, indexed u16/u32,
+blend/scissor, linear sampling and 902D copy pass physical pixel/readback
+checks. The normal SGFX Ready endpoint now registers as `/dev/gpu0`. The
+reconnected hardware run also enables SWS GPU composition and ScarletUI's
+Maxwell renderer, with sampled queue retirements through submission 512.
+The subsequent performance pass configures and measures a 307.2-MHz fixed
+GPU PLL instead of leaving GPCCLK at the 19.2-MHz reference bypass. See
+[hardware performance measurements](gpu-performance-20260919.md).
+
 The current candidate adds the external `scarlet-driver-nvidia-gm20b` module.
 It powers the Erista GPU, releases its clamp/reset, flushes the MC GPU client,
 checks the actual `MC_BOOT_0` identity and registers the normal `/dev/gpuN`
@@ -19,8 +31,13 @@ appeared to work, without a new video or precise scanout confirmation.
 
 The new SGFX candidate goes through signed ACR/PMU/FECS boot, golden-context
 save, real Mesa Maxwell SASS rendering, capability-authorized queues and normal
-SWS facade selection. Production compilation passes; physical SGFX execution and
-GPU-image presentation are still pending. Execution is registered Ready only
+SWS facade selection. Production compilation, physical SGFX startup and
+runtime SWS/ScarletUI execution pass. The 25- and 55-second runtime snapshots
+show no GPU execution/allocation failures or Shell respawns after correcting
+copy usage flags and expanding the shared GPU address space. The user's
+follow-up confirms visible rendering but reports severe slowness. DC still converts the GPU's
+linear image to block-linear scanout with the CPU; copy-free presentation is
+not implemented. Execution is registered Ready only
 when the GPU's startup drawing and readback proofs pass. See
 [SGFX implementation and physical iteration](sgfx-bringup.md),
 [gpu-sgfx-render-verification.json](gpu-sgfx-render-verification.json), and
@@ -47,10 +64,23 @@ Failures isolate the GPU before rail
 rollback; isolation/rail rollback failures leave it isolated and log the
 failure. Successful probe retains the power lease in the registered backend.
 GPU interrupts remain masked; hardware completion and errors are polled.
+Runtime rendering now gives up the CPU between polls after a short fast path;
+startup without a schedulable task still uses bounded busy waits.
 FIFO, signed GR boot, shaders and queues are implemented in the new SGFX
 candidate. GPU suspend/resume is not implemented.
 Firmware memory reservations and GPU/VPR/WPR carveouts stay intact. The separate
 DC driver can replace inherited scanout with display-owned buffers.
+
+The fixed PLL uses the vendor's legacy (non-noise-adaptive) cold-start
+sequence: reference bypass, IDDQ exit/disable, M=1/N=48/PL=3, bounded lock
+poll, SYNC_MODE, then VCO selection. The 1.8432-GHz VCO produces 307.2-MHz
+GPCCLK. The hardware counter must agree within 1%. The existing 1.0-V rail
+is checked against the fixed 307.2-MHz CVB curve using the read-only GPU
+speedo fuse, conservatively floored at 950 mV. Unknown SKU/reference or
+inherited noise-adaptive mode is rejected. Failure switches back to bypass
+before the existing power-isolation cleanup. This section describes the
+initial fixed-PLL bring-up; the current dynamic frequency and thermal
+policies are documented in `switch-thermal-bringup.md`.
 
 ## Private GMMU stage
 
@@ -67,9 +97,10 @@ MC_SMMU_CONFIG is TrustZone-owned; its readback is not a physical-DMA guard.
 Tegra's video aperture addresses normal DRAM and does not imply CPU coherency.
 An all-ones completion-register read now rejects the transaction explicitly.
 
-One retained page directory, a full 128-KiB small-page table, a 4-KiB instance
-block, two scratch pages, and flush/debug pages initially prove BAR1 access.
-The full small-page table covers the 64-MiB aperture. VA zero remains invalid;
+One retained page directory, eight full 128-KiB small-page tables, a 4-KiB
+instance block, two scratch pages, and flush/debug pages prove BAR1 access.
+Each table covers 64 MiB; eight PDEs cover the shared 512-MiB GPU address
+space needed by runtime SWS and ScarletUI resources. VA zero remains invalid;
 private engine mappings and public capability mappings are published separately.
 Page tables are cleaned to PoC before HUB-only MMU invalidation. The instance
 uses 64-KiB big-page geometry; only 4-KiB PTEs are populated.
@@ -93,8 +124,14 @@ recorded against the exact tested image in
 
 ```sh
 python3 scripts/prepare-gm20b-firmware.py --download
-nix develop --accept-flake-config --command sh scripts/build-console.sh
+SCARLET_SGFX_SOURCE="$PWD/.cache/sgfx-maxwell-runtime" \
+  nix develop --accept-flake-config --command sh scripts/build-console.sh
 ```
+
+The source override selects the isolated SGFX worktree with Maxwell facade
+integration restored onto current SGFX main. See the linked Linux/runtime
+audit for its branch and source pins. The build rejects a facade checkout
+without Maxwell enabled instead of silently selecting CPU composition.
 
 Alternatively pass `--source <linux-firmware root>` to prepare firmware
 offline. `gpu-firmware.json` pins 16 files, including GR/ACR/PMU firmware and NVIDIA's

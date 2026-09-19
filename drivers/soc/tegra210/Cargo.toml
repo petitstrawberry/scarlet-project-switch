@@ -6,3 +6,4 @@ license = "GPL-2.0-only"
 
 [target.'cfg(target_os = "none")'.dependencies]
 scarlet = { path = "../../../../Scarlet/kernel", default-features = false, features = ["network"] }
+fdt = "0.1.5"

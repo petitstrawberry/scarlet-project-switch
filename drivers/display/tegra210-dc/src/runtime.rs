@@ -525,7 +525,7 @@ impl Display {
             .get(index)
             .ok_or("invalid Tegra DC scanout buffer")?;
         arch::io_mb();
-        self.trace_frame(memory.as_paddr(), STRIDE, "CPU");
+        self.diagnostic_frames.fetch_add(1, Ordering::Relaxed);
         let scanout = state.scanout_front ^ 1;
         let paddr = self.scanout.as_ref().unwrap()[scanout].as_paddr();
         self.upload_frame(memory.as_paddr(), STRIDE, paddr, false)?;
@@ -571,7 +571,15 @@ impl Display {
         block_linear::upload(input, stride as usize, output)?;
         arch::io_mb();
         let sequence = self.diagnostic_frames.load(Ordering::Relaxed);
-        if sequence == 1 || (self.keep_console && (sequence <= 8 || sequence.is_power_of_two())) {
+        if sequence <= 4 {
+            scarlet::println!(
+                "tegra-dc: conversion={} gpu={} elapsed_us={}",
+                sequence,
+                gpu,
+                time::current_time_ns().saturating_sub(start) / 1000
+            );
+        }
+        if sequence == 1 {
             let elapsed = time::current_time_ns().saturating_sub(start);
             let mut matched = 0;
             for gy in 0..18 {
@@ -603,43 +611,9 @@ impl Display {
         Ok(())
     }
 
-    fn trace_frame(&self, paddr: u64, stride: u32, producer: &'static str) {
-        let sequence = self.diagnostic_frames.fetch_add(1, Ordering::Relaxed) + 1;
-        if !self.keep_console || (sequence > 8 && !sequence.is_power_of_two()) {
-            return;
-        }
-        let address = vm::addr::phys_to_virt(paddr);
-        if producer == "GPU" {
-            // Rendering has retired. Only invalidate for CPU inspection; a
-            // clean of a stale alias could overwrite the GPU-written image.
-            arch::invalidate_dcache_to_poc_range(address, stride as usize * HEIGHT as usize);
-        }
-        let first = unsafe { core::ptr::read_volatile(address as *const u32) } & 0x00ffffff;
-        let mut varied = 0;
-        let mut hash = 0x811c9dc5u32;
-        for gy in 0..18 {
-            for gx in 0..32 {
-                let offset = (gy * (HEIGHT - 1) / 17 * stride + gx * (WIDTH - 1) / 31 * 4) as usize;
-                let pixel = unsafe { core::ptr::read_volatile((address + offset) as *const u32) };
-                varied += u32::from(pixel & 0x00ffffff != first);
-                hash = (hash ^ pixel).wrapping_mul(0x01000193);
-            }
-        }
-        scarlet::println!(
-            "tegra-dc: frame={} {} addr={:#x} pitch={} rgb={:#08x} varied={}/576 sample={:08x}",
-            sequence,
-            producer,
-            paddr,
-            stride,
-            first,
-            varied,
-            hash
-        );
-    }
-
     fn trace_scanout(&self, paddr: u64, stride: u32, options: u32) {
         let sequence = self.diagnostic_frames.load(Ordering::Relaxed);
-        if sequence > 8 && !sequence.is_power_of_two() {
+        if sequence > 4 {
             return;
         }
         let mc_read = |offset| unsafe { arch::mmio::read32(self.mc + offset) };
@@ -870,7 +844,7 @@ impl GraphicsDevice for Display {
         // GPU-rendered frame. This controller only consumes the ready image.
         arch::io_mb();
         state.pending_gpu = Some(resource);
-        self.trace_frame(paddr, stride, "GPU");
+        self.diagnostic_frames.fetch_add(1, Ordering::Relaxed);
         let scanout = state.scanout_front ^ 1;
         let scanout_address = self.scanout.as_ref().unwrap()[scanout].as_paddr();
         self.upload_frame(paddr, stride, scanout_address, true)?;

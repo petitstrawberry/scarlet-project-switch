@@ -43,7 +43,8 @@ impl RawImage {
         let usage = GPU_IMAGE_USAGE_RENDER_TARGET
             | GPU_IMAGE_USAGE_PRESENTABLE
             | GPU_IMAGE_USAGE_SAMPLED
-            | GPU_IMAGE_USAGE_TRANSFER_SRC;
+            | GPU_IMAGE_USAGE_TRANSFER_SRC
+            | GPU_IMAGE_USAGE_TRANSFER_DST;
         let raw = context.device.gpu.create_image_with_format_and_usage(
             GPU_IMAGE_FORMAT_BGRA8_UNORM,
             width,
@@ -63,7 +64,17 @@ impl RawImage {
         let raw = context
             .device
             .gpu
-            .create_image_with_format_and_usage(format, width, height, usage)?;
+            .create_image_with_format_and_usage(format, width, height, usage)
+            .map_err(|error| {
+                std::println!(
+                    "[gm20b-userspace] create image {}x{} usage={:#x}: {:?}",
+                    width,
+                    height,
+                    usage,
+                    error
+                );
+                error
+            })?;
         Self::finish_create(context, raw, descriptor.format(), width, height)
     }
 
@@ -159,7 +170,15 @@ impl RawBuffer {
         let raw = context
             .device
             .gpu
-            .create_buffer(logical_size, GPU_BUFFER_FLAG_CPU_VISIBLE)?;
+            .create_buffer(logical_size, GPU_BUFFER_FLAG_CPU_VISIBLE)
+            .map_err(|error| {
+                std::println!(
+                    "[gm20b-userspace] create buffer size={}: {:?}",
+                    logical_size,
+                    error
+                );
+                error
+            })?;
         if !raw.cpu_visible() || raw.allocated_size() < logical_size {
             return Err(HandleError::Unsupported);
         }
@@ -202,6 +221,12 @@ impl RawBuffer {
             .checked_add(byte_len)
             .ok_or(HandleError::InvalidParameter)?;
         if bytes.is_empty() || end > self.logical_size {
+            std::println!(
+                "[gm20b-userspace] buffer write offset={} bytes={} capacity={}",
+                offset,
+                bytes.len(),
+                self.logical_size
+            );
             return Err(HandleError::InvalidParameter);
         }
         let destination_offset =
@@ -482,6 +507,9 @@ fn image_create_parameters(descriptor: ir::TextureDesc) -> HandleResult<(u32, u3
             || descriptor.usage().contains(ir::TextureUsage::COPY_SRC)
         {
             usage |= GPU_IMAGE_USAGE_SAMPLED;
+        }
+        if descriptor.usage().contains(ir::TextureUsage::COPY_SRC) {
+            usage |= GPU_IMAGE_USAGE_TRANSFER_SRC;
         }
         if descriptor.usage().contains(ir::TextureUsage::COPY_DST) {
             usage |= GPU_IMAGE_USAGE_TRANSFER_DST;

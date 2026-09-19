@@ -18,19 +18,23 @@ if test "${t210b01}" != 0 -o "${sku}" != 0; then
     reset
 fi
 
-if load mmc ${devnum}:${distro_bootpart} ${kernload} ${boot_dir}/uImage; then
-    echo Scarlet uImage loaded
+if test "${scarlet_switchvisor_payload}" = 1; then
+    echo Scarlet uImage and initramfs supplied by Switchvisor
 else
-    echoe Scarlet uImage read failed
-    sleep 3
-    reset
-fi
-if load mmc ${devnum}:${distro_bootpart} ${initaddr} ${boot_dir}/initramfs; then
-    echo Scarlet initramfs loaded
-else
-    echoe Scarlet initramfs read failed
-    sleep 3
-    reset
+    if load mmc ${devnum}:${distro_bootpart} ${kernload} ${boot_dir}/uImage; then
+        echo Scarlet uImage loaded
+    else
+        echoe Scarlet uImage read failed
+        sleep 3
+        reset
+    fi
+    if load mmc ${devnum}:${distro_bootpart} ${initaddr} ${boot_dir}/initramfs; then
+        echo Scarlet initramfs loaded
+    else
+        echoe Scarlet initramfs read failed
+        sleep 3
+        reset
+    fi
 fi
 if load mmc ${devnum}:${distro_bootpart} ${fdtrload} ${boot_dir}/nx-plat.dtimg; then
     echo Noble platform DT image loaded
@@ -112,7 +116,30 @@ fdt rm /host1x/dc@54200000 pinctrl-3
 fdt rm /host1x/dc@54200000 pinctrl-4
 fdt rm /host1x/dc@54200000 pinctrl-5
 fdt set /host1x/dc@54240000 status disabled
-setenv bootargs "init=/init init.console=/dev/null maxcpus=4 scarlet.switch=1"
+if test "${scarlet_switchvisor_payload}" = 1; then
+    if load mmc ${devnum}:${distro_bootpart} 0x8c000000 ${boot_dir}/usb-uart.dtbo; then
+        fdt addr ${fdtraddr}
+        fdt resize 8192
+        if fdt apply 0x8c000000; then
+            echo Switchvisor virtual UART selected
+        else
+            echoe Switchvisor UART overlay failed
+            sleep 3
+            reset
+        fi
+    else
+        echoe Switchvisor UART overlay read failed
+        sleep 3
+        reset
+    fi
+fi
+setenv bootargs "init=/init maxcpus=4 scarlet.switch=1"
+# The USB debug entry runs an interactive login on tty0. Keep PID 1 on the
+# same default console as the ordinary Scarlet distribution for this entry.
+# The screen-only entry still suppresses service-manager output on its TTY.
+if test "${scarlet_switchvisor_payload}" != 1; then
+    setenv bootargs "${bootargs} init.console=/dev/null"
+fi
 if test "${scarlet_keep_bootcon}" = 1; then
     setenv bootargs "${bootargs} keep_bootcon"
 fi

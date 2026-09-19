@@ -2,6 +2,7 @@
 """Reuse Scarlet's normal base, CLI and desktop layers for a RAM-only console."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import shlex
 import shutil
@@ -16,6 +17,7 @@ UI = ROOT.parent / "scarlet-ui"
 DESKTOP_BINS = {
     "scarlet-desktop", "desktop-settings", "files", "notepad", "scarlet-shell",
     "terminal", "sws", "sas", "sasctl", "settings", "task-manager", "clock",
+    "sgfx-probe", "sgfx-cube", "sgfx-showcase", "ui-sgfx-showcase", "ui-benchmark",
 }
 
 
@@ -53,6 +55,13 @@ def flatten(path):
 
 
 def main():
+    sgfx = Path(os.environ.get("SCARLET_SGFX_SOURCE", ROOT.parent / "sgfx")).resolve()
+    sgfx_manifest = tomllib.loads((sgfx / "crates/sgfx/Cargo.toml").read_text())
+    if "backend-scarlet-maxwell" not in sgfx_manifest.get("features", {}).get("default", []):
+        raise SystemExit(
+            f"SGFX checkout {sgfx} does not enable the Maxwell backend; "
+            "set SCARLET_SGFX_SOURCE to a compatible checkout"
+        )
     subprocess.run([sys.executable, str(ROOT / "scripts/verify-maxwell-shaders.py")], check=True)
     subprocess.run([sys.executable, str(ROOT / "scripts/prepare-gm20b-firmware.py")], check=True)
     cache = PROJECT / ".scarlet/cache"
@@ -73,7 +82,6 @@ def main():
         path = SCARLET / "user/lib" / ("std" if name == "scarlet-std" else name)
         config.append(f"{name} = {{ path = {value(str(path))} }}")
     config.append('\n[patch."https://github.com/petitstrawberry/sgfx"]')
-    sgfx = ROOT.parent / "sgfx"
     for path in sorted((sgfx / "crates").glob("*/Cargo.toml")):
         name = tomllib.loads(path.read_text())["package"]["name"]
         config.append(f"{name} = {{ path = {value(str(path.parent))} }}")

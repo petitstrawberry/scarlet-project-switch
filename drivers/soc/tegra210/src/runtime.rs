@@ -11,11 +11,15 @@ use scarlet::{
             resource::PlatformDeviceResourceType,
         },
     },
+    interrupt::{
+        Hwirq, InterruptError, InterruptResult, controllers::ExternalInterruptGate,
+        register_external_interrupt_gate,
+    },
     sync::{IrqSpinLock, SpinLock},
 };
 
 #[derive(Clone, Copy)]
-pub struct Mmio(usize);
+pub struct Mmio(pub(crate) usize);
 impl Mmio {
     pub fn read(self, offset: usize) -> u32 {
         unsafe { scarlet::arch::mmio::read32(self.0 + offset) }
@@ -85,6 +89,7 @@ static CAR: IrqSpinLock<Option<Arc<Car>>> = IrqSpinLock::new(None);
 static PADS: IrqSpinLock<Option<Mmio>> = IrqSpinLock::new(None);
 static GPIO: IrqSpinLock<Option<Arc<TegraGpio>>> = IrqSpinLock::new(None);
 static PMC: IrqSpinLock<Option<Mmio>> = IrqSpinLock::new(None);
+static FAN: IrqSpinLock<Option<Mmio>> = IrqSpinLock::new(None);
 static UARTS: IrqSpinLock<Vec<(u32, Arc<TegraUart>)>> = IrqSpinLock::new(Vec::new());
 fn car() -> Result<Arc<Car>, &'static str> {
     CAR.lock().clone().ok_or(PROBE_DEFER)
@@ -153,6 +158,107 @@ pub fn enable_rail_supply() -> Result<(), &'static str> {
     pmc.modify(0xe4, 1 << 21, 0);
     Ok(())
 }
+
+/// Initialize the board cooling device independently of the GPU. PWM0 and
+/// PWM1 share the CAR clock, so the fan must never reset the active backlight.
+pub fn enable_cooling_fan(clock_provider: u32, gpio_provider: u32) -> Result<(), &'static str> {
+    let car = car()?;
+    if car.phandle != clock_provider {
+        return Err("unexpected fan PWM clock provider");
+    }
+    let gpio = gpio_for(gpio_provider)?;
+    let pwm = Mmio(scarlet::vm::ioremap(0x7000a000, 0x100)?);
+    const PWM_CLOCK: u32 = 1 << 17;
+    if car.regs.read(0x10) & PWM_CLOCK == 0 || car.regs.read(0x04) & PWM_CLOCK != 0 {
+        // PWM0 also drives the panel backlight. Never reset their shared clock
+        // controller from this fan path while the display is live.
+        return Err("shared Tegra PWM clock is not running");
+    }
+    let previous = pwm.read(0x10);
+    // Keep the fan stopped until the TMP451 has supplied the first thermal
+    // sample. GM20B is deferred until the fan zone is registered.
+    let value = fan_pwm_value(0);
+    pwm.write(0x10, value);
+    if pwm.read(0x10) != value {
+        pwm.write(0x10, previous);
+        return Err("Tegra PWM1 fan duty did not read back");
+    }
+    pad(0x20c, 1)?; // LCD_GPIO2 selects PWM1.
+    gpio.peripheral(172)?; // V4, the fan PWM output.
+    enable_rail_supply()?;
+    *FAN.lock() = Some(pwm);
+    scarlet::println!(
+        "tegra210-fan: PWM1 idle=0/255 raw={:#010x} previous={:#010x}",
+        value,
+        previous
+    );
+    Ok(())
+}
+
+fn fan_pwm_value(duty: u8) -> u32 {
+    // Switchroot's inverted 0..255 PWM with active_pwm_max=256. A zero
+    // cooling request must write the Tegra 0x100 absolute-off encoding,
+    // exactly as Hekate does; 236/256 only leaves a weak drive active.
+    (1 << 31) | ((256 - u32::from(duty)) << 16)
+}
+
+pub fn cooling_fan_ready() -> bool {
+    FAN.lock().is_some() && crate::thermal::fan_zone_ready()
+}
+
+/// Linux's Tegra210 clock tree uses PLLP/8 for SOCTHERM (51 MHz) and
+/// CLK_M divided to 400 kHz for TSENSOR. Keep the controller in reset while both
+/// clock sources and gates are prepared, then release its single reset.
+pub(crate) fn enable_soctherm_clocks(provider: u32) -> Result<(), &'static str> {
+    let car = car()?;
+    if car.phandle != provider {
+        return Err("unexpected SOCTHERM clock provider");
+    }
+    const SOCTHERM: u32 = 1 << (78 - 64);
+    const TSENSOR: u32 = 1 << (100 - 96);
+    let _lock = car.lock.lock();
+    // CLK_M can be OSC/1..4 on Tegra210; read the boot firmware's divider.
+    let clk_m_div = ((car.regs.read(0x55c) >> 2) & 3) + 1;
+    let tsensor_div = 96 / clk_m_div;
+    if 96 % clk_m_div != 0 || tsensor_div == 0 {
+        return Err("unsupported Tegra CLK_M divisor for TSENSOR");
+    }
+    // TSENSOR is a four-parent MUX (bits 31:30), unlike SOCTHERM's
+    // eight-parent MUX8 (bits 31:29). Parent 2 is CLK_M.
+    let tsensor_source = (2 << 30) | ((tsensor_div - 1) * 2);
+    car.regs.write(0x310, SOCTHERM); // RST_DEV_U_SET
+    car.regs.write(0x644, (2 << 29) | 14); // PLLP 408 MHz / 8.
+    car.regs.write(0x3b8, tsensor_source);
+    car.regs.write(0x330, SOCTHERM); // CLK_ENB_U_SET
+    car.regs.write(0x440, TSENSOR); // CLK_ENB_V_SET
+    delay_us(2);
+    car.regs.write(0x314, SOCTHERM); // RST_DEV_U_CLR
+    if car.regs.read(0x18) & SOCTHERM == 0
+        || car.regs.read(0x360) & TSENSOR == 0
+        || car.regs.read(0x0c) & SOCTHERM != 0
+        || car.regs.read(0x644) & ((7 << 29) | 0xff) != ((2 << 29) | 14)
+        || car.regs.read(0x3b8) & ((3 << 30) | 0xff) != tsensor_source
+    {
+        return Err("SOCTHERM clock/reset readback failed");
+    }
+    scarlet::println!(
+        "tegra210-soctherm: clocks ready soctherm=51MHz tsensor=400kHz clk_m_div={}",
+        clk_m_div
+    );
+    Ok(())
+}
+
+pub fn set_cooling_fan_duty(duty: u8) -> Result<(), &'static str> {
+    let fan = FAN.lock();
+    let pwm = fan.as_ref().ok_or(PROBE_DEFER)?;
+    let value = fan_pwm_value(duty);
+    pwm.write(0x10, value);
+    if pwm.read(0x10) != value {
+        return Err("Tegra PWM1 fan duty did not read back");
+    }
+    Ok(())
+}
+
 impl Car {
     fn validate(&self, d: &PlatformDeviceInfo, reset: u32, clock: u32) -> Result<(), &'static str> {
         if cell(d, "clocks", 0) != Some(self.phandle)
@@ -240,6 +346,7 @@ impl TegraGpio {
 struct TegraI2c {
     regs: Mmio,
     number: u32,
+    speed_hz: u32,
     lock: SpinLock<()>,
     errors: AtomicU64,
     last_error_ns: AtomicU64,
@@ -326,14 +433,14 @@ impl I2cBus for TegraI2c {
         })
     }
     fn set_bus_speed(&self, hz: u32) -> Result<(), I2cError> {
-        if hz == 400_000 {
+        if hz == self.speed_hz {
             Ok(())
         } else {
             Err(I2cError::InvalidArg)
         }
     }
     fn bus_speed(&self) -> u32 {
-        400_000
+        self.speed_hz
     }
     fn bus_number(&self) -> u32 {
         self.number
@@ -522,11 +629,15 @@ fn probe_i2c(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
         .find(|r| r.res_type == PlatformDeviceResourceType::MEM)
         .ok_or("I2C has no MMIO")?
         .start;
-    let (number, reset, source) = match addr {
-        0x7000c500 => (3, 67, 0x1b8),
-        0x7000d000 => (5, 47, 0x128),
+    let (number, reset, source, speed_hz, source_divider) = match addr {
+        0x7000c000 => (1, 12, 0x124, 100_000, 3),
+        0x7000c500 => (3, 67, 0x1b8, 400_000, 0),
+        0x7000d000 => (5, 47, 0x128, 400_000, 0),
         _ => return Err("Tegra I2C instance not supported yet"),
     };
+    if cell(d, "clock-frequency", 0) != Some(speed_hz) {
+        return Err("unsupported Tegra I2C bus frequency");
+    }
     let car = car()?;
     car.validate(d, reset, reset)?;
     let gpio = gpio()?;
@@ -534,7 +645,11 @@ fn probe_i2c(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
     let pin = 0xbc + (number as usize - 1) * 8;
     pad(pin, 1 << 6)?;
     pad(pin + 4, 1 << 6)?;
-    for pin in if number == 3 { [40, 41] } else { [195, 196] } {
+    for pin in match number {
+        1 => [72, 73], // GEN1_I2C SDA/SCL on PJ0/PJ1.
+        3 => [40, 41],
+        _ => [195, 196],
+    } {
         gpio.peripheral(pin)?;
     }
     if number == 3 {
@@ -542,8 +657,10 @@ fn probe_i2c(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
         pad(0xd8, (1 << 6) | 1)?;
     }
     let regs = map_resource(d, addr, 0x90)?;
-    car.enable(reset, source, 6 << 29); // Oscillator, divider 1: 19.2 MHz.
-    regs.write(0x6c, (5 << 16) | 1); // 19.2MHz / (4+2+2) / 6 = 400kHz.
+    // Hekate uses the oscillator source divided by four for I2C1 (100 kHz)
+    // and no source division for I2C3/5 (400 kHz).
+    car.enable(reset, source, (6 << 29) | source_divider);
+    regs.write(0x6c, (5 << 16) | 1);
     // Linux initializes/registers the controller before powering its clients.
     // Bus clear belongs to failed transfers: requiring it here can prevent a
     // powered-off touch client from ever reaching its own power-on sequence.
@@ -554,12 +671,13 @@ fn probe_i2c(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
         Arc::new(TegraI2c {
             regs,
             number,
+            speed_hz,
             lock: SpinLock::new(()),
             errors: AtomicU64::new(0),
             last_error_ns: AtomicU64::new(0),
         }),
     );
-    scarlet::println!("tegra210-i2c: bus {} ready at 400kHz", number);
+    scarlet::println!("tegra210-i2c: bus {} ready at {}Hz", number, speed_hz);
     Ok(())
 }
 fn probe_uart(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
@@ -611,6 +729,73 @@ fn probe_uart(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
 fn remove(_: &PlatformDeviceInfo) -> Result<(), &'static str> {
     Err("Tegra transport is in use")
 }
+
+/// Tegra210's six 32-source LIC banks gate the corresponding GIC SPI lines.
+/// The interrupt core selects this controller by the consuming device's DT
+/// `interrupt-parent`, then calls it as part of the ordinary IRQ lifecycle.
+struct TegraLic {
+    banks: [Mmio; 6],
+}
+
+impl TegraLic {
+    fn line(&self, hwirq: Hwirq) -> InterruptResult<(Mmio, u32)> {
+        let source = hwirq
+            .checked_sub(32)
+            .filter(|source| *source < 6 * 32)
+            .ok_or(InterruptError::InvalidInterruptId)?;
+        Ok((self.banks[(source / 32) as usize], 1 << (source % 32)))
+    }
+}
+
+impl ExternalInterruptGate for TegraLic {
+    fn mask(&self, hwirq: Hwirq) -> InterruptResult<()> {
+        let (bank, bit) = self.line(hwirq)?;
+        bank.write(0x28, bit); // CPU_IER_CLR
+        if bank.read(0x20) & bit != 0 {
+            return Err(InterruptError::HardwareError);
+        }
+        Ok(())
+    }
+
+    fn unmask(&self, hwirq: Hwirq) -> InterruptResult<()> {
+        let (bank, bit) = self.line(hwirq)?;
+        bank.write(0x24, bit); // CPU_IER_SET
+        if bank.read(0x20) & bit == 0 {
+            return Err(InterruptError::HardwareError);
+        }
+        Ok(())
+    }
+
+    fn eoi(&self, hwirq: Hwirq) -> InterruptResult<()> {
+        let (bank, bit) = self.line(hwirq)?;
+        bank.write(0x1c, bit); // CPU_IEP_FIR_CLR
+        Ok(())
+    }
+}
+
+fn probe_lic(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
+    if d.property("interrupt-controller").is_none()
+        || cell(d, "#interrupt-cells", 0) != Some(3)
+        || cell(d, "interrupt-parent", 0).is_none()
+    {
+        return Err("invalid Tegra210 LIC interrupt hierarchy");
+    }
+    let mut banks = [Mmio(0); 6];
+    for (index, bank) in banks.iter_mut().enumerate() {
+        *bank = map_resource(d, 0x60004000 + index as u64 * 0x100, 0x40)?;
+    }
+    // Linux irq-tegra.c starts from a masked, IRQ-class baseline. Switchvisor
+    // preserves its EL2-owned physical source while virtualizing guest writes.
+    for bank in banks {
+        bank.write(0x28, u32::MAX); // CPU_IER_CLR
+        bank.write(0x2c, 0); // CPU_IEP_CLASS: IRQ, not FIQ
+    }
+    register_external_interrupt_gate(phandle(d)?, Arc::new(TegraLic { banks }))
+        .map_err(|_| "failed to register Tegra210 LIC interrupt gate")?;
+    scarlet::println!("tegra210-lic: six 32-source banks registered");
+    Ok(())
+}
+
 fn register() {
     for (name, compatible, probe) in [
         (
@@ -621,6 +806,7 @@ fn register() {
         ("tegra210-pinmux", "nvidia,tegra210-pinmux", probe_pads),
         ("tegra210-gpio", "nvidia,tegra210-gpio", probe_gpio),
         ("tegra210-pmc", "nvidia,tegra210-pmc", probe_pmc),
+        ("tegra210-lic", "nvidia,tegra210-ictlr", probe_lic),
         ("tegra210-i2c", "nvidia,tegra210-i2c", probe_i2c),
         ("tegra210-uart", "nvidia,tegra114-hsuart", probe_uart),
     ] {
@@ -643,6 +829,8 @@ fn register() {
             DriverPriority::Core,
         );
     }
+    crate::thermal::register_drivers();
+    crate::soctherm::register_driver();
 }
 scarlet::driver_initcall!(register);
 #[used]

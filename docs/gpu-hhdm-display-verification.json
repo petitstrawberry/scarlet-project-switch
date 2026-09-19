@@ -216,5 +216,15 @@
   "sd_eject_exit_code": 0,
   "sd_eject_log": ".cache/hhdm-dc-sd-eject.log",
   "kernel_hhdm_upstream_draft_pr": "https://github.com/petitstrawberry/Scarlet/pull/560",
-  "hhdm_policy": "Conservative page-granular live direct map; same-attribute sparse metadata still merges and other mapping regions retain block selection."
+  "hhdm_policy": "Conservative page-granular live direct map; same-attribute sparse metadata still merges and other mapping regions retain block selection.",
+  "later_user_observation": {
+    "report": "とりあえず多分動いた。ただsgfxが使えないので若干色が変わって見える程度",
+    "date": "2026-09-14",
+    "boot_probably_continued_user_reported": true,
+    "native_scanout_activation_log_supplied": false,
+    "video_or_register_log_supplied": false,
+    "sgfx_usable_user_reported": false,
+    "color_difference_user_reported": true,
+    "sustained_input_and_timer_operation_validated": false
+  }
 }

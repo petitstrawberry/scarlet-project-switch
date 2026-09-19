@@ -144,8 +144,20 @@ impl Context {
     }
 
     fn main(&self, gr: &Gr) -> Result<(), &'static str> {
+        let check_dispatch = |stage: &str| {
+            let dispatch = gr.read(0x404000);
+            if dispatch & 0x3fffffff != 0 {
+                scarlet::println!(
+                    "gm20b: golden dispatch fault stage={} status={:#010x}",
+                    stage,
+                    dispatch
+                );
+                return Err("golden context dispatch fault");
+            }
+            Ok(())
+        };
         let gpcs = gr.read(0x409604) & 0x1f;
-        let tpcs = gr.read(0x502608);
+        let tpcs = gr.read(0x502608) & 0xff;
         let ppc_mask = gr.read(0x500c30);
         // TPC/PPC topology was read by Linux from topology registers, not
         // from the context's attribute-buffer configuration registers.
@@ -164,6 +176,7 @@ impl Context {
             gr.write(offset, word(entry, 8)?);
         }
         Self::idle(gr)?;
+        check_dispatch("sw_ctx")?;
         let timeout = gr.read(0x404154);
         if timeout == u32::MAX {
             return Err("GR idle timeout register unreadable");
@@ -193,6 +206,7 @@ impl Context {
         gr.write(0x404154, timeout);
         result?;
         Self::idle(gr)?;
+        check_dispatch("floorsweep")?;
         // gk20a_gr_av_to_method + gf100_gr_mthd: packed firmware address
         // contains class in low16 and method/4 in high16. WHENCE supplies
         // the exact GM200 table for GM20B, without Maxwell-A substitution.
@@ -206,16 +220,27 @@ impl Context {
             gr.write(0x404488, 0x80000000 | address);
         }
         Self::idle(gr)?;
+        check_dispatch("methods")?;
         gr.write(0x400208, 0x80000000);
         let result = (|| {
-            for entry in gr.firmware.bundle.chunks_exact(8) {
+            for (index, entry) in gr.firmware.bundle.chunks_exact(8).enumerate() {
                 let address = word(entry, 0)?;
-                gr.write(0x400204, word(entry, 4)?);
+                let value = word(entry, 4)?;
+                gr.write(0x400204, value);
                 gr.write(0x400200, address);
                 if address & 0xffff == 0xe100 {
                     Self::idle(gr)?;
                 }
                 gr.wait_reg("golden internal bundle", 0x400700, |v| v & 4 == 0)?;
+                if gr.read(0x404000) & 0x3fffffff != 0 {
+                    scarlet::println!(
+                        "gm20b: golden bundle fault index={} addr={:#010x} data={:#010x}",
+                        index,
+                        address,
+                        value
+                    );
+                    check_dispatch("bundle")?;
+                }
             }
             Ok(())
         })();
@@ -290,6 +315,10 @@ impl Context {
             self.main(gr)?;
             Self::fecs(gr, instance, 9, 1, 2)?;
             gr.mask(0x409b00, 0x80000000, 0)?;
+            // FECS writes the saved image through the GPU's LTC. The CPU's
+            // D-cache invalidate alone cannot make those writes visible.
+            gr.write(0x70010, 1);
+            gr.wait_reg("golden context LTC flush", 0x70010, |value| value & 3 == 0)?;
             arch::invalidate_dcache_to_poc_range(
                 self.image.as_vaddr() + CB_RESERVED,
                 size as usize,

@@ -367,7 +367,7 @@ impl Firmware {
                 .ok_or("WPR data address overflow")?;
             if id == 0 {
                 let words = [
-                    4,
+                    0, // FALCON_DMAIDX_UCODE
                     (code_addr >> 8) as u32,
                     ls.app_size,
                     ls.code_size,
@@ -386,7 +386,7 @@ impl Firmware {
                 }
             } else {
                 let words = [
-                    4,
+                    0, // FALCON_DMAIDX_UCODE
                     (code_addr >> 8) as u32,
                     ls.code_offset,
                     ls.code_size,

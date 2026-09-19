@@ -364,7 +364,14 @@ impl ContextResources {
                 submitted_at.saturating_sub(encoded_at) / 1_000,
             );
         }
-        result?;
+        result.map_err(|error| {
+            std::println!(
+                "[gm20b-userspace] queue submit bytes={}: {:?}",
+                payload.len(),
+                error
+            );
+            error
+        })?;
         Ok(())
     }
 
@@ -383,7 +390,21 @@ impl ContextResources {
             upload.pixels.as_ref(),
             upload.bytes_per_row,
             GpuImageBgraRect::new(area.x(), area.y(), area.width(), area.height()),
-        )?;
+        ).map_err(|error| {
+            std::println!(
+                "[gm20b-userspace] upload image {}x{} rect=({},{}) {}x{} stride={} bytes={}: {:?}",
+                descriptor.extent().width(),
+                descriptor.extent().height(),
+                area.x(),
+                area.y(),
+                area.width(),
+                area.height(),
+                upload.bytes_per_row,
+                upload.pixels.len(),
+                error
+            );
+            error
+        })?;
         Ok(())
     }
 

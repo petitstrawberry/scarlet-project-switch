@@ -100,3 +100,7 @@ pub const CACHE_SPLIT_48K_SHARED_16K_L1: u32 = 0x00000003;
 pub const VIEW_VOLUME_CLIP_CTRL_UNK1_UNK1: u32 = 0x00000002;
 pub const SERIALIZE: u32 = 0x0110; // nv_object.xml.h NV50_GRAPH_SERIALIZE
 pub const TEX_CB_INDEX: u32 = 0x2608; // NVE4_3D_TEX_CB_INDEX
+// NVIDIA clb197.h: instruction bit 0, data bit 4, constant bit 12.
+// Bit 8 from older MEM_BARRIER templates is not defined for Maxwell B.
+pub const INVALIDATE_SHADER_CACHES: u32 = 0x021c;
+pub const INVALIDATE_SHADER_CACHE_READS: u32 = (1 << 0) | (1 << 4) | (1 << 12);

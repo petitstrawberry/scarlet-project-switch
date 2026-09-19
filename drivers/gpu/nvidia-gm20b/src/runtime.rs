@@ -9,6 +9,7 @@ use crate::firmware::Firmware;
 use crate::gmmu::Gmmu;
 use scarlet::{
     device::{
+        devfreq::{self, DeviceFrequencyGovernor, DeviceFrequencyOpp},
         fdt::FdtManager,
         gpu::{GpuBackend, register_gpu_control_device},
         i2c::{I2cAddress, I2cBus, I2cMessage},
@@ -20,7 +21,10 @@ use scarlet::{
     },
     time, vm,
 };
-use scarlet_driver_tegra210::{GpuPlatform, GpuPlatformState, cell, delay_us, gpu_platform};
+use scarlet_driver_tegra210::{
+    GpuPlatform, GpuPlatformState, cell, cooling_fan_ready, delay_us, gpu_platform,
+    maybe_register_gpu_zone,
+};
 
 const GPU_ADDRESS: u8 = 0x1c;
 const PMIC_ADDRESS: u8 = 0x3c;
@@ -37,10 +41,18 @@ const MC_HOTRESET_STATUS: usize = 0x974;
 const MC_GPU: u32 = 1 << 2;
 static REGISTERED: AtomicBool = AtomicBool::new(false);
 
-fn fdt_cell(node: &fdt::node::FdtNode<'_, '_>, name: &str) -> Option<u32> {
+fn fdt_cell_at(node: &fdt::node::FdtNode<'_, '_>, name: &str, index: usize) -> Option<u32> {
     Some(u32::from_be_bytes(
-        node.property(name)?.value.get(..4)?.try_into().ok()?,
+        node.property(name)?
+            .value
+            .get(index.checked_mul(4)?..index.checked_add(1)?.checked_mul(4)?)?
+            .try_into()
+            .ok()?,
     ))
+}
+
+fn fdt_cell(node: &fdt::node::FdtNode<'_, '_>, name: &str) -> Option<u32> {
+    fdt_cell_at(node, name, 0)
 }
 
 fn node_phandle(node: &fdt::node::FdtNode<'_, '_>) -> Option<u32> {
@@ -367,6 +379,9 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         return Err("unsupported GPU MC aperture");
     }
     let platform = gpu_platform(provider)?;
+    if !cooling_fan_ready() {
+        return Err(PROBE_DEFER);
+    }
     let bus = DeviceManager::get_manager()
         .get_i2c_bus(node_phandle(&i2c).ok_or("missing GPU I2C5 phandle")?)
         .ok_or(PROBE_DEFER)?;
@@ -388,7 +403,8 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     let firmware = Firmware::load()?;
     scarlet::println!("gm20b: firmware loaded; initializing hardware");
     let gpu_base = vm::ioremap(gpu.start, 0x801000)?;
-    let bar1_base = vm::ioremap(bar1.start, 0x9000)?;
+    // ACR bring-up verifies its HS image through BAR1 at VA 0x10000+.
+    let bar1_base = vm::ioremap(bar1.start, 0x20000)?;
     let mc_base = vm::ioremap(0x70019000, 0x1000)?;
     let mut power = Power::acquire(platform, Rail { bus })?;
     scarlet::println!(
@@ -430,16 +446,21 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         return Err("GPU MC CPU interrupt outputs did not remain masked");
     }
     crate::hardware::initialize(gpu_base)?;
+    crate::clock::initialize(gpu_base, power.platform.reference_hz(), VOLTAGE_UV, fdt)?;
     // Transfer the allocation owner before any hardware address is published.
     // On failure Power isolates/drains the client before freeing its pages.
     power.dma = Some(Gmmu::allocate(gpu_base, bar1_base, mc_base)?);
-    power.dma.as_ref().unwrap().initialize()?;
+    // nvgpu finalize_poweron: FIFO reset/enable, LTC/MM, USERD, GR, CE,
+    // then channel resume. No runlist may execute with CE still in reset.
     power
         .dma
         .as_ref()
         .unwrap()
-        .initialize_fifo_hardware(power.platform.reference_hz())?;
+        .reset_fifo(power.platform.reference_hz())?;
+    power.dma.as_ref().unwrap().initialize()?;
+    power.dma.as_ref().unwrap().initialize_fifo_hardware()?;
     let gr = power.dma.as_mut().unwrap().initialize_gr(firmware)?;
+    crate::hardware::initialize_copy_engines(gpu_base)?;
     let _fifo = power.dma.as_ref().unwrap().prove_fifo_host()?;
     let _graphics = power
         .dma
@@ -471,8 +492,39 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     for (bytes, word) in snapshot.chunks_exact_mut(4).zip(words) {
         bytes.copy_from_slice(&word.to_le_bytes());
     }
-    let backend: Arc<dyn GpuBackend> = Arc::new(crate::executor::Backend::new(power, snapshot));
-    let (_, name) = register_gpu_control_device(backend)?;
+    let utilization = match crate::utilization::UtilizationMonitor::new(gpu_base) {
+        Ok(monitor) => Some(monitor),
+        Err(error) => {
+            scarlet::println!("gm20b: automatic frequency control unavailable: {}", error);
+            None
+        }
+    };
+    let backend = Arc::new(crate::executor::Backend::new(
+        power,
+        snapshot,
+        gpu_base,
+        utilization,
+    ));
+    let gpu_backend: Arc<dyn GpuBackend> = backend.clone();
+    let (_, name) = register_gpu_control_device(gpu_backend)?;
+    let opps = crate::clock::RATES_KHZ.map(|freq_khz| DeviceFrequencyOpp {
+        freq_khz,
+        // This first policy keeps the existing 1.0-V rail at every point.
+        min_uv: VOLTAGE_UV,
+    });
+    if let Err(error) = devfreq::register("gm20b", &opps, backend) {
+        // The GPU control device is already registered. Keep it usable at
+        // the proven boot rate, but make the missing policy visible in logs.
+        scarlet::println!("gm20b: device frequency policy unavailable: {}", error);
+    } else {
+        if let Err(error) = maybe_register_gpu_zone() {
+            scarlet::println!("gm20b: GPU thermal cap unavailable: {}", error);
+        }
+        match devfreq::set_governor("gm20b", DeviceFrequencyGovernor::SimpleOndemand) {
+            Ok(()) => scarlet::println!("gm20b: automatic devfreq enabled (25ms PMU samples)"),
+            Err(error) => scarlet::println!("gm20b: automatic devfreq unavailable: {}", error),
+        }
+    }
     REGISTERED.store(true, Ordering::Release);
     scarlet::println!(
         "gm20b: identified MC_BOOT_0={:#010x} enable={:#010x} intr={:#x}/{:#x}; /dev/{}",
@@ -483,7 +535,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         name
     );
     scarlet::println!(
-        "gm20b: SGFX shader draw/readback passed; maxwell-sgfx-ops-v1 queues ready; native linear presentation"
+        "gm20b: SGFX shader draw/readback passed; maxwell-sgfx-ops-v1 queues ready; GPCCLK boot=307.2MHz"
     );
     Ok(())
 }

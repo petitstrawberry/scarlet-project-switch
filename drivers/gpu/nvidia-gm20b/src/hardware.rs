@@ -96,7 +96,7 @@ pub fn initialize(base: usize) -> Result<(), &'static str> {
     Ok(())
 }
 
-pub fn measure_clock(base: usize, reference_hz: u32) {
+pub fn measure_clock(base: usize, reference_hz: u32) -> Option<u64> {
     // nvgpu gm20b_clk_get_gpcclk_clock_counter: count 800 reference cycles,
     // then allow 200us and a second 100us for the counter to settle. This
     // measures GPCCLK, not PFIFO progress; only actual fences admit PFIFO.
@@ -111,13 +111,106 @@ pub fn measure_clock(base: usize, reference_hz: u32) {
     if first == second && second != u32::MAX && second & 0xfffff != 0 {
         let hz = u64::from(reference_hz) * u64::from(second & 0xfffff) / u64::from(CYCLES);
         scarlet::println!("gm20b: GPCCLK measured={}Hz count={:#010x}", hz, second);
+        Some(hz)
     } else {
         scarlet::println!(
             "gm20b: GPCCLK unmeasured count={:#010x}/{:#010x}",
             first,
             second
         );
+        None
     }
+}
+
+/// Finish Linux's post-GR engine initialization before publishing a runlist.
+/// gk20a_fifo_init_engine_info discovers reset bits from TOP, and
+/// gk20a_init_ce_support resets every copy engine, including GR's shared CE.
+pub fn initialize_copy_engines(base: usize) -> Result<(), &'static str> {
+    let mut engine = None;
+    let mut runlist = None;
+    let mut reset = None;
+    let mut kind = None;
+    let mut copy_mask = 0;
+    let mut runlist_mask = 0;
+    let mut graphics_found = false;
+    for index in 0..64 {
+        let entry = read(base, 0x22700 + index * 4);
+        if entry == u32::MAX {
+            return Err("GPU TOP device information unreadable");
+        }
+        match entry & 3 {
+            2 => {
+                if entry & (1 << 5) != 0 {
+                    engine = Some((entry >> 26) & 0xf);
+                }
+                if entry & (1 << 4) != 0 {
+                    runlist = Some((entry >> 21) & 0xf);
+                }
+                if entry & (1 << 2) != 0 {
+                    reset = Some((entry >> 9) & 0x1f);
+                }
+            }
+            3 => kind = Some((entry >> 2) & 0x1fffffff),
+            _ => {}
+        }
+        if entry & (1 << 31) != 0 {
+            continue;
+        }
+        if let Some(kind @ 0..=3) = kind {
+            let (Some(engine), Some(runlist), Some(reset)) = (engine, runlist, reset) else {
+                return Err("GPU TOP engine is missing routing or reset information");
+            };
+            scarlet::println!(
+                "gm20b: TOP engine={} type={} runlist={} reset={:#010x}",
+                engine,
+                kind,
+                runlist,
+                1u32 << reset
+            );
+            if kind == 0 {
+                // The private FIFO and GR idle checks currently own engine 0
+                // on runlist 0. Validate that assumption against silicon.
+                if graphics_found || engine != 0 || runlist != 0 || reset != 12 {
+                    return Err("GPU TOP graphics routing is unsupported");
+                }
+                graphics_found = true;
+            } else {
+                copy_mask |= 1 << reset;
+            }
+            if runlist == 0 {
+                runlist_mask |= 1 << reset;
+            }
+        }
+        engine = None;
+        runlist = None;
+        reset = None;
+        kind = None;
+    }
+    if !graphics_found || copy_mask == 0 {
+        return Err("GPU TOP did not enumerate GM20B graphics and copy engines");
+    }
+    let before = read(base, MC_ENABLE);
+    if before == u32::MAX {
+        return Err("GPU copy-engine enable register unreadable");
+    }
+    write(base, MC_ENABLE, before & !copy_mask);
+    let _ = read(base, MC_ENABLE);
+    delay_us(500); // gm20b_mc_reset's CE-specific reset hold.
+    write(base, MC_ENABLE, before | copy_mask);
+    let _ = read(base, MC_ENABLE);
+    delay_us(20);
+    write(base, 0x106f28, 0x7fe); // gm20b_slcg_ce2 gating disabled.
+    let after = read(base, MC_ENABLE);
+    scarlet::println!(
+        "gm20b: copy engines ready mask={:#010x} mc={:#010x}->{:#010x}",
+        copy_mask,
+        before,
+        after
+    );
+    if after == u32::MAX || after & (runlist_mask | copy_mask) != (runlist_mask | copy_mask) {
+        return Err("GPU runlist engine remained in reset");
+    }
+    Ok(())
 }
 
 pub fn initialize_memory(base: usize) -> Result<(), &'static str> {

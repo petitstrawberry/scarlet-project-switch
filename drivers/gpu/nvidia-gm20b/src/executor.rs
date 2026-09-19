@@ -4,7 +4,7 @@
 //! tokens. User bytes can never select a GPU method, physical address or shader.
 
 use crate::{
-    gmmu::{VA_LIMIT, clean, pages},
+    gmmu::{VA_LIMIT, pages},
     runtime::Power,
 };
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
@@ -13,11 +13,13 @@ use maxwell_submit_wire as wire;
 use scarlet::{
     arch,
     device::{
+        devfreq::{DeviceFrequencyDriver, DeviceFrequencyUtilization},
         gpu::*,
         graphics::{GpuDisplayResource, PixelFormat},
     },
     mem::page::ContiguousPages,
     sync::Mutex,
+    time,
 };
 
 const COOKIE: u64 = 0x474d323042535031;
@@ -54,16 +56,24 @@ struct State {
     next_attachment: u64,
     lost: bool,
     diagnostic_submissions: u64,
+    diagnostic_allocation_failures: u64,
 }
 struct Shared {
     state: Mutex<State>,
+    utilization: Option<crate::utilization::UtilizationMonitor>,
 }
 pub struct Backend {
     shared: Arc<Shared>,
     snapshot: [u8; 64],
+    gpu_base: usize,
 }
 impl Backend {
-    pub fn new(power: Power, snapshot: [u8; 64]) -> Self {
+    pub fn new(
+        power: Power,
+        snapshot: [u8; 64],
+        gpu_base: usize,
+        utilization: Option<crate::utilization::UtilizationMonitor>,
+    ) -> Self {
         Self {
             shared: Arc::new(Shared {
                 state: Mutex::new(State {
@@ -72,9 +82,52 @@ impl Backend {
                     next_attachment: 1,
                     lost: false,
                     diagnostic_submissions: 0,
+                    diagnostic_allocation_failures: 0,
                 }),
+                utilization,
             }),
             snapshot,
+            gpu_base,
+        }
+    }
+}
+
+impl DeviceFrequencyDriver for Backend {
+    fn sample_utilization(&self) -> Result<DeviceFrequencyUtilization, &'static str> {
+        self.shared
+            .utilization
+            .as_ref()
+            .ok_or("GM20B PMU activity counters unavailable")?
+            .sample()
+    }
+    fn current_frequency_khz(&self) -> Result<u64, &'static str> {
+        let state = self.shared.state.lock();
+        if state.lost {
+            return Err("GM20B device lost");
+        }
+        crate::clock::current_rate_khz(self.gpu_base, state.power.platform.reference_hz())
+    }
+
+    fn set_frequency_khz(&self, freq_khz: u64) -> Result<(), &'static str> {
+        // Every queue submission, allocation and release uses this same
+        // sleepable mutex. A completed synchronous submit has retired its
+        // GPU fence; verify GR idle before touching the PLL post-divider.
+        let mut state = self.shared.state.lock();
+        if state.lost {
+            return Err("GM20B device lost");
+        }
+        state.power.dma.as_ref().unwrap().idle()?;
+        match crate::clock::set_rate_khz(
+            self.gpu_base,
+            state.power.platform.reference_hz(),
+            freq_khz,
+        ) {
+            Ok(()) => Ok(()),
+            Err(crate::clock::RateChangeError::Reverted(reason)) => Err(reason),
+            Err(crate::clock::RateChangeError::Unsafe(reason)) => {
+                state.fault();
+                Err(reason)
+            }
         }
     }
 }
@@ -90,9 +143,8 @@ impl State {
             .map_err(|_| "GPU object too large")?
             .div_ceil(4096);
         if count == 0 || count > 0x1000000 / 4096 {
-            return Err("GPU object size exceeds address-space budget");
+            return Err(self.allocation_error(size, "GPU object size exceeds address-space budget"));
         }
-        let memory = pages(count)?;
         let mut va: usize = 0x500000;
         // First fit over sorted retained mappings; each submission is fully
         // retired under this mutex before allocation or mapping retirement.
@@ -106,8 +158,9 @@ impl State {
             .checked_add(count * 4096)
             .is_none_or(|end| end > VA_LIMIT as usize)
         {
-            return Err("GM20B GPU address space exhausted");
+            return Err(self.allocation_error(size, "GM20B GPU address space exhausted"));
         }
+        let memory = pages(count).map_err(|error| self.allocation_error(size, error))?;
         let object = self.next_object;
         self.next_object = self
             .next_object
@@ -134,7 +187,30 @@ impl State {
             self.fault();
             return Err(error);
         }
+        if object <= 4 {
+            scarlet::println!("gm20b: object={} mapped va={:#x} size={}", object, va, size);
+        }
         Ok((object, memory))
+    }
+    fn allocation_error(&mut self, size: u64, reason: &'static str) -> &'static str {
+        self.diagnostic_allocation_failures = self.diagnostic_allocation_failures.saturating_add(1);
+        let count = self.diagnostic_allocation_failures;
+        if count <= 4 {
+            let retained_bytes: usize = self
+                .dma()
+                .retained
+                .values()
+                .map(|memory| memory.pages.len() * 4096)
+                .sum();
+            scarlet::println!(
+                "gm20b: allocation failed: {} request={} retained={} objects={}",
+                reason,
+                size,
+                retained_bytes,
+                self.dma().retained.len()
+            );
+        }
+        reason
     }
     fn fault(&mut self) {
         self.lost = true;
@@ -413,6 +489,7 @@ impl GpuBackendQueue for Queue {
         if bytes.is_empty() {
             return Ok(());
         }
+        let started = time::current_time_ns();
         let decoded = wire::decode(bytes)
             .map_err(|_| GpuBackendSubmitError::Rejected("invalid GM20B submit wire"))?;
         let attached = self.context.attachments.lock();
@@ -422,9 +499,14 @@ impl GpuBackendQueue for Queue {
         }
         s.diagnostic_submissions = s.diagnostic_submissions.saturating_add(1);
         let sequence = s.diagnostic_submissions;
-        let trace =
-            scarlet::earlyfb::keep_boot_console() && (sequence <= 8 || sequence.is_power_of_two());
-        // Snapshot CPU-visible buffers into independently retained GPU backing.
+        let trace = sequence <= 4;
+        let acquired = time::current_time_ns();
+        let mut copied_bytes = 0u64;
+        let mut referenced_bytes = 0u64;
+        // Snapshot only the authorized ranges used by this submission, not
+        // the capacity reserved for future frames. The wire decoder checks
+        // every relocation lies inside its declared resource range.
+        // Keep independently retained GPU backing even for a small range.
         // Validate indices from this snapshot, so a mutable user alias cannot
         // race validation and cause a GPU fetch outside its authorized VBO.
         for i in 0..decoded.resource_len() {
@@ -442,22 +524,29 @@ impl GpuBackendQueue for Queue {
                 ));
             }
             if let Kind::Buffer { paddr } = &a.memory.kind {
+                let offset = resource.range_offset as usize;
+                let size = resource.range_size as usize;
+                let destination = a.memory.pages.as_vaddr() + offset;
+                copied_bytes += resource.range_size;
+                referenced_bytes += resource.range_size;
                 unsafe {
                     core::ptr::copy_nonoverlapping(
-                        scarlet::vm::phys_to_virt(*paddr) as *const u8,
-                        a.memory.pages.as_vaddr() as *mut u8,
-                        a.memory.size as usize,
+                        (scarlet::vm::phys_to_virt(*paddr) + offset) as *const u8,
+                        destination as *mut u8,
+                        size,
                     );
                 }
-                clean(&a.memory.pages);
+                arch::clean_dcache_to_poc_range(destination, size);
             }
         }
+        let snapshotted = time::current_time_ns();
         let operations = validate(&decoded, &attached).map_err(|error| {
             if trace {
                 scarlet::println!("gm20b: submit={} rejected: {}", sequence, error);
             }
             GpuBackendSubmitError::Rejected(error)
         })?;
+        let validated = time::current_time_ns();
         if trace {
             let draws = operations.iter().filter(|w| w[0] == 2).count();
             scarlet::println!(
@@ -478,20 +567,17 @@ impl GpuBackendQueue for Queue {
             return Err(error);
         }
         if trace {
-            if let Some(w) = operations
-                .iter()
-                .rev()
-                .find(|w| w[10] >= 256 && w[11] >= 256)
-            {
-                let target = u64::from(w[2]) | (u64::from(w[3]) << 32);
-                if let Some(memory) = attached
-                    .values()
-                    .map(|a| &a.memory)
-                    .find(|m| m.va as u64 == target)
-                {
-                    trace_rendered_image(sequence, memory, w[10], w[11], w[12]);
-                }
-            }
+            let retired = time::current_time_ns();
+            scarlet::println!(
+                "gm20b: submit={} retired wait_us={} snapshot_us={} validate_us={} execute_us={} copied={} referenced={}",
+                sequence,
+                acquired.saturating_sub(started) / 1000,
+                snapshotted.saturating_sub(acquired) / 1000,
+                validated.saturating_sub(snapshotted) / 1000,
+                retired.saturating_sub(validated) / 1000,
+                copied_bytes,
+                referenced_bytes
+            );
         }
         // Written buffer uploads are reflected back only after real GPU retire.
         for i in 0..decoded.resource_len() {
@@ -501,15 +587,15 @@ impl GpuBackendQueue for Queue {
             }
             let a = &attached[&resource.attachment_token];
             if let Kind::Buffer { paddr } = &a.memory.kind {
-                arch::invalidate_dcache_to_poc_range(
-                    a.memory.pages.as_vaddr(),
-                    a.memory.size as usize,
-                );
+                let offset = resource.range_offset as usize;
+                let size = resource.range_size as usize;
+                let source = a.memory.pages.as_vaddr() + offset;
+                arch::invalidate_dcache_to_poc_range(source, size);
                 unsafe {
                     core::ptr::copy_nonoverlapping(
-                        a.memory.pages.as_vaddr() as *const u8,
-                        scarlet::vm::phys_to_virt(*paddr) as *mut u8,
-                        a.memory.size as usize,
+                        source as *const u8,
+                        (scarlet::vm::phys_to_virt(*paddr) + offset) as *mut u8,
+                        size,
                     );
                 }
             }
@@ -518,44 +604,6 @@ impl GpuBackendQueue for Queue {
     }
 }
 
-fn trace_rendered_image(sequence: u64, memory: &Memory, width: u32, height: u32, pitch: u32) {
-    let address = memory.pages.as_vaddr();
-    arch::invalidate_dcache_to_poc_range(address, pitch as usize * height as usize);
-    let first = unsafe { core::ptr::read_volatile(address as *const u32) } & 0x00ffffff;
-    let mut varied = 0u32;
-    let mut hash = 0x811c9dc5u32;
-    for y in 0..height {
-        for x in 0..width {
-            let offset = (y * pitch + x * 4) as usize;
-            let pixel = unsafe { core::ptr::read_volatile((address + offset) as *const u32) };
-            varied += u32::from(pixel & 0x00ffffff != first);
-            hash = (hash ^ pixel).wrapping_mul(0x01000193);
-        }
-    }
-    // Use the same grid and hash as DC so a retired render and the image
-    // handed to scanout can be compared by physical address and sample hash.
-    let mut sample_hash = 0x811c9dc5u32;
-    for gy in 0..18 {
-        for gx in 0..32 {
-            let offset = (gy * (height - 1) / 17 * pitch + gx * (width - 1) / 31 * 4) as usize;
-            let pixel = unsafe { core::ptr::read_volatile((address + offset) as *const u32) };
-            sample_hash = (sample_hash ^ pixel).wrapping_mul(0x01000193);
-        }
-    }
-    scarlet::println!(
-        "gm20b: render={} addr={:#x} {}x{} pitch={} rgb={:#08x} varied={}/{} sample={:08x} hash={:08x}",
-        sequence,
-        memory.pages.as_paddr(),
-        width,
-        height,
-        pitch,
-        first,
-        varied,
-        width * height,
-        sample_hash,
-        hash
-    );
-}
 impl GpuBackend for Backend {
     fn query_info(&self) -> GpuBackendInfo {
         let lost = self.shared.state.lock().lost;

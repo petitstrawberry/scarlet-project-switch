@@ -55,10 +55,15 @@ The current image uses the normal SWS output scale of 1.0 after the user's
 feedback on 2.0 and fractional scaling.
 
 The generic `init.console=` option selects initial stdio; the default remains
-`/dev/tty0` for existing distributions. This image keeps stemd's inherited
-stdio on `init.console=/dev/null`, while its login service explicitly owns
-`/dev/tty0`. SSH automatic startup is disabled until supported network and
-cryptographic entropy sources are available. The current Linux Image candidate
+`/dev/tty0` for existing distributions. The screen-only entry keeps stemd's
+inherited stdio on `init.console=/dev/null`. The Switchvisor USB entry uses the
+ordinary `/dev/tty0` default, and its login service explicitly opens that TTY.
+On Tegra210, IRQ resources retain their DT `interrupt-parent`. The six-bank
+LIC driver gates the corresponding GIC SPI during normal enable, mask,
+unmask, and EOI. Switchvisor's virtual UART is one LIC consumer (source 44,
+GIC SPI 76); it has no UART-specific setup in the LIC driver. SSH automatic
+startup is disabled until supported network and cryptographic entropy sources
+are available. The current Linux Image candidate
 requests four cores through PSCI; the previous candidate received a
 successful-boot report, while per-core timer and sustained SMP measurements
 remain pending. See `cpu-bringup.md`.

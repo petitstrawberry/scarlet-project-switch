@@ -6,7 +6,7 @@
 //! serial-tegra.c at 2d0059fd3167a8df756de2aa0489d4aa70a9fc15.
 //! Board register definitions also follow Hekate
 //! e487de8fdd6ca9c3f608d1d18c097a86355912b9,
-//! bdk/soc/{i2c,clock,pinmux,gpio,uart}.{c,h}. Only I2C3/I2C5 and UARTB/C
+//! bdk/soc/{i2c,clock,pinmux,gpio,uart}.{c,h}. I2C1/I2C3/I2C5 and UARTB/C
 //! are enabled here; display, memory, and other firmware clocks are preserved.
 
 extern crate alloc;
@@ -23,6 +23,11 @@ pub use vic::VicPlatform;
 mod runtime;
 #[cfg(target_os = "none")]
 pub use runtime::*;
-
+#[cfg(target_os = "none")]
+mod soctherm;
+#[cfg(target_os = "none")]
+mod thermal;
+#[cfg(target_os = "none")]
+pub use thermal::maybe_register_gpu_zone;
 #[cfg(not(target_os = "none"))]
 pub fn force_link() {}

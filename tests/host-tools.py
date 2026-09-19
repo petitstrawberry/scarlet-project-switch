@@ -41,10 +41,17 @@ class SdInstallTests(unittest.TestCase):
     def manifest(self):
         (self.package / "manifest.json").write_text(json.dumps({"sha256": self.hashes}))
 
-    def invoke(self, write=False, console=False):
-        argv = ["install-sd.py", "--mount", str(self.volume)] + (["--write"] if write else []) + (["--console"] if console else [])
+    def invoke(self, write=False, console=False, switchvisor=False):
+        argv = ["install-sd.py", "--mount", str(self.volume)]
+        if write:
+            argv.append("--write")
+        if console:
+            argv.append("--console")
+        if switchvisor:
+            argv.append("--switchvisor")
         with patch.object(sd, "PACKAGE", self.package), \
                 patch.object(sd, "CONSOLE_PACKAGE", self.package), \
+                patch.object(sd, "SWITCHVISOR_PACKAGE", self.package), \
                 patch.object(sd, "validate_mount", return_value="disk99s1"), \
                 patch("sys.argv", argv), contextlib.redirect_stdout(io.StringIO()):
             sd.main()
@@ -99,6 +106,31 @@ class SdInstallTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.invoke(write=True)
         self.assertFalse((self.volume / "switchroot/scarlet").exists())
+
+    def test_switchvisor_install_preserves_existing_scarlet_entries(self):
+        existing = [
+            "bootloader/ini/L4T-scarlet.ini", "switchroot/scarlet/uImage",
+            "bootloader/ini/L4T-scarlet-console.ini",
+            "switchroot/scarlet-console/uImage",
+            "switchroot/scarlet-console-logs/boot.scr",
+        ]
+        for relative in existing:
+            path = self.volume / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"existing Scarlet entry")
+        self.hashes = {}
+        for relative in ["bootloader/ini/L4T-scarlet-switchvisor.ini",
+                         "switchroot/scarlet-switchvisor/bl33.bin"]:
+            path = self.package / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"Switchvisor USB entry")
+            self.hashes[relative] = sd.digest(path)
+        self.manifest()
+        self.invoke(write=True, switchvisor=True)
+        for relative in existing:
+            self.assertEqual((self.volume / relative).read_bytes(), b"existing Scarlet entry")
+        for relative, expected in self.hashes.items():
+            self.assertEqual(sd.digest(self.volume / relative), expected)
 
     def disk_metadata(self):
         info = {"MountPoint": str(self.volume), "FilesystemType": "msdos",

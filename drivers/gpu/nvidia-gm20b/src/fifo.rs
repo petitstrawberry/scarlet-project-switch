@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 //! Private PFIFO proof and the serialized graphics channel.
-//! RAMFC/runlist ordering follows Linux Nouveau v6.12 fifo/gk104, gk110,
-//! gm107, gm200, gk208 and gf100. GM20B fields follow Switchroot nvgpu
-//! 1ae0167d360287ca78f5a2572f0de42594140312 hw_{fifo,pbdma,ram,ccsr,trim}.
-//! Bare-channel runlists follow that vendor's GM20B HAL and CCSR binding.
+//! RAMFC, USERD, runlists and reset ordering follow Switchroot nvgpu
+//! 1ae0167d360287ca78f5a2572f0de42594140312's Tegra GM20B HAL. Linux
+//! Nouveau v6.12 supplies additional channel retirement/error references.
 //! The 906f host semaphore and SET_REFERENCE methods execute in PFIFO.
 
 use scarlet::{arch, mem::page::ContiguousPages, sync::Mutex, time};
@@ -41,7 +40,10 @@ const PBDMA_INTR0: usize = 0x40108;
 const PBDMA_INTR1: usize = 0x40148;
 const CHANNEL_INST: usize = 0x800000;
 const CHANNEL: usize = 0x800004;
-const FIFO_ERRORS: u32 = 0x10010101; // MMU, channel switch, scheduler, bind.
+const CHANNEL_INST_VIDEO: u32 = 0x80000000; // BIND | Tegra aperture helper's VIDEO.
+// gk20a_fifo_intr_0_error_mask: bind, PIO, scheduler, chsw, FB flush,
+// LB, dropped MMU fault and MMU fault. Runlist completion is not an error.
+const FIFO_ERRORS: u32 = 0x19810111;
 const TIMEOUT_NS: u64 = 100_000_000;
 const GRAPHICS_TIMEOUT_NS: u64 = 2_000_000_000;
 const SEQUENCES: [u32; 2] = [0x53474631, 0x53474632];
@@ -148,6 +150,16 @@ pub struct Fifo {
 }
 
 impl Fifo {
+    pub fn idle(&self) -> Result<(), &'static str> {
+        let channel = self.read(CHANNEL_INST);
+        let get = self.userd(USERD_GP_GET);
+        let put = self.userd(USERD_GP_PUT);
+        if [channel, get, put].contains(&u32::MAX) || channel != 0 || get != put {
+            return Err("FIFO channel is not fully retired");
+        }
+        Ok(())
+    }
+
     pub fn allocate(base: usize, bar1: usize) -> Result<Self, &'static str> {
         Ok(Self {
             base,
@@ -375,17 +387,21 @@ impl Fifo {
 
     fn prepare(&self) {
         for (offset, value) in [
+            // commit_userd's Tegra aperture helper selects VIDEO (0), even
+            // though the allocation is system DRAM. The address is physical.
             (0x08, self.userd.as_paddr() as u32),
             (0x0c, (self.userd.as_paddr() >> 32) as u32),
             (0x10, 0x0000face),
-            (0x30, 0xfffff902),
+            (0x30, 0x00000102), // Vendor retry settings; no acquire in our pushes.
             (0x48, RING_VA as u32),
             (0x4c, 9 << 16), // One page: 512 eight-byte GPFIFO entries.
             (0x84, 0x20400000),
             (0x94, 0x30000001),
             (0x9c, 0x00000100),
             (0xac, 0x0000001f),
-            (0xb8, 0xf8000000),
+            // Vendor GM20B setup_ramfc leaves this word zero. Keep one HAL
+            // profile instead of mixing in generic Nouveau Maxwell state.
+            (0xb8, 0),
             (0xe4, 0), // Unprivileged channel.
             (0xe8, 0), // Channel zero.
             (0xf8, 0x10003080),
@@ -513,8 +529,8 @@ impl Fifo {
         }
     }
 
-    fn initialize_hardware(&self, reference_hz: u32) -> Result<(), &'static str> {
-        // GPU-wide clock/ring initialization already preceded the GMMU.
+    pub fn reset_enable(&self, reference_hz: u32) -> Result<(), &'static str> {
+        // GPU clocks/ring are ready; Linux resets PFIFO before LTC/MM setup.
         let enable = self.read(MC_ENABLE);
         if enable == u32::MAX || self.read(PBDMA_ENABLE) == u32::MAX {
             return Err("FIFO enable register returned all ones");
@@ -547,33 +563,43 @@ impl Fifo {
             || fifo_enable & 0x100 == 0
             || pbdma_enable & 1 == 0
         {
-            self.diagnose();
             return Err("FIFO/PBDMA enable readback mismatch");
         }
-        crate::hardware::measure_clock(self.base, reference_hz);
+        let _ = crate::hardware::measure_clock(self.base, reference_hz);
         let map = self.read(PBDMA_MAP);
         if map == u32::MAX || map & 1 == 0 {
             scarlet::println!("gm20b: FIFO PBDMA0 runlist map={:#010x}", map);
             return Err("FIFO PBDMA0 does not service runlist zero");
         }
-        // Match Nouveau's PFIFO/PBDMA internal error routing. MC INTA/INTB
+        // Match nvgpu's PFIFO/PBDMA internal error routing. MC INTA/INTB
         // remain masked by runtime, so no unhandled CPU IRQ is enabled.
         // Masking every child source also hides forwarded PFIFO error state.
         self.write(FIFO_INTR, u32::MAX);
         self.write(PBDMA_INTR0, u32::MAX);
         self.write(PBDMA_INTR1, u32::MAX);
         self.write(0x2a00, u32::MAX);
-        self.write(0x2140, 0x7fffffff);
-        self.write(0x2144, 0);
-        self.write(0x4010c, 0xfffffeff);
-        self.write(0x4014c, u32::MAX);
-        self.write(0x2a04, self.read(0x2a04) | 0xbfffffff);
-        self.write(0x4013c, self.read(0x4013c) & !0x10000100);
-        self.write(0x4012c, 0x000f4240);
+        self.write(0x2140, FIFO_ERRORS | 0x60000000);
+        self.write(0x2144, 0x80000000);
+        // gk20a_init_fifo_reset_enable_hw derives both enable masks from
+        // silicon's stall masks. An enabled unknown source is still a fault
+        // for this polling driver, not an event we may silently dismiss.
+        let pbdma_stall = self.read(0x4013c) & !0x100; // LBREQ.
+        let pbdma_stall1 = self.read(0x40140) & !1; // Unused HCE illegal-op.
+        self.write(0x4013c, pbdma_stall);
+        self.write(0x4010c, pbdma_stall);
+        self.write(0x4014c, pbdma_stall1);
+        self.write(0x2a04, self.read(0x2a04) | 0x3fffffff);
+        scarlet::println!(
+            "gm20b: FIFO PBDMA masks stall={:#010x}/{:#010x} enable={:#010x}/{:#010x}",
+            self.read(0x4013c),
+            self.read(0x40140),
+            self.read(0x4010c),
+            self.read(0x4014c)
+        );
+        self.write(0x4012c, u32::MAX); // Vendor PBDMA timeout; software remains bounded.
         if self.read(CHANNEL_INST) != 0 {
             return Err("FIFO private channel zero was not unbound after reset");
         }
-        self.publish_userd()?;
         Ok(())
     }
 
@@ -581,7 +607,7 @@ impl Fifo {
         self.write(CHANNEL, self.read(CHANNEL) & !0x000f0000);
         self.write(
             CHANNEL_INST,
-            0x80000000 | (self.instance.as_paddr() >> 12) as u32,
+            CHANNEL_INST_VIDEO | (self.instance.as_paddr() >> 12) as u32,
         );
         self.write(CHANNEL, (self.read(CHANNEL) & !0xc00) | 0x400);
         self.activate_runlist()?;
@@ -594,6 +620,15 @@ impl Fifo {
             "gm20b: FIFO runlist ready; scheduler={:#010x} pbdma-context={:#010x}",
             self.read(SCHED_DISABLE),
             self.read(PBDMA_CONTEXT)
+        );
+        scarlet::println!(
+            "gm20b: FIFO after bind intr={:#010x} pbdma={:#010x} gp={}/{} gr={:#010x} fecs={:#010x}",
+            self.read(FIFO_INTR),
+            self.read(PBDMA_INTR0),
+            self.read(0x40014),
+            self.read(0x40000),
+            self.read(0x400100),
+            self.read(0x409800)
         );
         Ok(())
     }
@@ -616,11 +651,14 @@ impl Fifo {
         arch::io_mb();
         unsafe { arch::mmio::write32(self.bar1 + USERD_VA + USERD_GP_PUT, gp_put) };
         arch::io_mb();
+        // USERD's volatile BAR1 mapping, as in nvgpu, bypasses LTC. Flushing
+        // the whole cache on each GP_PUT cannot fix a wrong mapping policy.
         if self.userd(USERD_GP_PUT) != gp_put {
             self.diagnose();
             return Err("FIFO USERD GP_PUT readback mismatch");
         }
-        let deadline = time::current_time_ns().saturating_add(timeout_ns);
+        let started = time::current_time_ns();
+        let deadline = started.saturating_add(timeout_ns);
         for _ in 0..timeout_ns / 2_000 {
             let proof = Proof {
                 gp_get: self.userd(USERD_GP_GET),
@@ -628,11 +666,18 @@ impl Fifo {
                 fence: unsafe { arch::mmio::read32(self.bar1 + FENCE_VA) },
             };
             if self.read(FIFO_INTR) & FIFO_ERRORS != 0
-                || self.read(PBDMA_INTR0) & !0x100 != 0
-                || self.read(PBDMA_INTR1) != 0
+                || self.read(PBDMA_INTR0) & self.read(0x4010c) != 0
+                || self.read(PBDMA_INTR1) & self.read(0x4014c) != 0
             {
                 self.diagnose();
                 return Err("FIFO host-method execution fault");
+            }
+            // Nouveau gf100_gr_intr distinguishes PGRAPH faults from FIFO
+            // progress. An illegal graphics method must not become a generic
+            // host-method timeout just because PBDMA already fetched it.
+            if self.read(0x400100) & !1 != 0 {
+                self.diagnose();
+                return Err("GR execution fault during FIFO submission");
             }
             if proof.gp_get == gp_put && proof.reference == sequence && proof.fence == sequence {
                 if verbose {
@@ -663,22 +708,29 @@ impl Fifo {
         self.wait_for(CHANNEL, timeout_ns, |value| value & (1 << 28) == 0)?;
         self.write(CHANNEL_INST, 0);
         self.write(FIFO_BAR1_BASE, 0);
+        // Return DMA ownership only after GPU writes reach DRAM. This must
+        // precede CPU invalidation/reuse, including the next graphics RAMFC.
+        self.write(0x70000, 1);
+        self.wait_for(0x70000, timeout_ns, |value| value & 3 == 0)?;
+        self.write(0x70010, 1);
+        self.wait_for(0x70010, timeout_ns, |value| value & 3 == 0)?;
         Ok(())
     }
 
-    /// Reset and configure PFIFO without publishing a runnable channel.
-    ///
-    /// Linux completes this phase before enabling GR. Keeping the channel
-    /// unbound lets the caller finish authenticated GR initialization before
-    /// runlist zero can ask the scheduler to load it.
-    pub fn prepare_hardware(&self, reference_hz: u32) -> Result<(), &'static str> {
+    /// Publish USERD after reset and MM setup, before GR/CE or channel binding.
+    pub fn prepare_hardware(&self) -> Result<(), &'static str> {
         self.prepare();
         self.verify_host_inputs()?;
-        self.initialize_hardware(reference_hz)
+        self.publish_userd()
     }
 
     /// Publish the private channel after GR is ready and prove host execution.
     pub fn prove_host(&self) -> Result<Proof, &'static str> {
+        scarlet::println!(
+            "gm20b: FIFO before bind intr={:#010x} pbdma={:#010x}",
+            self.read(FIFO_INTR),
+            self.read(PBDMA_INTR0)
+        );
         scarlet::println!(
             "gm20b: FIFO binding private channel inst={:#x} userd={:#x} runlist={:#x}",
             self.instance.as_paddr(),
@@ -718,6 +770,7 @@ impl Fifo {
         context_va: usize,
         sequence: u32,
     ) -> Result<(), &'static str> {
+        let started = time::current_time_ns();
         if words == 0 || words >= 1 << 21 || !va.is_multiple_of(4) || sequence == 0 {
             return Err("graphics GPFIFO entry outside hardware limits");
         }
@@ -738,14 +791,34 @@ impl Fifo {
         for memory in [&self.instance, &self.userd, &self.ring, &self.fence] {
             clean(memory);
         }
+        // All previous DMA was retired/flushed. Drop clean GPU cache copies
+        // after the CPU published the next context and command backing.
+        self.write(0x70004, 1);
+        self.wait(0x70004, |value| value & 3 == 0)?;
+        let prepared = time::current_time_ns();
         self.publish_userd()?;
         self.write(
             CHANNEL_INST,
-            0x80000000 | (self.instance.as_paddr() >> 12) as u32,
+            CHANNEL_INST_VIDEO | (self.instance.as_paddr() >> 12) as u32,
         );
         self.write(CHANNEL, (self.read(CHANNEL) & !0x000f0c00) | 0x400);
         self.activate_runlist()?;
+        let bound = time::current_time_ns();
         self.submit(1, sequence, GRAPHICS_TIMEOUT_NS, false)?;
-        self.retire(GRAPHICS_TIMEOUT_NS)
+        let completed = time::current_time_ns();
+        self.retire(GRAPHICS_TIMEOUT_NS)?;
+        let retired = time::current_time_ns();
+        let count = sequence.wrapping_sub(0x53474700);
+        if count <= 4 {
+            scarlet::println!(
+                "gm20b: fifo={} prepare_us={} bind_us={} execute_us={} retire_us={}",
+                count,
+                prepared.saturating_sub(started) / 1000,
+                bound.saturating_sub(prepared) / 1000,
+                completed.saturating_sub(bound) / 1000,
+                retired.saturating_sub(completed) / 1000
+            );
+        }
+        Ok(())
     }
 }
