@@ -56,5 +56,15 @@ The rediscovered device was `disk12s1`; the whole `disk12` was safely ejected.
 
 The installation receipt above and
 `.cache/audio-bringup-20260920/sd-install.log` record the refresh.
-Post-refresh boot verification is pending the user leaving UMS and selecting
-`switchvisor`.
+The user then selected `switchvisor` from the updated SD. USB deployment of
+the images above reached `guest-running`, `cpu-mask=0xf`, with USB up and the
+loader/fallback disabled. Scarlet mounted `/dev/mmcblk0p4` on the first attempt,
+started SWS, and SAS configured the RT5639 speaker device at 48 kHz stereo.
+This verifies the updated Switchvisor entry and the host-supplied guest bundle;
+the direct `scarlet (console)` entry has readback verification only.
+Evidence: `.cache/audio-bringup-20260920/deploy-final.log` and
+`uart-audio-final.log`.
+
+At the user's request, `sasctl volume 0` set and reported a 0% master volume.
+Further video checks must stay silent; set it again after any SAS restart or
+reboot, since SAS currently starts at its default 25% volume.
