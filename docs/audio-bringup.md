@@ -79,6 +79,12 @@ Device evidence on 2026-09-20, Switchvisor without GDB, four CPUs, SD ext2 root:
   session with `last_error=none`. The user reported very slow video presentation;
   this is a remaining video performance issue, not a claim of smooth playback.
   Final SD deployment is pending.
+- After reducing NVDEC's CPU overhead, the 1080p video/UI run logged one
+  full-ring overrun (`count=1508 delta=9`) and the common PCM frontend restarted
+  output automatically. This represents at least 180 ms between observations
+  with 20 ms periods. Load-related service latency is still unresolved; normal
+  tone/AAC confirmation does not establish uninterrupted playback under all
+  graphics loads. See the [video follow-up](nvdec-bringup.md).
 
 Local logs are in `.cache/audio-bringup-20260920/`, particularly
 `uart-audio-4.log` (initial noisy output), `uart-audio-5.log` (attenuated test),

@@ -6,7 +6,7 @@
 
 use crate::{
     engine::{Dma, Engine},
-    layout::{align, offset},
+    layout::{align, linearize_plane},
 };
 use alloc::{vec, vec::Vec};
 use scarlet::{arch, device::video::*, time};
@@ -100,6 +100,7 @@ pub struct Session {
     pub id: u32,
     pub geometry: Geometry,
     frames: Vec<Option<Frame>>,
+    spare_images: Vec<Dma>,
     input: Dma,
     scratch: Dma,
     bitstream: usize,
@@ -138,6 +139,7 @@ impl Session {
             id,
             geometry: g,
             frames: (0..17).map(|_| None).collect(),
+            spare_images: Vec::with_capacity(17),
             input: Dma::new(bitstream + INPUT_BYTES)?,
             scratch: Dma::new(history + history_len)?,
             bitstream,
@@ -260,7 +262,10 @@ impl Session {
                 .as_ref()
                 .is_some_and(|f| !refs.iter().any(|r| r.reference_ts == f.timestamp))
             {
-                *frame = None;
+                // The previous picture completed before another submit is
+                // accepted. Its linear userspace copy is independent, and it
+                // is no longer in the DPB, so retain its DMA pages for reuse.
+                self.spare_images.push(frame.take().unwrap().image);
             }
         }
         let mut mask = 0u32;
@@ -284,10 +289,14 @@ impl Session {
             .iter()
             .position(Option::is_none)
             .ok_or("NVDEC picture slots exhausted")?;
+        let image = match self.spare_images.pop() {
+            Some(image) => image,
+            None => Dma::new(g.size)?,
+        };
         self.frames[slot] = Some(Frame {
             timestamp: decode.timestamp,
             dpb: None,
-            image: Dma::new(g.size)?,
+            image,
         });
         let mut setup = vec![0u8; 764];
         let s = &params.sps;
@@ -510,17 +519,15 @@ impl Session {
                 g.crop_y / 2,
             ),
         ] {
-            for y in 0..height {
-                let mut x = 0;
-                while x < g.visible_width {
-                    let source_x = x + g.crop_x;
-                    let count = (16 - source_x % 16).min(g.visible_width - x);
-                    let source = base + offset(source_x, y + y_crop, g.pitch);
-                    let dest = dst_start + y * g.visible_width + x;
-                    output[dest..dest + count].copy_from_slice(&image[source..source + count]);
-                    x += count;
-                }
-            }
+            linearize_plane(
+                &image[base..],
+                &mut output[dst_start..],
+                g.pitch,
+                g.visible_width,
+                height,
+                g.crop_x,
+                y_crop,
+            );
         }
         Ok(VideoBackendDecodedFrame {
             stream_id: self.id,

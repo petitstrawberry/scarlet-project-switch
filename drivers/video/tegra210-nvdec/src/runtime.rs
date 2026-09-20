@@ -25,6 +25,17 @@ use scarlet_driver_tegra210::{cell, nvdec_platform};
 
 static REGISTERED: AtomicBool = AtomicBool::new(false);
 
+#[derive(Default)]
+struct Timing {
+    width: usize,
+    height: usize,
+    submitted: u64,
+    submit_ns: u64,
+    completed: u64,
+    ready_ns: u64,
+    linear_ns: u64,
+}
+
 struct State {
     engine: Engine,
     session_id: Option<u32>,
@@ -34,6 +45,7 @@ struct State {
     frames: u64,
     last_status: [u32; 4],
     error: Option<&'static str>,
+    timing: Timing,
 }
 impl State {
     fn fail(&mut self, error: &'static str) -> Result<(), &'static str> {
@@ -80,7 +92,7 @@ impl VideoDecodeBackend for Backend {
     fn debug_status(&self) -> Option<String> {
         let s = self.state.lock();
         Some(format!(
-            " firmware={} frames={} pending={} status={:x?} last_error={} completion=syncpoint-poll",
+            " firmware={} frames={} pending={} status={:x?} last_error={} completion=syncpoint-poll size={}x{} samples={} avg_us(submit/ready/linear)={}/{}/{}",
             if s.engine.active() {
                 "running"
             } else {
@@ -89,7 +101,13 @@ impl VideoDecodeBackend for Backend {
             s.frames,
             s.pending.is_some(),
             s.last_status,
-            s.error.unwrap_or("none")
+            s.error.unwrap_or("none"),
+            s.timing.width,
+            s.timing.height,
+            s.timing.completed,
+            s.timing.submit_ns / s.timing.submitted.max(1) / 1000,
+            s.timing.ready_ns / s.timing.completed.max(1) / 1000,
+            s.timing.linear_ns / s.timing.completed.max(1) / 1000,
         ))
     }
     fn create_session(&self, coded_format: u32) -> Result<u32, &'static str> {
@@ -114,6 +132,7 @@ impl VideoDecodeBackend for Backend {
             .ok_or("NVDEC session IDs exhausted")?;
         s.session_id = Some(id);
         s.error = None;
+        s.timing = Timing::default();
         Ok(id)
     }
     fn destroy_session(&self, id: u32) -> Result<(), &'static str> {
@@ -139,6 +158,7 @@ impl VideoDecodeBackend for Backend {
         &self,
         request: &VideoBackendH264StatelessRequest,
     ) -> Result<(), &'static str> {
+        let started = time::current_time_ns();
         let geometry = Geometry::from_params(&request.h264)?;
         let mut s = self.state.lock();
         if s.session_id != Some(request.decode.stream_id) {
@@ -166,6 +186,10 @@ impl VideoDecodeBackend for Backend {
             ..
         } = &mut *s;
         *pending = Some(session.as_mut().unwrap().submit(engine, request)?);
+        s.timing.width = geometry.visible_width;
+        s.timing.height = geometry.visible_height;
+        s.timing.submitted += 1;
+        s.timing.submit_ns += time::current_time_ns().saturating_sub(started);
         Ok(())
     }
     fn dequeue_frame(&self, id: u32) -> Result<Option<VideoBackendDecodedFrame>, &'static str> {
@@ -200,10 +224,27 @@ impl VideoDecodeBackend for Backend {
             return Ok(None);
         }
         arch::io_mb();
+        let ready = time::current_time_ns();
         match s.session.as_ref().unwrap().finish(pending) {
             Ok(frame) => {
+                s.timing.completed += 1;
+                s.timing.ready_ns += ready.saturating_sub(pending.started);
+                s.timing.linear_ns += time::current_time_ns().saturating_sub(ready);
                 s.pending = None;
                 s.frames += 1;
+                // A sparse progress sample also survives abrupt application
+                // termination, where userspace may not destroy its session.
+                if s.timing.completed == 128 || s.timing.completed % 1024 == 0 {
+                    scarlet::println!(
+                        "nvdec: {}x{} samples={} avg_us(submit/ready/linear)={}/{}/{}",
+                        s.timing.width,
+                        s.timing.height,
+                        s.timing.completed,
+                        s.timing.submit_ns / s.timing.submitted.max(1) / 1000,
+                        s.timing.ready_ns / s.timing.completed / 1000,
+                        s.timing.linear_ns / s.timing.completed / 1000,
+                    );
+                }
                 Ok(Some(frame))
             }
             Err(error) => {
@@ -241,6 +282,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
             frames: 0,
             last_status: [0; 4],
             error: None,
+            timing: Timing::default(),
         }),
     });
     let name = register_video_decode_device(backend);

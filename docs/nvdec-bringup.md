@@ -64,6 +64,71 @@ Local evidence: `.cache/nvdec-linux-audit-20260920/uart-session.log`,
 `qa-host-tests.log`, `driver-host-tests.log`, `kernel-build.log`,
 `video-player-build.log`, and `bundle/sha256.json`.
 
+## 1080p performance follow-up (2026-09-20)
+
+The user reported nearly frozen video after AAC speaker playback became
+functional. NVDEC was active at 408 MHz and CPU schedutil reached 1,017.6 MHz.
+Sparse driver timing samples separate submission preparation, time until the
+client observes decoder completion, and conversion to tightly packed NV12.
+The completion measurement includes polling and scheduling latency; it is not
+the decoder hardware's execution time alone.
+
+First 128 pictures of the same 1920 × 1080 MP4, average milliseconds:
+
+| Stage | Initial path | Reused surfaces / sector reads |
+| --- | ---: | ---: |
+| Submission preparation | 9.686 | 0.605 |
+| Completion observation | 6.879 | 6.928 |
+| CPU layout conversion | 34.116 | 8.061 |
+
+Preparation previously allocated, zeroed, retagged and released a roughly
+3 MiB DMA image every picture. Retired pictures now return their backing to
+a session-local pool, bounded by the existing 17 picture slots. References
+remain owned until the prior decode completes and the next DPB no longer
+names them. Session teardown/resolution changes release the pool under the
+same existing isolation rules.
+
+Layout conversion now reads an aligned 64-byte sector for two rows using
+integer loads. Odd/cropped/unaligned cases keep the generic implementation.
+Host tests compare complete planes with byte-wise addressing and check guard
+bytes. Device `nvdec-qa` again passed **72/72** full-frame hashes and reopen.
+The actual MP4 completed 2,488 frames. The user reported that video advanced
+more than before but remained choppy. These timings exclude userspace NV12
+copying, RGB conversion, scaling, UI upload/compositing and scanout. **60 fps
+presentation is not achieved or claimed.**
+
+One audio full-ring overrun was observed under this video/UI load, followed
+by automatic PCM restart; see [audio bring-up](audio-bringup.md).
+Evidence: `.cache/audio-bringup-20260920/uart-audio-8.log` (initial timing),
+`uart-audio-9.log` (optimized path and pixel QA), `nvdec-host-tests.log`.
+
+## Native NV12 presentation direction (not implemented)
+
+NVDEC already produces block-linear NV12. The CPU layout conversion exists
+to satisfy the current linear-NV12 video client API. A native surface path
+should retain Y/UV offsets, pitches, coded and visible extents, crop, layout,
+color encoding/range and producer completion alongside an owned frame lease.
+The decoder must not recycle a leased picture while display or GPU work reads it.
+
+Tegra DC has semi-planar YUV format/CSC support in
+[Linux's plane implementation](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/tegra/plane.c).
+[NVIDIA's window programming](https://github.com/theofficialgman/switch-l4t-kernel-nvidia/blob/7d95822acda1f6dab3f3d1d099b43ff9e0d0e626/drivers/video/tegra/dc/window.c)
+covers separate Y/UV addresses, scaling, SCAN_COLUMN rotation and block-linear
+surface kind. Scarlet's current DC driver already rotates and directly scans
+RGB GPU buffers, but its common pixel format and admission path are RGB-only.
+NVDEC's two-GOB layout differs from the current RGB H4 layout; the exact NV12
+modifier, chroma alignment, crop/scaling and rotated scanout still need device QA.
+
+The preferred full-screen path is a leased NV12 surface presented by the
+compositor to a suitable DC plane, retiring the old lease at display completion.
+Windowed/occluded playback needs GPU Y/UV sampling and color conversion before
+normal UI composition. SGFX has R8 but currently lacks RG8/multiplanar NV12;
+ScarletUI's existing external shared image adapter accepts BGRA8 only. Extend
+those resource/format and completion contracts, then replace video-player's CPU
+`CanvasView` path. A pixel-format enum alone does not establish plane ownership
+or synchronize decoder, renderer and scanout. This work must coordinate with
+the separate touch task rather than altering its input handling.
+
 ## References
 
 - Linux v6.12, `adc218676eef25575469234709c2d87185ca223a`: Tegra Falcon/NVDEC
