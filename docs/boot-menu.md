@@ -68,3 +68,32 @@ Evidence: `.cache/audio-bringup-20260920/deploy-final.log` and
 At the user's request, `sasctl volume 0` set and reported a 0% master volume.
 Further video checks must stay silent; set it again after any SAS restart or
 reboot, since SAS currently starts at its default 25% volume.
+
+### Native NV12 refresh
+
+The tested NV12 workspace images were installed on SD after the coordinated
+source commits: Scarlet `c8e163dd`, SGFX `5ea41a0`, ScarletUI `b3c7a6d3`,
+Switch `f266812`, and Chromebook compatibility `179b112`. The packaged kernel
+matched the tested release ELF, and the CPIO contained the final NV12 player.
+The rootfs player had already been overwritten from `/old_root` and its
+SHA-256 verified on the guest.
+
+Hekate SD UMS exposed `disk12s1` with the expected MBR layout. Installation of
+the two profiles passed SHA-256 readback for all 14 files and unchanged hashes
+for all 29 protected files. Only `switchvisor` and `scarlet (console)` remained
+in the L4T menu. The whole `disk12` was safely ejected. No backup copies were
+created. This records SD transfer verification; a boot from these newly copied
+SD files has not been observed yet.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Kernel ELF | `60e8fcd25f1d9ff02c4a24a865aef639cfe09b4053d24e77c263d65f5b4d8225` |
+| `Image` | `69d2e6dce088679043a11e640860b942da9660bc923eefbc8d9f630214c7b0a2` |
+| `uImage` | `31cd6a28f5457bdf1d4c67e73015d31b7e95a7e081759ede2de7174be9d9a976` |
+| `initramfs` (legacy RAMDisk wrapper) | `080c497b436a0e907e81109615fcb46d68c224c181dc6fd1df78edf0636c2108` |
+| Player in CPIO and rootfs | `47fb57e18bcb700dd9370953c15320e0804b9bb13917a83de2df4aeadc6d85e1` |
+
+Evidence: `.cache/nv12/sd-install-dry-run.log`, `.cache/nv12/sd-install.log`
+and `projects/aarch64-switch-console/.scarlet/sd-installation.json`.
+The `scarlet (console)` entry loads the updated images directly from SD;
+`switchvisor` continues to use the matching host-supplied USB bundle.

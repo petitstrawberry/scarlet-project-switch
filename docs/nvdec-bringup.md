@@ -154,8 +154,10 @@ and verified the matching SHA-256 with `storage-check hash` on the guest.
 Evidence and builds are under `.cache/nv12/`: `uart-3.log`,
 `uart-final.log`, `kernel-build-final.log`, `player-build-final.log`,
 `codegen-tests-final.log`, `codec-tests-final.log`, `ui-tests-clean.log`,
-`host-backends-check-clean.log`. The USB kernel/bundle is refreshed; this NV12
-iteration has not replaced the SD Hekate boot images.
+`host-backends-check-clean.log`. The USB kernel/bundle and SD Hekate boot
+images are refreshed. The SD installation passed all 14 file readbacks and
+29 protected-file checks, then `disk12` was safely ejected. See the
+[NV12 SD deployment record](boot-menu.md#native-nv12-refresh).
 
 The Switch project's userspace Cargo configuration contains local source
 patches for the coordinated Scarlet/SGFX/ScarletUI/Chromebook changes.
