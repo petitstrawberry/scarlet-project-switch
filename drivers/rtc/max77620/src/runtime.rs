@@ -19,6 +19,26 @@ pub fn primary_pmic() -> Result<Arc<Max77620>, &'static str> {
     PMIC.lock().clone().ok_or(PROBE_DEFER)
 }
 impl Max77620 {
+    /// Control SDMMC1's dedicated LDO2 IO rail. Card VDD remains owned by
+    /// the board's PE4 fixed supply, so the host sequences these separately.
+    pub fn set_sd_io_supply(&self, enabled: bool) -> Result<(), &'static str> {
+        let _lock = self.lock.lock();
+        let fps = self.byte(0x3c, 0x48)?;
+        self.write(0x3c, 0x48, fps | 0xc0)?;
+        let previous = self.byte(0x3c, 0x27)?;
+        let value = if enabled { 0xf2 } else { previous & 0x3f };
+        // 800 mV + 50 * 50 mV = 3.3 V, normal mode (3).
+        self.write(0x3c, 0x27, value)?;
+        delay_us(if enabled { 1_000 } else { 7_000 });
+        if self.byte(0x3c, 0x27)? != value {
+            return Err("SD LDO2 readback mismatch");
+        }
+        if enabled && self.byte(0x3c, 0x28)? & 8 == 0 {
+            return Err("SD LDO2 power-good not asserted");
+        }
+        Ok(())
+    }
+
     fn read(&self, address: u8, register: u8, bytes: &mut [u8]) -> Result<(), &'static str> {
         let address = I2cAddress::SevenBit(address);
         let mut messages = [

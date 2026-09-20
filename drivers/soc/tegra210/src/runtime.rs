@@ -130,6 +130,21 @@ pub fn vic_platform(provider: u32) -> Result<crate::VicPlatform, &'static str> {
 pub fn gpio() -> Result<Arc<TegraGpio>, &'static str> {
     GPIO.lock().clone().ok_or(PROBE_DEFER)
 }
+/// SDMMC1 clock and pad ownership uses the same CAR mapping and lock as the
+/// other peripherals. Only the removable SD slot is supported at present.
+pub fn sdmmc_platform(
+    clock_provider: u32,
+    gpio_provider: u32,
+) -> Result<crate::SdmmcPlatform, &'static str> {
+    let car = car()?;
+    if car.phandle != clock_provider {
+        return Err("unexpected SDMMC clock provider");
+    }
+    let gpio = gpio_for(gpio_provider)?;
+    let pmc = (*PMC.lock()).ok_or(PROBE_DEFER)?;
+    let misc = Mmio(scarlet::vm::ioremap(0x70000000, 0x1000)?);
+    Ok(crate::SdmmcPlatform::new(car, gpio, pmc, misc))
+}
 pub fn gpio_for(provider: u32) -> Result<Arc<TegraGpio>, &'static str> {
     let gpio = gpio()?;
     if gpio.phandle != provider {

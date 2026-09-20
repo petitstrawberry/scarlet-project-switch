@@ -1,0 +1,10 @@
+[package]
+name = "scarlet-driver-tegra210-sdhci"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-only"
+
+[target.'cfg(target_os = "none")'.dependencies]
+scarlet = { path = "../../../../Scarlet/kernel", default-features = false, features = ["network"] }
+scarlet-driver-tegra210 = { path = "../../soc/tegra210" }
+scarlet-driver-max77620 = { path = "../../rtc/max77620" }

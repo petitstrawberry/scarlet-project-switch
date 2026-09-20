@@ -20,6 +20,10 @@ mod vic;
 #[cfg(target_os = "none")]
 pub use vic::VicPlatform;
 #[cfg(target_os = "none")]
+mod sdmmc;
+#[cfg(target_os = "none")]
+pub use sdmmc::SdmmcPlatform;
+#[cfg(target_os = "none")]
 mod runtime;
 #[cfg(target_os = "none")]
 pub use runtime::*;

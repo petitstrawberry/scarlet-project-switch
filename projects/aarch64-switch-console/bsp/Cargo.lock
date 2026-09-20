@@ -150,6 +150,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "scarlet-driver-tegra210-sdhci"
+version = "0.1.0"
+dependencies = [
+ "scarlet",
+ "scarlet-driver-max77620",
+ "scarlet-driver-tegra210",
+]
+
+[[package]]
 name = "scarlet-modules"
 version = "0.1.0"
 dependencies = [
@@ -161,6 +170,7 @@ dependencies = [
  "scarlet-driver-tegra210",
  "scarlet-driver-tegra210-cpufreq",
  "scarlet-driver-tegra210-dc",
+ "scarlet-driver-tegra210-sdhci",
 ]
 
 [[package]]
