@@ -8,7 +8,8 @@ use crate::{
     engine::{Dma, Engine},
     layout::{align, linearize_plane},
 };
-use alloc::{vec, vec::Vec};
+use alloc::{sync::Arc, vec, vec::Vec};
+use scarlet::device::graphics::{GpuBackingSegment, shared_image::*};
 use scarlet::{arch, device::video::*, time};
 
 pub const INPUT_BYTES: usize = 2 * 1024 * 1024;
@@ -94,13 +95,13 @@ impl Geometry {
 struct Frame {
     timestamp: u64,
     dpb: Option<usize>,
-    image: Dma,
+    image: Arc<Dma>,
 }
 pub struct Session {
     pub id: u32,
     pub geometry: Geometry,
     frames: Vec<Option<Frame>>,
-    spare_images: Vec<Dma>,
+    spare_images: Vec<Arc<Dma>>,
     input: Dma,
     scratch: Dma,
     bitstream: usize,
@@ -223,7 +224,8 @@ impl Session {
         }
         if decode.input_len == 0
             || decode.input_len as usize > INPUT_BYTES - EOS.len()
-            || (decode.output_len as usize) < g.visible_width * g.visible_height * 3 / 2
+            || (!decode.shared_output
+                && (decode.output_len as usize) < g.visible_width * g.visible_height * 3 / 2)
             || decode.timestamp == 0
         {
             return Err("NVDEC mapped input/output size or timestamp invalid");
@@ -262,9 +264,8 @@ impl Session {
                 .as_ref()
                 .is_some_and(|f| !refs.iter().any(|r| r.reference_ts == f.timestamp))
             {
-                // The previous picture completed before another submit is
-                // accepted. Its linear userspace copy is independent, and it
-                // is no longer in the DPB, so retain its DMA pages for reuse.
+                // DPB retirement does not imply consumer retirement. The pool
+                // only reuses pages after every published image lease is gone.
                 self.spare_images.push(frame.take().unwrap().image);
             }
         }
@@ -289,9 +290,19 @@ impl Session {
             .iter()
             .position(Option::is_none)
             .ok_or("NVDEC picture slots exhausted")?;
-        let image = match self.spare_images.pop() {
-            Some(image) => image,
-            None => Dma::new(g.size)?,
+        let image = if let Some(index) = self
+            .spare_images
+            .iter()
+            .position(|image| Arc::strong_count(image) == 1)
+        {
+            self.spare_images.swap_remove(index)
+        } else {
+            // Bound hostile consumers retaining every decoded frame. Forty
+            // surfaces cover 16 DPB references, reordering, and display queues.
+            if self.spare_images.len() + self.frames.iter().flatten().count() >= 40 {
+                return Err("NVDEC shared image leases exhausted; release decoded images");
+            }
+            Arc::new(Dma::new(g.size)?)
         };
         self.frames[slot] = Some(Frame {
             timestamp: decode.timestamp,
@@ -501,6 +512,26 @@ impl Session {
             return Err("NVDEC reported a failed/incomplete H.264 frame");
         }
         arch::io_mb();
+        if pending.request.shared_output {
+            let image = self.frames[pending.slot]
+                .as_ref()
+                .ok_or("NVDEC output frame missing")?;
+            let backing = NativeImage {
+                image: Arc::clone(&image.image),
+                geometry: g,
+            };
+            return Ok(VideoBackendDecodedFrame {
+                stream_id: self.id,
+                frame: ScarletVideoDequeuedFrame {
+                    width: g.visible_width as u32,
+                    height: g.visible_height as u32,
+                    pixel_format: SCARLET_VIDEO_PIXEL_FORMAT_NV12,
+                    timestamp: pending.request.timestamp,
+                    ..Default::default()
+                },
+                image: Some(Arc::new(SharedImage::new(Arc::new(backing))?)),
+            });
+        }
         let image = self.frames[pending.slot]
             .as_ref()
             .ok_or("NVDEC output frame missing")?
@@ -530,6 +561,7 @@ impl Session {
             );
         }
         Ok(VideoBackendDecodedFrame {
+            image: None,
             stream_id: self.id,
             frame: ScarletVideoDequeuedFrame {
                 width: g.visible_width as u32,
@@ -541,5 +573,60 @@ impl Session {
                 timestamp: pending.request.timestamp,
             },
         })
+    }
+}
+
+/// Publication occurs only after the decode fence/status check. All aliases
+/// are immutable; Session checks Arc uniqueness before reusing these pages.
+struct NativeImage {
+    image: Arc<Dma>,
+    geometry: Geometry,
+}
+// SAFETY: Arc owns resident NC pages; producer writes only to unique images.
+// The session and outstanding capabilities may independently outlive each other.
+unsafe impl SharedImageBacking for NativeImage {
+    fn descriptor(&self) -> SharedImageDescriptor {
+        let g = self.geometry;
+        let mut descriptor = SharedImageDescriptor {
+            version: SHARED_IMAGE_ABI_VERSION,
+            format: IMAGE_FORMAT_NV12,
+            width: g.width as u32,
+            height: g.height as u32,
+            visible: ImageRect {
+                x: g.crop_x as u32,
+                y: g.crop_y as u32,
+                width: g.visible_width as u32,
+                height: g.visible_height as u32,
+            },
+            // NVIDIA block-linear, uncompressed generic memory kind, 2 GOBs high.
+            modifier: 0x0300_0000_000f_e011,
+            buffer_count: 1,
+            plane_count: 2,
+            ..Default::default()
+        };
+        descriptor.buffer_sizes[0] = self.image.size() as u64;
+        for (index, (offset, size)) in [(0, g.chroma), (g.chroma, g.size - g.chroma)]
+            .into_iter()
+            .enumerate()
+        {
+            descriptor.planes[index] = SharedImagePlane {
+                buffer_index: 0,
+                row_pitch: g.pitch as u32,
+                offset: offset as u64,
+                size: size as u64,
+                reserved: 0,
+            };
+        }
+        descriptor
+    }
+    fn buffer_segments(&self, index: usize) -> Arc<[GpuBackingSegment]> {
+        if index == 0 {
+            Arc::from([GpuBackingSegment::new(
+                self.image.paddr(),
+                self.image.size(),
+            )])
+        } else {
+            Arc::from([])
+        }
     }
 }

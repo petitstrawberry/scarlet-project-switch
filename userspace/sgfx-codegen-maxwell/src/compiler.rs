@@ -373,6 +373,48 @@ fn validate_image_layout(
     image: &ImageMeta,
     max_pitch: u32,
 ) -> Result<(), CompileError> {
+    if image.storage_format == TextureFormat::Nv12 {
+        if image.format != TextureFormat::Nv12
+            || image.planes.len() != 2
+            || image.usage != TextureUsage::SAMPLED
+            || !matches!(
+                image.modifier,
+                ImageModifier::Linear | ImageModifier::NvidiaBlockLinear16Bx2H1
+            )
+        {
+            return Err(CompileError::UnsupportedFeature);
+        }
+        for (i, p) in image.planes.iter().enumerate() {
+            let row = if i == 0 {
+                u64::from(image.extent.width())
+            } else {
+                u64::from(image.extent.width()).div_ceil(2) * 2
+            };
+            let rows = u64::from(if i == 0 {
+                image.extent.height()
+            } else {
+                image.extent.height().div_ceil(2)
+            });
+            let tiled = image.modifier == ImageModifier::NvidiaBlockLinear16Bx2H1;
+            let required = if tiled {
+                u64::from(p.stride) * rows.div_ceil(16) * 16
+            } else {
+                u64::from(p.stride) * (rows - 1) + row
+            };
+            if u64::from(p.stride) < row
+                || p.stride > max_pitch
+                || p.stride % (if tiled { 64 } else { 32 }) != 0
+                || p.offset % (if tiled { 512 } else { 32 }) != 0
+                || p.size < required
+                || p.offset
+                    .checked_add(p.size)
+                    .is_none_or(|end| end > allocation_size)
+            {
+                return Err(CompileError::InvalidResource);
+            }
+        }
+        return Ok(());
+    }
     if image.planes.len() != 1 {
         return Err(CompileError::UnsupportedFeature);
     }
@@ -380,9 +422,15 @@ fn validate_image_layout(
     let row_bytes = image
         .extent
         .width()
-        .checked_mul(image.storage_format.bytes_per_pixel())
+        .checked_mul(
+            image
+                .storage_format
+                .bytes_per_pixel()
+                .ok_or(CompileError::UnsupportedFeature)?,
+        )
         .ok_or(CompileError::Overflow)?;
     let required = match image.modifier {
+        ImageModifier::NvidiaBlockLinear16Bx2H1 => return Err(CompileError::UnsupportedFeature),
         ImageModifier::Linear => {
             if image.storage_format == TextureFormat::Depth32Float {
                 return Err(CompileError::UnsupportedFeature);
@@ -437,20 +485,32 @@ fn require_image_surface(
     let ResourceKind::Image(image) = &resource.kind else {
         return Err(CompileError::InvalidResource);
     };
-    if !image.usage.contains(required) || image.storage_format != TextureFormat::Bgra8Unorm {
+    if !image.usage.contains(required)
+        || (image.storage_format != TextureFormat::Bgra8Unorm
+            && !(image.storage_format == TextureFormat::Nv12 && required == TextureUsage::SAMPLED))
+    {
         return Err(CompileError::InvalidResource);
     }
     validate_image_layout(resource.size, image, max_pitch)?;
     let plane = image.planes[0];
     Ok(Surface {
         object: resource.id,
-        plane_offset: plane.offset,
-        plane_size: plane.size,
+        plane_offset: if image.storage_format == TextureFormat::Nv12 {
+            0
+        } else {
+            plane.offset
+        },
+        plane_size: if image.storage_format == TextureFormat::Nv12 {
+            resource.size
+        } else {
+            plane.size
+        },
         width: image.extent.width(),
         height: image.extent.height(),
         stride: plane.stride,
         tile_mode: match image.modifier {
             ImageModifier::Linear => 0,
+            ImageModifier::NvidiaBlockLinear16Bx2H1 => 0x10,
             ImageModifier::NvidiaBlockLinear16Bx2H4 => 0x40,
             ImageModifier::NvidiaZf32BlockLinear16Bx2H4 => {
                 return Err(CompileError::InvalidResource);
@@ -833,12 +893,15 @@ fn validate_sample_state(
     let format_matches = match sample_mode {
         TextureSampleMode::Rgba | TextureSampleMode::RgbIgnoreAlpha => matches!(
             image.format,
-            TextureFormat::Bgra8Unorm | TextureFormat::Rgba8Unorm
+            TextureFormat::Bgra8Unorm | TextureFormat::Rgba8Unorm | TextureFormat::Nv12
         ),
         TextureSampleMode::AlphaMask => image.format == TextureFormat::R8Unorm,
     };
     if !format_matches
-        || image.storage_format != TextureFormat::Bgra8Unorm
+        || !matches!(
+            image.storage_format,
+            TextureFormat::Bgra8Unorm | TextureFormat::Nv12
+        )
         || !image.usage.contains(TextureUsage::SAMPLED)
     {
         return Err(CompileError::InvalidResource);
@@ -863,7 +926,12 @@ fn emit_texture_upload(
     };
     let logical_row_size = area
         .width()
-        .checked_mul(image.format.bytes_per_pixel())
+        .checked_mul(
+            image
+                .format
+                .bytes_per_pixel()
+                .ok_or(CompileError::UnsupportedFeature)?,
+        )
         .ok_or(CompileError::Overflow)?;
     if bytes_per_row < logical_row_size {
         return Err(CompileError::OutOfBounds);
@@ -899,7 +967,7 @@ fn emit_texture_upload(
             )
             .and_then(|offset| {
                 offset.checked_add(
-                    u64::from(area.x()) * u64::from(image.storage_format.bytes_per_pixel()),
+                    u64::from(area.x()) * u64::from(image.storage_format.bytes_per_pixel()?),
                 )
             })
             .ok_or(CompileError::Overflow)?;
@@ -941,7 +1009,8 @@ fn convert_upload_row(
             }
             Ok(converted)
         }
-        TextureFormat::Bgra8UnormSrgb
+        TextureFormat::Nv12
+        | TextureFormat::Bgra8UnormSrgb
         | TextureFormat::Rgba8UnormSrgb
         | TextureFormat::Depth32Float => Err(CompileError::UnsupportedFeature),
     }

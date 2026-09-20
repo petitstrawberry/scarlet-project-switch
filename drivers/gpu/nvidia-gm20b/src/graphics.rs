@@ -139,7 +139,7 @@ impl Graphics {
         &mut self,
         fifo: &Fifo,
         gr: &Gr,
-        operations: &[[u32; 64]],
+        operations: &[[u32; 96]],
     ) -> Result<(), GpuBackendSubmitError> {
         let started = time::current_time_ns();
         let push = &mut self.encoder;
@@ -264,13 +264,13 @@ impl Graphics {
                 }
             }
             clean(&self.vertex);
-            let mut clear = [0; 64];
+            let mut clear = [0; 96];
             clear[0] = 1;
             clear[2] = IMAGE_VA as u32;
             clear[10..13].copy_from_slice(&[16, 16, 256]);
             clear[13..17].copy_from_slice(&[0, 0, 16, 16]);
             clear[32..36].copy_from_slice(&[1f32.to_bits(), 0, 0, 1f32.to_bits()]);
-            let mut draw = [0; 64];
+            let mut draw = [0; 96];
             draw[0] = 2;
             draw[2] = IMAGE_VA as u32;
             draw[4] = VERTEX_VA as u32;
@@ -483,7 +483,7 @@ impl Graphics {
         arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
         let sampled = self.pixel(8, 8);
         scarlet::println!("gm20b: tiled sampler center={:#010x}", sampled);
-        let mut tile_to_linear = [0; 64];
+        let mut tile_to_linear = [0; 96];
         tile_to_linear[0] = 3;
         tile_to_linear[2] = IMAGE_VA as u32;
         tile_to_linear[4] = TILE_VA as u32;
@@ -539,7 +539,7 @@ impl Graphics {
         }
         scarlet::println!("gm20b: SGFX block-linear render/copy/sample passed");
         // A genuine 902D linear copy, also ordered by the PGRAPH fence.
-        let mut copy = [0; 64];
+        let mut copy = [0; 96];
         copy[0] = 3;
         copy[2] = IMAGE_VA as u32;
         copy[4] = TEXTURE_VA as u32;
@@ -556,7 +556,155 @@ impl Graphics {
             "gm20b: SGFX canonical shader pack and 902D copy passed; checksum={:#010x}",
             checksum
         );
+        self.verify_ycbcr(fifo, gr)?;
         Ok(checksum)
+    }
+
+    /// CPU-produced NV12 images exercise both layouts and both native shader
+    /// programs independently of NVDEC. Poison padding detects bad pitch/crop.
+    fn verify_ycbcr(&mut self, fifo: &Fifo, gr: &Gr) -> Result<(), &'static str> {
+        use scarlet::device::graphics::shared_image::*;
+        let mut checks = 0;
+        for tiled in [false, true] {
+            for vertex_color in [false, true] {
+                let variant = if vertex_color {
+                    PipelineVariant::Stride40TextureVertexColorRgba
+                } else {
+                    PipelineVariant::Stride16TextureRgba
+                };
+                for (i, p) in [[-1f32, -1.], [3., -1.], [-1., 3.]].into_iter().enumerate() {
+                    let values = if vertex_color {
+                        [p[0], p[1], 0., 1., 1., 1., 1., 1., 0.5, 0.5]
+                    } else {
+                        [p[0], p[1], 0.5, 0.5, 0., 0., 0., 0., 0., 0.]
+                    };
+                    for (j, value) in values[..variant.stride() as usize / 4].iter().enumerate() {
+                        store(
+                            &self.vertex,
+                            i * variant.stride() as usize / 4 + j,
+                            value.to_bits(),
+                        );
+                    }
+                }
+                clean(&self.vertex);
+                // Independent reference colors: limited-range red and blue,
+                // and full-range grey, with BT.601 and BT.709 matrices.
+                for (matrix, range, yuv, expected) in [
+                    (
+                        COLOR_MATRIX_BT601,
+                        COLOR_RANGE_LIMITED,
+                        [81u8, 90, 240],
+                        [254u8, 0, 0],
+                    ),
+                    (
+                        COLOR_MATRIX_BT709,
+                        COLOR_RANGE_LIMITED,
+                        [32, 240, 118],
+                        [1, 0, 255],
+                    ),
+                    (
+                        COLOR_MATRIX_BT709,
+                        COLOR_RANGE_FULL,
+                        [128, 128, 128],
+                        [128, 128, 128],
+                    ),
+                ] {
+                    let backing = if tiled { &self.tile } else { &self.texture };
+                    let bytes = unsafe {
+                        core::slice::from_raw_parts_mut(backing.as_vaddr() as *mut u8, 4096)
+                    };
+                    bytes.fill(0xc5);
+                    let offset = |x: usize, y: usize| -> usize {
+                        if !tiled {
+                            return y * 64 + x;
+                        }
+                        (y / 16) * 64 * 16
+                            + (x / 64) * 1024
+                            + ((y % 16) / 8) * 512
+                            + ((x % 64) / 32) * 256
+                            + ((y % 8) / 2) * 64
+                            + ((x % 32) / 16) * 32
+                            + (y % 2) * 16
+                            + x % 16
+                    };
+                    for y in 16..32 {
+                        for x in 16..32 {
+                            bytes[offset(x, y)] = yuv[0];
+                        }
+                    }
+                    for y in 8..16 {
+                        for x in 8..16 {
+                            bytes[2048 + offset(x * 2, y)] = yuv[1];
+                            bytes[2048 + offset(x * 2 + 1, y)] = yuv[2];
+                        }
+                    }
+                    clean(backing);
+                    let base = (if tiled { TILE_VA } else { TEXTURE_VA }) as u32;
+                    let mut d = SharedImageDescriptor::default();
+                    d.width = 32;
+                    d.height = 32;
+                    d.visible = ImageRect {
+                        x: 16,
+                        y: 16,
+                        width: 16,
+                        height: 16,
+                    };
+                    d.modifier = if tiled { 0x0300_0000_000f_e011 } else { 0 };
+                    d.planes[0].row_pitch = 64;
+                    d.planes[1].row_pitch = 64;
+                    let color = ImageColor {
+                        matrix,
+                        range,
+                        chroma_x: CHROMA_MIDPOINT,
+                        chroma_y: CHROMA_MIDPOINT,
+                        ..ImageColor::default()
+                    };
+                    let mut draw = probe_draw(variant);
+                    draw[6] = base;
+                    draw[29..32].copy_from_slice(&[16, 16, 64]);
+                    draw[48..52].fill(1f32.to_bits());
+                    draw[53] = if tiled { 0x10 } else { 0 };
+                    draw[64..72].copy_from_slice(&[
+                        1,
+                        if tiled { 64 } else { 32 },
+                        32,
+                        base + 2048,
+                        0,
+                        64,
+                        if tiled { 32 } else { 16 },
+                        16,
+                    ]);
+                    draw[72..92].copy_from_slice(&crate::executor::ycbcr_uniforms(d, color));
+                    self.execute(fifo, gr, &[probe_clear(), draw])
+                        .map_err(proof_error)?;
+                    arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+                    let pixel = self.pixel(8, 8);
+                    let rgb = [(pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8];
+                    if pixel >> 24 != 255
+                        || rgb
+                            .into_iter()
+                            .zip(expected)
+                            .any(|(a, b)| a.abs_diff(b) > 2)
+                    {
+                        scarlet::println!(
+                            "gm20b: NV12 proof failed tiled={} vertex_color={} matrix={} range={} pixel={:#010x}",
+                            tiled,
+                            vertex_color,
+                            matrix,
+                            range,
+                            pixel
+                        );
+                        return Err("SGFX NV12 color/crop readback mismatch");
+                    }
+                    checks += 1;
+                }
+            }
+        }
+        scarlet::println!(
+            "gm20b: SGFX NV12 {} linear/tiled color/crop readbacks passed",
+            checks
+        );
+        Ok(())
     }
 
     fn pixel(&self, x: usize, y: usize) -> u32 {
@@ -577,8 +725,8 @@ impl Graphics {
     }
 }
 
-fn probe_clear() -> [u32; 64] {
-    let mut w = [0; 64];
+fn probe_clear() -> [u32; 96] {
+    let mut w = [0; 96];
     w[0] = 1;
     w[2] = IMAGE_VA as u32;
     w[10..13].copy_from_slice(&[16, 16, 256]);
@@ -587,8 +735,8 @@ fn probe_clear() -> [u32; 64] {
     w
 }
 
-fn probe_draw(variant: PipelineVariant) -> [u32; 64] {
-    let mut w = [0; 64];
+fn probe_draw(variant: PipelineVariant) -> [u32; 96] {
+    let mut w = [0; 96];
     w[0] = 2;
     w[2] = IMAGE_VA as u32;
     w[4] = VERTEX_VA as u32;
@@ -617,9 +765,9 @@ fn proof_error(error: GpuBackendSubmitError) -> &'static str {
 
 struct Push {
     words: Vec<u32>,
-    uniforms: Option<[u32; 20]>,
+    uniforms: Option<[u32; 40]>,
     uniform_next: usize,
-    tic: Option<[u32; 8]>,
+    tic: Option<[u32; 16]>,
     tsc: Option<[u32; 8]>,
     texture_handle_initialized: bool,
 }
@@ -783,7 +931,8 @@ impl Push {
         }
         self.address(CODE_ADDRESS_HIGH, PROGRAM_VA as u64)?;
         self.address(VERTEX_RUNOUT_ADDRESS_HIGH, (AUX_VA + 0xf00) as u64)?;
-        self.method(0, TIC_ADDRESS_HIGH, &[0, DESCRIPTOR_VA as u32, 0])?;
+        // Last valid index: TIC 0 is Y and TIC 1 is UV. Both use TSC 0.
+        self.method(0, TIC_ADDRESS_HIGH, &[0, DESCRIPTOR_VA as u32, 1])?;
         self.method(0, TSC_ADDRESS_HIGH, &[0, (DESCRIPTOR_VA + 0x200) as u32, 0])?;
         for stage in 0..6 {
             self.one(SP_SELECT + stage * 0x40, stage << 4)?;
@@ -797,7 +946,7 @@ impl Push {
         self.one(0x0f90, 0)?; // independent color masks, nvc0 blend state
         Ok(())
     }
-    fn target(&mut self, w: &[u32; 64]) -> Result<(), &'static str> {
+    fn target(&mut self, w: &[u32; 96]) -> Result<(), &'static str> {
         self.one(RT_CONTROL, 1)?;
         let tiled = w[52] == 0x40;
         self.method(
@@ -821,7 +970,7 @@ impl Push {
             &[(w[15] << 16) | w[13], (w[16] << 16) | w[14]],
         )
     }
-    fn operation(&mut self, w: &[u32; 64]) -> Result<(), &'static str> {
+    fn operation(&mut self, w: &[u32; 96]) -> Result<(), &'static str> {
         match w[0] {
             1 => {
                 self.target(w)?;
@@ -875,9 +1024,16 @@ impl Push {
         self.one(ZETA_BASE_LAYER, 0)?;
         self.one(ZETA_ENABLE, 1)
     }
-    fn draw(&mut self, w: &[u32; 64]) -> Result<(), &'static str> {
+    fn draw(&mut self, w: &[u32; 96]) -> Result<(), &'static str> {
         let variant = PipelineVariant::from_raw(w[21]).ok_or("invalid pipeline variant")?;
-        let (vs, fs) = variant.shaders();
+        let (vs, mut fs) = variant.shaders();
+        if w[64] != 0 {
+            fs = if variant == PipelineVariant::Stride40TextureVertexColorRgba {
+                maxwell_shader_pack::ShaderVariant::FsTextureVertexColorNv12
+            } else {
+                maxwell_shader_pack::ShaderVariant::FsTextureNv12
+            };
+        }
         self.target(w)?;
         if w[60] != 0 {
             self.depth_target(&w[54..56], w[56], w[57], w[58])?;
@@ -887,7 +1043,9 @@ impl Push {
         } else {
             self.disable_depth()?;
         }
-        let uniforms: [u32; 20] = w[32..52].try_into().unwrap();
+        let mut uniforms = [0u32; 40];
+        uniforms[..20].copy_from_slice(&w[32..52]);
+        uniforms[20..].copy_from_slice(&w[72..92]);
         let uniforms_changed = self.uniforms != Some(uniforms);
         if uniforms_changed {
             // Bind a fresh fixed-size CB0 instead of stalling every draw to
@@ -1013,7 +1171,7 @@ impl Push {
                 | (channels[2] << 25)
                 | (channels[3] << 28);
             let tiled = w[53] == 0x40;
-            let tic = [
+            let rgb_tic = [
                 tic0,
                 w[6],
                 w[7] | if tiled { 0x00600000 } else { 0x00400000 },
@@ -1023,6 +1181,31 @@ impl Push {
                 0,
                 0,
             ];
+            let mut tic = [0u32; 16];
+            tic[..8].copy_from_slice(&rgb_tic);
+            if w[64] != 0 {
+                // Two independent sampled planes share one immutable lease.
+                tic[..8].copy_from_slice(&plane_tic(
+                    0x1d,
+                    [2, 6, 6, 7],
+                    w[6],
+                    w[7],
+                    w[65],
+                    w[66],
+                    w[31],
+                    w[53],
+                ));
+                tic[8..].copy_from_slice(&plane_tic(
+                    0x18,
+                    [2, 3, 6, 7],
+                    w[67],
+                    w[68],
+                    w[70],
+                    w[71],
+                    w[69],
+                    w[53],
+                ));
+            }
             let tsc = [
                 0x26000 | 2 | (2 << 3) | (2 << 6),
                 if w[22] & 2 != 0 { 0x62 } else { 0x51 },
@@ -1052,7 +1235,7 @@ impl Push {
                 self.tsc = Some(tsc);
             }
             if !self.texture_handle_initialized {
-                self.cb((AUX_VA + 0x400) as u64, 0x20, &[0])?;
+                self.cb((AUX_VA + 0x400) as u64, 0x20, &[0, 1])?;
                 self.texture_handle_initialized = true;
             }
             // Unchanged descriptors do not imply unchanged pixels: a prior
@@ -1087,7 +1270,7 @@ impl Push {
         )?;
         self.one(VERTEX_END_GL, 0)
     }
-    fn copy(&mut self, w: &[u32; 64]) -> Result<(), &'static str> {
+    fn copy(&mut self, w: &[u32; 96]) -> Result<(), &'static str> {
         self.one(SERIALIZE, 0)?;
         for (m, addr, width, height, stride, tile_mode) in [
             (0x200, [w[3], w[2]], w[10], w[11], w[12], w[52]),
@@ -1111,4 +1294,41 @@ impl Push {
         self.one(INVALIDATE_SHADER_CACHES, INVALIDATE_SHADER_CACHE_READS)?;
         self.one(TEX_CACHE_CTL, 0)
     }
+}
+
+fn plane_tic(
+    format: u32,
+    channels: [u32; 4],
+    lo: u32,
+    hi: u32,
+    width: u32,
+    height: u32,
+    pitch: u32,
+    tile_mode: u32,
+) -> [u32; 8] {
+    let tiled = tile_mode != 0;
+    let word0 = format
+        | (2 << 7)
+        | (2 << 10)
+        | (2 << 13)
+        | (2 << 16)
+        | (channels[0] << 19)
+        | (channels[1] << 22)
+        | (channels[2] << 25)
+        | (channels[3] << 28);
+    [
+        word0,
+        lo,
+        hi | if tiled { 0x00600000 } else { 0x00400000 },
+        0x10000
+            | if tiled {
+                (tile_mode >> 4) << 3
+            } else {
+                pitch >> 5
+            },
+        (if tiled { 0xe0800000 } else { 0xe3800000 }) | (width - 1),
+        0x80000000 | (height - 1),
+        0,
+        0,
+    ]
 }

@@ -26,6 +26,12 @@ impl Dma {
         result.bytes_mut().fill(0);
         Ok(result)
     }
+    pub fn paddr(&self) -> u64 {
+        self.pages.as_paddr()
+    }
+    pub fn size(&self) -> usize {
+        self.pages.len() * 4096
+    }
     pub fn address(&self, offset: usize) -> u32 {
         assert!(offset < self.pages.len() * 4096 && offset & 255 == 0);
         ((self.pages.as_paddr() + offset as u64) >> 8) as u32

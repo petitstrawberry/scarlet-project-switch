@@ -3,10 +3,10 @@
 #![no_std]
 pub const MESA_SHA: &str = "e881540692daac6532cefec76699f7a025563767";
 pub const MESA_METADATA_SHA256: &str =
-    "329c994c0e6101f149e66cc9b04f0d09a1b23a89fb082a6c387611a9ce825ffc";
+    "0fd59dd61d6f54645f7adef64f2805954c08b39d46d799243be350a6993883b1";
 pub const SHADER_ALIGNMENT: usize = 4096;
 pub const SHADER_SIZE: usize = 4096;
-pub const PACK_SIZE: usize = 13 * SHADER_ALIGNMENT;
+pub const PACK_SIZE: usize = 15 * SHADER_ALIGNMENT;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u16)]
 pub enum ShaderVariant {
@@ -23,9 +23,11 @@ pub enum ShaderVariant {
     VsStride24Pos4Uv2 = 10,
     VsStride28Pos4Color3 = 11,
     FsTextureRgbIgnoreAlpha = 12,
+    FsTextureNv12 = 13,
+    FsTextureVertexColorNv12 = 14,
 }
 impl ShaderVariant {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 15] = [
         Self::VsStride16Pos2,
         Self::VsStride16Pos2Uv2,
         Self::VsStride40Pos4,
@@ -39,9 +41,11 @@ impl ShaderVariant {
         Self::VsStride24Pos4Uv2,
         Self::VsStride28Pos4Color3,
         Self::FsTextureRgbIgnoreAlpha,
+        Self::FsTextureNv12,
+        Self::FsTextureVertexColorNv12,
     ];
     pub const fn from_raw(raw: u16) -> Option<Self> {
-        if raw < 13 {
+        if raw < 15 {
             Some(Self::ALL[raw as usize])
         } else {
             None
@@ -70,6 +74,10 @@ impl ShaderVariant {
     }
     pub const fn bytes(self) -> &'static [u8] {
         match self {
+            Self::FsTextureVertexColorNv12 => {
+                include_bytes!("../artifacts/gm20b/fs_texture_vertex_color_nv12.bin")
+            }
+            Self::FsTextureNv12 => include_bytes!("../artifacts/gm20b/fs_texture_nv12.bin"),
             Self::VsStride16Pos2 => include_bytes!("../artifacts/gm20b/vs_stride16_pos2.bin"),
             Self::VsStride16Pos2Uv2 => {
                 include_bytes!("../artifacts/gm20b/vs_stride16_pos2_uv2.bin")
@@ -103,6 +111,10 @@ impl ShaderVariant {
     }
     pub const fn header(self) -> &'static [u8; 80] {
         match self {
+            Self::FsTextureVertexColorNv12 => {
+                include_bytes!("../artifacts/gm20b/fs_texture_vertex_color_nv12.header.bin")
+            }
+            Self::FsTextureNv12 => include_bytes!("../artifacts/gm20b/fs_texture_nv12.header.bin"),
             Self::VsStride16Pos2 => {
                 include_bytes!("../artifacts/gm20b/vs_stride16_pos2.header.bin")
             }
@@ -140,6 +152,8 @@ impl ShaderVariant {
     }
     pub const fn gprs(self) -> u32 {
         match self {
+            Self::FsTextureVertexColorNv12 => 8,
+            Self::FsTextureNv12 => 6,
             Self::VsStride16Pos2 => 8,
             Self::VsStride16Pos2Uv2 => 8,
             Self::VsStride40Pos4 => 7,

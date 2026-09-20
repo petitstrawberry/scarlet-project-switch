@@ -521,6 +521,16 @@ impl MappedTargetSession {
         self.resources.import_sampled_image(texture, handle)
     }
 
+    pub fn import_ycbcr_texture(
+        &mut self,
+        texture: ir::TextureId,
+        handle: Handle,
+        conversion: ir::YcbcrConversion,
+    ) -> Result<(), IrSubmitError> {
+        self.resources
+            .import_ycbcr_image(texture, handle, conversion)
+    }
+
     /// Detach and release a previously imported sampled texture.
     pub fn release_imported_texture(
         &mut self,

@@ -75,6 +75,9 @@ impl VideoDecodeBackend for Backend {
     fn name(&self) -> &'static str {
         "tegra210-nvdec"
     }
+    fn supports_shared_images(&self) -> bool {
+        true
+    }
     fn capabilities(&self) -> VideoBackendCapabilities {
         VideoBackendCapabilities {
             max_sessions: 1,

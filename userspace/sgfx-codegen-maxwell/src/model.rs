@@ -95,6 +95,8 @@ impl Capabilities {
 /// Image memory layout understood by this compiler revision.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ImageModifier {
+    /// Uncompressed NVIDIA block-linear with two GOBs per block.
+    NvidiaBlockLinear16Bx2H1,
     /// One or more uncompressed linear planes.
     Linear,
     /// Tegra X1 GOB64x8, uncompressed kind 0xfe, 16-GOB block height.

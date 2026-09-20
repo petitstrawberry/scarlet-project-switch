@@ -4,7 +4,8 @@
 
 `scarlet-driver-tegra210-nvdec` registers the common Scarlet `/dev/video0`
 backend. It boots NVIDIA's unmodified NVDEC2 firmware, submits stateless
-H.264 picture parameters, and returns tightly packed NV12 output.
+H.264 picture parameters, and returns either tightly packed NV12 or an
+explicitly negotiated immutable native NV12 image lease.
 
 - One open session and one in-flight picture; distinct stream IDs on reopen.
 - Progressive 8-bit 4:2:0, coded size up to 1920 × 1088, POC types 0 and 2.
@@ -16,8 +17,9 @@ H.264 picture parameters, and returns tightly packed NV12 output.
   is retained if isolation cannot be proven. A failed session must be reopened.
 - Completion is polled by the existing video client. No decode test runs at boot.
 
-The present path converts NVDEC block-linear surfaces to linear NV12 on the
-CPU. It does not yet expose decoder surfaces directly to SGFX. Other codecs,
+Mapped-output clients convert NVDEC block-linear surfaces to linear NV12 on
+the CPU. The player now negotiates native images and samples both planes in
+SGFX without CPU detiling, RGB conversion or full-frame canvas upload. Other codecs,
 interlacing, POC type 1, slice groups, and custom SPS/PPS scaling matrices are
 not supported by this path. Speaker playback is covered separately in
 [audio bring-up](audio-bringup.md).
@@ -104,32 +106,60 @@ Evidence: `.cache/audio-bringup-20260920/uart-audio-8.log` (initial timing),
 The optimized driver and speaker audio build were subsequently installed on
 SD; the [boot menu record](boot-menu.md) identifies the exact deployed images.
 
-## Native NV12 presentation direction (not implemented)
+## Native NV12 presentation (2026-09-20)
 
-NVDEC already produces block-linear NV12. The CPU layout conversion exists
-to satisfy the current linear-NV12 video client API. A native surface path
-should retain Y/UV offsets, pitches, coded and visible extents, crop, layout,
-color encoding/range and producer completion alongside an owned frame lease.
-The decoder must not recycle a leased picture while display or GPU work reads it.
+The producer-independent contract is in `scarlet-abi::shared_image`: FourCC,
+modifier, coded extent, visible crop, per-plane pitches/offsets/buffer indices,
+color metadata and an immutable backing lease. `VIDEO_SET_OUTPUT_MODE` selects
+native output before submission, and `VIDEO_DEQUEUE_IMAGE` returns an owning
+capability only after the NVDEC completion fence. Mapped clients keep the old
+ABI. Session teardown cannot invalidate retained frames. The pool reuses a
+surface only when its Arc lease is unique and caps the total at 40 surfaces.
 
-Tegra DC has semi-planar YUV format/CSC support in
-[Linux's plane implementation](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/tegra/plane.c).
-[NVIDIA's window programming](https://github.com/theofficialgman/switch-l4t-kernel-nvidia/blob/7d95822acda1f6dab3f3d1d099b43ff9e0d0e626/drivers/video/tegra/dc/window.c)
-covers separate Y/UV addresses, scaling, SCAN_COLUMN rotation and block-linear
-surface kind. Scarlet's current DC driver already rotates and directly scans
-RGB GPU buffers, but its common pixel format and admission path are RGB-only.
-NVDEC's two-GOB layout differs from the current RGB H4 layout; the exact NV12
-modifier, chroma alignment, crop/scaling and rotated scanout still need device QA.
+`GPU_IMPORT_SHARED_IMAGE` imports the lease into GM20B without a pixel copy.
+It supports linear NV12 and NVIDIA uncompressed kind `0xfe`, two-GOB NV12
+(modifier `0x03000000000fe011`), including separate plane buffers. SGFX's
+sampled-only NV12 texture applies explicit BT.601/BT.709, full/limited range,
+chroma siting, crop and scaling during the ordinary window composition pass.
+The video client reads H.264 VUI color metadata; unsupported HDR/conversions
+are rejected rather than silently treated as BT.601.
 
-The preferred full-screen path is a leased NV12 surface presented by the
-compositor to a suitable DC plane, retiring the old lease at display completion.
-Windowed/occluded playback needs GPU Y/UV sampling and color conversion before
-normal UI composition. SGFX has R8 but currently lacks RG8/multiplanar NV12;
-ScarletUI's existing external shared image adapter accepts BGRA8 only. Extend
-those resource/format and completion contracts, then replace video-player's CPU
-`CanvasView` path. A pixel-format enum alone does not establish plane ownership
-or synchronize decoder, renderer and scanout. This work must coordinate with
-the separate touch task rather than altering its input handling.
+ScarletUI reuses its external image paint path and recycles retired imported
+texture slots after GPU completion. Video and small control/debug overlays
+are painted in order into the existing BGRA window target. The compositor and
+Tegra DC continue normal BGRA presentation; no direct YUV scanout was added.
+The same image contract can support such a display consumer later.
+
+### Validation
+
+- GPU initialization passed **12 real color/crop readbacks** using CPU-produced
+  linear and block-linear NV12, both native shader variants, BT.601/BT.709 and
+  full/limited range. Padding is poisoned, and colors have non-neutral chroma.
+- The canonical compiler tests native sampling followed by an RGB overlay,
+  retention of both plane ranges, and rejection of a truncated UV plane.
+- ScarletUI reused one logical texture slot for 2,048 distinct frames and
+  released every prior source. All 45 renderer tests passed.
+- The actual 1,920 × 1,080 MP4 completed 2,488 access units with
+  `output=shared-image`. The user confirmed normal colors, controls and debug
+  overlay, and reported visually about 24 fps. This is not an independently
+  measured compositor presentation rate. Audio volume remained 0.
+- Bring-up fixed a stale codegen tile-mode whitelist, a one-entry TIC limit
+  that prevented UV sampling (green output), and the overlay buffer height
+  conflicting with the existing minimum-size check.
+
+Final player: 2,525,952 bytes, SHA-256
+`47fb57e18bcb700dd9370953c15320e0804b9bb13917a83de2df4aeadc6d85e1`.
+Copied directly from `/old_root/bin/video-player-nvdec` to `/bin/video-player`
+and verified the matching SHA-256 with `storage-check hash` on the guest.
+Evidence and builds are under `.cache/nv12/`: `uart-3.log`,
+`uart-final.log`, `kernel-build-final.log`, `player-build-final.log`,
+`codegen-tests-final.log`, `codec-tests-final.log`, `ui-tests-clean.log`,
+`host-backends-check-clean.log`. The USB kernel/bundle is refreshed; this NV12
+iteration has not replaced the SD Hekate boot images.
+
+The Switch project's userspace Cargo configuration contains local source
+patches for the coordinated Scarlet/SGFX/ScarletUI/Chromebook changes.
+Git dependency pins must be advanced together when publishing these changes.
 
 ## References
 

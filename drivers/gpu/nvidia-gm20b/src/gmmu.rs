@@ -254,6 +254,66 @@ impl Gmmu {
         self.map_private_with_cache(va, memory, true, kind)
     }
 
+    /// Map producer-owned pages. The caller retains their immutable lease in
+    /// `retained` before this call and through TLB retirement or failed recovery.
+    pub(super) fn map_shared(
+        &self,
+        va: usize,
+        size: usize,
+        segments: &[scarlet::device::graphics::GpuBackingSegment],
+        kind: u8,
+    ) -> Result<(), &'static str> {
+        if size == 0
+            || size % PAGE != 0
+            || va % PAGE != 0
+            || va < 3 * PAGE
+            || va
+                .checked_add(size)
+                .is_none_or(|end| end > VA_LIMIT as usize)
+        {
+            return Err("invalid shared GPU mapping range");
+        }
+        let mut mapped = 0usize;
+        for segment in segments {
+            if mapped == size {
+                break;
+            }
+            let count = segment.length().min(size - mapped);
+            if segment.physical_addr() % PAGE as u64 != 0
+                || count % PAGE != 0
+                || segment
+                    .physical_addr()
+                    .checked_add(count as u64)
+                    .is_none_or(|end| end > IOMMU_SELECTOR)
+            {
+                return Err("invalid shared GPU physical extent");
+            }
+            for offset in (0..count).step_by(PAGE) {
+                let address = va + mapped + offset;
+                let word = address / PAGE * 2;
+                if unsafe {
+                    core::ptr::read_volatile((self.table.as_vaddr() as *const u32).add(word))
+                } & 1
+                    != 0
+                {
+                    return Err("shared GPU mapping would replace a valid PTE");
+                }
+                // Producer DMA bypasses LTC; volatile mappings prevent stale cross-engine reads.
+                self.map_page(
+                    address,
+                    segment.physical_addr() + offset as u64,
+                    false,
+                    kind,
+                );
+            }
+            mapped += count;
+        }
+        if mapped != size {
+            return Err("shared GPU backing is truncated");
+        }
+        Ok(())
+    }
+
     fn map_private_with_cache(
         &self,
         va: usize,
@@ -340,7 +400,7 @@ impl Gmmu {
     }
     pub fn execute_graphics(
         &mut self,
-        operations: &[[u32; 64]],
+        operations: &[[u32; 96]],
     ) -> Result<(), scarlet::device::gpu::GpuBackendSubmitError> {
         use scarlet::device::gpu::GpuBackendSubmitError;
         self.graphics

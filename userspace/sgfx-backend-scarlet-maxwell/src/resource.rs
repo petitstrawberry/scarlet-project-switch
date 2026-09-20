@@ -109,6 +109,55 @@ impl RawImage {
         Self::finish_create(context, raw, ir::TextureFormat::Bgra8Unorm, width, height)
     }
 
+    fn import_ycbcr(
+        context: &Arc<ContextInner>,
+        handle: Handle,
+        descriptor: ir::TextureDesc,
+        conversion: ir::YcbcrConversion,
+    ) -> HandleResult<Self> {
+        use gpu_raw::shared_image::*;
+        if descriptor.format() != ir::TextureFormat::Nv12
+            || descriptor.usage() != ir::TextureUsage::SAMPLED
+        {
+            return Err(HandleError::InvalidParameter);
+        }
+        let color = ImageColor {
+            matrix: match conversion.matrix {
+                ir::YcbcrMatrix::Bt601 => COLOR_MATRIX_BT601,
+                ir::YcbcrMatrix::Bt709 => COLOR_MATRIX_BT709,
+            },
+            range: match conversion.range {
+                ir::YcbcrRange::Limited => COLOR_RANGE_LIMITED,
+                ir::YcbcrRange::Full => COLOR_RANGE_FULL,
+            },
+            chroma_x: match conversion.chroma_x {
+                ir::ChromaLocation::Cosited => CHROMA_COSITED,
+                ir::ChromaLocation::Midpoint => CHROMA_MIDPOINT,
+            },
+            chroma_y: match conversion.chroma_y {
+                ir::ChromaLocation::Cosited => CHROMA_COSITED,
+                ir::ChromaLocation::Midpoint => CHROMA_MIDPOINT,
+            },
+            ..Default::default()
+        };
+        let raw = context.device.gpu.import_shared_image(&handle, color)?;
+        let info = raw.query()?;
+        if info.format != gpu_raw::GPU_IMAGE_FORMAT_NV12
+            || info.width != descriptor.extent().width()
+            || info.height != descriptor.extent().height()
+            || info.usage != GPU_IMAGE_USAGE_SAMPLED
+        {
+            return Err(HandleError::InvalidParameter);
+        }
+        Self::finish_create(
+            context,
+            raw,
+            ir::TextureFormat::Nv12,
+            info.width,
+            info.height,
+        )
+    }
+
     fn finish_create(
         context: &Arc<ContextInner>,
         raw: GpuImage,
@@ -388,6 +437,28 @@ impl ContextResources {
         Ok(())
     }
 
+    pub(crate) fn import_ycbcr_image(
+        &mut self,
+        texture: ir::TextureId,
+        handle: Handle,
+        conversion: ir::YcbcrConversion,
+    ) -> Result<(), IrSubmitError> {
+        let reference = self.resources.texture_ref(texture)?;
+        let descriptor = self.resources.texture(reference)?;
+        let slot = reference.slot();
+        if self
+            .images
+            .get(slot)
+            .ok_or(IrSubmitError::ResourceTableMismatch)?
+            .is_some()
+        {
+            return Err(IrSubmitError::TextureAlreadyMapped);
+        }
+        let image = RawImage::import_ycbcr(&self.context, handle, descriptor, conversion)?;
+        self.images[slot] = Some(Arc::new(image));
+        Ok(())
+    }
+
     pub(crate) fn release_imported_image(
         &mut self,
         texture: ir::TextureId,
@@ -499,6 +570,9 @@ impl ContextResources {
 }
 
 fn image_create_parameters(descriptor: ir::TextureDesc) -> HandleResult<(u32, u32)> {
+    if descriptor.format() == ir::TextureFormat::Nv12 {
+        return Err(HandleError::Unsupported);
+    }
     let mut usage = 0;
     if descriptor.format() == ir::TextureFormat::Depth32Float {
         if !descriptor
@@ -547,6 +621,28 @@ fn validate_image_layout(
     height: u32,
     logical_format: ir::TextureFormat,
 ) -> HandleResult<()> {
+    if logical_format == ir::TextureFormat::Nv12 {
+        if layout.plane_count != 2
+            || layout.total_size == 0
+            || !matches!(layout.modifier, 0 | 0x0300_0000_000f_e011)
+        {
+            return Err(HandleError::Unsupported);
+        }
+        for (i, p) in layout.planes[..2].iter().enumerate() {
+            if p.block_width != 1
+                || p.block_height != 1
+                || p.bytes_per_block != if i == 0 { 1 } else { 2 }
+                || p.row_pitch < if i == 0 { width } else { width.div_ceil(2) * 2 }
+                || p.size == 0
+                || p.offset
+                    .checked_add(p.size)
+                    .is_none_or(|end| end > layout.total_size)
+            {
+                return Err(HandleError::InvalidParameter);
+            }
+        }
+        return Ok(());
+    }
     if layout.plane_count != 1
         || layout.total_size == 0
         || layout.alignment == 0

@@ -141,7 +141,7 @@ impl Emitter {
         Ok(())
     }
     fn surface(&mut self, word: u32, s: Surface, access: Access) -> Result<(), CompileError> {
-        if s.tile_mode != 0 && s.tile_mode != 0x40 {
+        if !matches!(s.tile_mode, 0 | 0x10 | 0x40) {
             return Err(CompileError::UnsupportedFeature);
         }
         self.address(

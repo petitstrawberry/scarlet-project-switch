@@ -10,6 +10,7 @@ use crate::{
 use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
 use maxwell_shader_pack::PipelineVariant;
 use maxwell_submit_wire as wire;
+use scarlet::device::graphics::shared_image::*;
 use scarlet::{
     arch,
     device::{
@@ -39,6 +40,12 @@ pub(super) enum Kind {
     Buffer {
         paddr: u64,
     },
+    SharedImage {
+        create: GpuImageCreateInfo,
+        layout: GpuBackendImageLayout,
+        image: Arc<SharedImage>,
+        color: ImageColor,
+    },
     Image {
         create: GpuImageCreateInfo,
         layout: GpuBackendImageLayout,
@@ -46,7 +53,7 @@ pub(super) enum Kind {
     },
 }
 pub(super) struct Memory {
-    pub pages: ContiguousPages,
+    pub pages: Option<ContiguousPages>,
     pub va: usize,
     pub size: u64,
     pub kind: Kind,
@@ -166,7 +173,7 @@ impl State {
             if va + count * 4096 <= start {
                 break;
             }
-            va = va.max(start + entry.pages.len() * 4096);
+            va = va.max(start + entry.size as usize);
         }
         va = (va + alignment - 1) & !(alignment - 1);
         if va
@@ -203,7 +210,7 @@ impl State {
             _ => 0,
         };
         let memory = Arc::new(Memory {
-            pages: memory,
+            pages: Some(memory),
             va,
             size,
             kind,
@@ -217,7 +224,7 @@ impl State {
             .insert(va, Arc::clone(&memory));
         if let Err(error) = self
             .dma()
-            .map_private_kind(va, &memory.pages, page_kind)
+            .map_private_kind(va, memory.pages.as_ref().unwrap(), page_kind)
             .and_then(|_| self.dma().invalidate_all())
         {
             self.fault();
@@ -228,6 +235,157 @@ impl State {
         }
         Ok((object, memory))
     }
+    fn import_image(
+        &mut self,
+        image: Arc<SharedImage>,
+        color: ImageColor,
+    ) -> Result<(u64, Arc<Memory>, GpuBackendImageLayout), &'static str> {
+        if self.lost {
+            return Err("GM20B device lost");
+        }
+        let d = image.descriptor();
+        d.validate()?;
+        if d.format != IMAGE_FORMAT_NV12
+            || !matches!(d.modifier, 0 | 0x0300_0000_000f_e011)
+            || d.width > 4096
+            || d.height > 4096
+            || !matches!(color.matrix, COLOR_MATRIX_BT601 | COLOR_MATRIX_BT709)
+            || !matches!(color.range, COLOR_RANGE_LIMITED | COLOR_RANGE_FULL)
+            || !matches!(color.chroma_x, CHROMA_COSITED | CHROMA_MIDPOINT)
+            || !matches!(color.chroma_y, CHROMA_COSITED | CHROMA_MIDPOINT)
+            || color.reserved != [0; 2]
+            || !matches!(color.primaries, 0 | 1 | 5 | 6)
+            || !matches!(color.transfer, 0 | 1 | 6 | 13)
+        {
+            return Err("GM20B shared image format/modifier/conversion unsupported");
+        }
+        let mut starts = [0u64; 4];
+        let mut size = 0u64;
+        for i in 0..d.buffer_count as usize {
+            starts[i] = size;
+            size = size
+                .checked_add(
+                    d.buffer_sizes[i]
+                        .checked_add(4095)
+                        .ok_or("image overflow")?
+                        & !4095,
+                )
+                .ok_or("image overflow")?;
+        }
+        if size > 0x1000000 {
+            return Err("GM20B imported image too large");
+        }
+        let mut planes = [GpuBackendImagePlaneLayout::EMPTY; 4];
+        for i in 0..2 {
+            let p = d.planes[i];
+            let rows = if i == 0 {
+                d.height
+            } else {
+                d.height.div_ceil(2)
+            };
+            let row_bytes = if i == 0 {
+                d.width
+            } else {
+                d.width.div_ceil(2) * 2
+            };
+            let tiled = d.modifier != 0;
+            let min_size =
+                u64::from(p.row_pitch) * u64::from(if tiled { (rows + 15) & !15 } else { rows });
+            if p.row_pitch < row_bytes
+                || p.row_pitch % (if tiled { 64 } else { 32 }) != 0
+                || p.offset % (if tiled { 512 } else { 32 }) != 0
+                || p.size < min_size
+                || p.size > u64::from(u32::MAX)
+            {
+                return Err("GM20B imported plane layout unsupported");
+            }
+            planes[i] = GpuBackendImagePlaneLayout {
+                offset: starts[p.buffer_index as usize] + p.offset,
+                size: p.size,
+                row_pitch: p.row_pitch,
+                array_pitch: p.size as u32,
+                block_width: 1,
+                block_height: 1,
+                bytes_per_block: if i == 0 { 1 } else { 2 },
+            };
+        }
+        let layout = GpuBackendImageLayout {
+            modifier: d.modifier,
+            total_size: size,
+            alignment: 4096,
+            plane_count: 2,
+            planes,
+        };
+        if !layout.is_valid() {
+            return Err("GM20B imported image layout invalid");
+        }
+        let mut va = 0x502000usize;
+        for (&start, entry) in &self.dma().retained {
+            va = (va + 8191) & !8191;
+            if va + size as usize <= start {
+                break;
+            }
+            va = va.max(start + entry.size as usize);
+        }
+        va = (va + 8191) & !8191;
+        if va
+            .checked_add(size as usize)
+            .is_none_or(|end| end > VA_LIMIT as usize)
+        {
+            return Err("GM20B GPU address space exhausted");
+        }
+        let id = self.next_object;
+        self.next_object = id.checked_add(1).ok_or("GPU object identity exhausted")?;
+        let create = GpuImageCreateInfo::new(
+            GPU_IMAGE_FORMAT_NV12,
+            GPU_IMAGE_USAGE_SAMPLED,
+            d.visible.width,
+            d.visible.height,
+        );
+        let memory = Arc::new(Memory {
+            pages: None,
+            va,
+            size,
+            kind: Kind::SharedImage {
+                create,
+                layout,
+                image: image.clone(),
+                color,
+            },
+        });
+        // The retained mapping owns the lease even if invalidation/isolation fails.
+        self.power
+            .dma
+            .as_mut()
+            .unwrap()
+            .retained
+            .insert(va, memory.clone());
+        let result = (|| {
+            let backing = image.backing();
+            for i in 0..d.buffer_count as usize {
+                let length = (d.buffer_sizes[i] + 4095) & !4095;
+                self.dma().map_shared(
+                    va + starts[i] as usize,
+                    length as usize,
+                    &backing.buffer_segments(i),
+                    if d.modifier == 0 { 0 } else { 0xfe },
+                )?;
+            }
+            self.dma().invalidate_all()
+        })();
+        if let Err(error) = result {
+            self.fault();
+            return Err(error);
+        }
+        self.power
+            .dma
+            .as_mut()
+            .unwrap()
+            .objects
+            .insert(id, memory.clone());
+        Ok((id, memory, layout))
+    }
+
     fn allocation_error(&mut self, size: u64, reason: &'static str) -> &'static str {
         self.diagnostic_allocation_failures = self.diagnostic_allocation_failures.saturating_add(1);
         let count = self.diagnostic_allocation_failures;
@@ -236,7 +394,7 @@ impl State {
                 .dma()
                 .retained
                 .values()
-                .map(|memory| memory.pages.len() * 4096)
+                .map(|memory| memory.size as usize)
                 .sum();
             scarlet::println!(
                 "gm20b: allocation failed: {} request={} retained={} objects={}",
@@ -264,7 +422,10 @@ impl Shared {
         if s.lost {
             return;
         }
-        match s.dma().unmap(memory.va, memory.pages.len()) {
+        match s
+            .dma()
+            .unmap(memory.va, (memory.size as usize).div_ceil(4096))
+        {
             Ok(()) => {
                 s.power
                     .dma
@@ -314,8 +475,9 @@ impl GpuBackendImage for Image {
         COOKIE
     }
     fn query_info(&self) -> GpuBackendImageInfo {
-        let Kind::Image { create, .. } = &self.memory.kind else {
-            unreachable!()
+        let create = match &self.memory.kind {
+            Kind::Image { create, .. } | Kind::SharedImage { create, .. } => create,
+            _ => unreachable!(),
         };
         GpuBackendImageInfo::new(*create, self.id, self.memory.size)
     }
@@ -327,7 +489,7 @@ impl GpuBackendImage for Image {
             return None;
         }
         let owner: Arc<dyn scarlet::device::gpu::GpuDisplayBackingOwner> = self.memory.clone();
-        let paddr = self.memory.pages.as_paddr();
+        let paddr = self.memory.pages.as_ref().unwrap().as_paddr();
         let stride = layout.planes[0].row_pitch;
         if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 {
             GpuDisplayResource::new_modified(
@@ -454,7 +616,7 @@ impl Context {
             // Generic backing is linear CPU staging. The independent private
             // DMA allocation follows the block-linear modifier. Preserve all
             // pixels outside a partial update when acquiring cache lines.
-            let gpu_base = mem.pages.as_vaddr();
+            let gpu_base = mem.pages.as_ref().unwrap().as_vaddr();
             arch::invalidate_dcache_to_poc_range(gpu_base, mem.size as usize);
             for y in rect.dst_y..rect.dst_y + rect.height {
                 let mut x = rect.dst_x as usize * 4;
@@ -488,7 +650,7 @@ impl Context {
             let offset = rect.backing_offset as usize + y as usize * pitch as usize;
             let n = rect.width as usize * 4;
             let generic = scarlet::vm::phys_to_virt(backing.paddr + offset as u64);
-            let gpu = mem.pages.as_vaddr() + offset;
+            let gpu = mem.pages.as_ref().unwrap().as_vaddr() + offset;
             if readback {
                 arch::invalidate_dcache_to_poc_range(gpu, n);
                 unsafe {
@@ -602,7 +764,7 @@ struct BufferSnapshot {
     bytes: Vec<u8>,
 }
 pub(super) struct Prepared {
-    operations: Vec<[u32; 64]>,
+    operations: Vec<[u32; 96]>,
     buffers: Vec<BufferSnapshot>,
     writes: Vec<BufferSpan>,
     _images: Vec<Arc<Memory>>,
@@ -736,7 +898,8 @@ impl Shared {
         let sequence = s.diagnostic_submissions;
         let trace = sequence <= 4;
         for buffer in &prepared.buffers {
-            let destination = buffer.span.memory.pages.as_vaddr() + buffer.span.start;
+            let destination =
+                buffer.span.memory.pages.as_ref().unwrap().as_vaddr() + buffer.span.start;
             unsafe {
                 core::ptr::copy_nonoverlapping(
                     buffer.bytes.as_ptr(),
@@ -765,7 +928,7 @@ impl Shared {
                 unreachable!()
             };
             let size = span.end - span.start;
-            let source = span.memory.pages.as_vaddr() + span.start;
+            let source = span.memory.pages.as_ref().unwrap().as_vaddr() + span.start;
             arch::invalidate_dcache_to_poc_range(source, size);
             unsafe {
                 core::ptr::copy_nonoverlapping(
@@ -927,6 +1090,22 @@ impl GpuBackend for Backend {
             memory,
         }))
     }
+    fn import_shared_image(
+        &self,
+        image: Arc<SharedImage>,
+        color: ImageColor,
+    ) -> Result<(Arc<dyn GpuBackendImage>, GpuBackendImageLayout), &'static str> {
+        let (id, memory, layout) = self.shared.state.lock().import_image(image, color)?;
+        Ok((
+            Arc::new(Image {
+                shared: self.shared.clone(),
+                id,
+                memory,
+            }),
+            layout,
+        ))
+    }
+
     fn create_buffer(
         &self,
         create: GpuBufferCreateInfo,
@@ -957,7 +1136,7 @@ fn validate(
     decoded: &wire::DecodedSubmit<'_>,
     attached: &BTreeMap<u64, Attachment>,
     buffers: &[BufferSnapshot],
-) -> Result<Vec<[u32; 64]>, &'static str> {
+) -> Result<Vec<[u32; 96]>, &'static str> {
     if decoded.commands_len() % wire::OPERATION_WORDS != 0
         || decoded.commands_len() > wire::MAX_COMMAND_WORDS
     {
@@ -969,13 +1148,13 @@ fn validate(
         .map_err(|_| "operation allocation failed")?;
     let mut relocation = 0;
     for base in (0..decoded.commands_len()).step_by(64) {
-        let mut w = [0; 64];
-        for (i, word) in w.iter_mut().enumerate() {
+        let mut w = [0; 96];
+        for (i, word) in w[..64].iter_mut().enumerate() {
             *word = decoded.commands_word(base + i).unwrap();
         }
         let has_depth = w[0] == 2 && w[60] != 0;
         if w[1] != 0
-            || w[62..].iter().any(|&v| v != 0)
+            || w[62..64].iter().any(|&v| v != 0)
             || (!has_depth && w[54..62].iter().any(|&v| v != 0))
             || (matches!(w[0], 1 | 4) && w[53] != 0)
             || w[60] > 8
@@ -1155,6 +1334,46 @@ fn validate(
                 }
                 if let Some(t) = roles[2] {
                     surface(t, w[29], w[30], w[31], w[53], GPU_IMAGE_USAGE_SAMPLED)?;
+                    if let Kind::SharedImage {
+                        image,
+                        layout,
+                        color,
+                        ..
+                    } = &t.0.kind
+                    {
+                        if !matches!(
+                            variant,
+                            PipelineVariant::Stride16TextureRgba
+                                | PipelineVariant::Stride24TextureRgba
+                                | PipelineVariant::Stride24TextureRgbIgnoreAlpha
+                                | PipelineVariant::Stride40TextureVertexColorRgba
+                        ) || w[22] & (1 << 5) != 0
+                        {
+                            return Err("NV12 requires an RGB sampling program");
+                        }
+                        let d = image.descriptor();
+                        let y = t.0.va as u64 + layout.planes[0].offset;
+                        let uv = t.0.va as u64 + layout.planes[1].offset;
+                        w[6] = y as u32;
+                        w[7] = (y >> 32) as u32;
+                        w[64] = 1;
+                        w[65] = if d.modifier == 0 {
+                            d.width
+                        } else {
+                            layout.planes[0].row_pitch
+                        };
+                        w[66] = d.height;
+                        w[67] = uv as u32;
+                        w[68] = (uv >> 32) as u32;
+                        w[69] = layout.planes[1].row_pitch;
+                        w[70] = if d.modifier == 0 {
+                            d.width.div_ceil(2)
+                        } else {
+                            layout.planes[1].row_pitch / 2
+                        };
+                        w[71] = d.height.div_ceil(2);
+                        w[72..92].copy_from_slice(&ycbcr_uniforms(d, *color));
+                    }
                     if t.0.va == target.0.va {
                         return Err("sampled/render target alias forbidden");
                     }
@@ -1249,6 +1468,19 @@ fn surface(
     tile_mode: u32,
     usage: u32,
 ) -> Result<(), &'static str> {
+    if let Kind::SharedImage { create, layout, .. } = &binding.0.kind {
+        if usage != GPU_IMAGE_USAGE_SAMPLED
+            || create.width != width
+            || create.height != height
+            || layout.planes[0].row_pitch != pitch
+            || binding.1 != 0
+            || binding.2 < layout.total_size
+            || tile_mode != if layout.modifier == 0 { 0 } else { 0x10 }
+        {
+            return Err("shared sampled image layout/usage mismatch");
+        }
+        return Ok(());
+    }
     let Kind::Image { create, layout, .. } = &binding.0.kind else {
         return Err("surface requires image");
     };
@@ -1290,4 +1522,71 @@ fn rectangle(rect: &[u32], width: u32, height: u32) -> Result<(), &'static str> 
         return Err("rectangle out of range");
     }
     Ok(())
+}
+
+/// UV transforms and encoded RGB conversion, derived only from validated metadata.
+pub(super) fn ycbcr_uniforms(d: SharedImageDescriptor, c: ImageColor) -> [u32; 20] {
+    // A tiled TIC derives its pitch from its width. NVDEC may pad rows more
+    // than texture alignment requires, so describe the full stored row.
+    let w = if d.modifier == 0 {
+        d.width
+    } else {
+        d.planes[0].row_pitch
+    } as f32;
+    let cw = if d.modifier == 0 {
+        d.width.div_ceil(2) * 2
+    } else {
+        d.planes[1].row_pitch
+    } as f32;
+    let h = d.height as f32;
+    let ch = d.height.div_ceil(2) as f32 * 2.0;
+    let r = d.visible;
+    let mut out = [0f32; 20];
+    out[..8].copy_from_slice(&[
+        r.width as f32 / w,
+        r.height as f32 / h,
+        r.x as f32 / w,
+        r.y as f32 / h,
+        r.width as f32 / cw,
+        r.height as f32 / ch,
+        (r.x as f32
+            + if c.chroma_x == CHROMA_COSITED {
+                0.5
+            } else {
+                0.0
+            })
+            / cw,
+        (r.y as f32
+            + if c.chroma_y == CHROMA_COSITED {
+                0.5
+            } else {
+                0.0
+            })
+            / ch,
+    ]);
+    let (kr, kb) = if c.matrix == COLOR_MATRIX_BT709 {
+        (0.2126, 0.0722)
+    } else {
+        (0.299, 0.114)
+    };
+    let kg = 1.0 - kr - kb;
+    let (ys, cs, yo) = if c.range == COLOR_RANGE_LIMITED {
+        (255.0 / 219.0, 255.0 / 224.0, 16.0 / 255.0)
+    } else {
+        (1.0, 1.0, 0.0)
+    };
+    let rows = [
+        [ys, 0.0, 2.0 * (1.0 - kr) * cs],
+        [
+            ys,
+            -2.0 * kb * (1.0 - kb) / kg * cs,
+            -2.0 * kr * (1.0 - kr) / kg * cs,
+        ],
+        [ys, 2.0 * (1.0 - kb) * cs, 0.0],
+    ];
+    for (i, row) in rows.into_iter().enumerate() {
+        out[8 + i * 4..11 + i * 4].copy_from_slice(&row);
+        out[11 + i * 4] = -row[0] * yo - (row[1] + row[2]) * (128.0 / 255.0);
+    }
+    out.map(f32::to_bits)
 }

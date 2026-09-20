@@ -616,7 +616,7 @@ pub(crate) fn prepare_bgra_upload<'data>(
     let area = write.destination();
     let destination_stride = area
         .width()
-        .checked_mul(ir::TextureFormat::Bgra8Unorm.bytes_per_pixel())
+        .checked_mul(ir::TextureFormat::Bgra8Unorm.bytes_per_pixel().unwrap())
         .ok_or(IrSubmitError::InvalidIr(ir::Error::Overflow))?;
     let destination_len = usize::try_from(
         u64::from(destination_stride)
@@ -626,7 +626,9 @@ pub(crate) fn prepare_bgra_upload<'data>(
     .map_err(|_| IrSubmitError::OutOfMemory)?;
     let logical_row_bytes = area
         .width()
-        .checked_mul(format.bytes_per_pixel())
+        .checked_mul(format.bytes_per_pixel().ok_or(IrSubmitError::Unsupported(
+            UnsupportedIrFeature::ImageLayout,
+        ))?)
         .ok_or(IrSubmitError::InvalidIr(ir::Error::Overflow))?;
     let mut pixels = Vec::new();
     pixels
@@ -729,6 +731,7 @@ fn append_image_resource(
         .map_err(|_| IrSubmitError::OutOfMemory)?;
     let modifier = match image.layout.modifier {
         gpu_raw::GPU_IMAGE_MODIFIER_LINEAR => codegen::ImageModifier::Linear,
+        0x0300_0000_000f_e011 => codegen::ImageModifier::NvidiaBlockLinear16Bx2H1,
         gpu_raw::GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 => {
             codegen::ImageModifier::NvidiaBlockLinear16Bx2H4
         }
@@ -747,6 +750,7 @@ fn append_image_resource(
         kind: codegen::ResourceKind::Image(codegen::ImageMeta {
             format: descriptor.format(),
             storage_format: match descriptor.format() {
+                ir::TextureFormat::Nv12 => ir::TextureFormat::Nv12,
                 ir::TextureFormat::Depth32Float => ir::TextureFormat::Depth32Float,
                 ir::TextureFormat::Bgra8Unorm
                 | ir::TextureFormat::Rgba8Unorm
@@ -796,7 +800,8 @@ fn require_texture_upload_format(format: ir::TextureFormat) -> Result<(), IrSubm
         ir::TextureFormat::Bgra8Unorm
         | ir::TextureFormat::Rgba8Unorm
         | ir::TextureFormat::R8Unorm => Ok(()),
-        ir::TextureFormat::Bgra8UnormSrgb
+        ir::TextureFormat::Nv12
+        | ir::TextureFormat::Bgra8UnormSrgb
         | ir::TextureFormat::Rgba8UnormSrgb
         | ir::TextureFormat::Depth32Float => Err(IrSubmitError::Unsupported(
             UnsupportedIrFeature::TextureUpload,

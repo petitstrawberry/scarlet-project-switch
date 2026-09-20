@@ -13,7 +13,8 @@
 #include "nv50_ir_driver.h"
 
 enum fs_kind { FS_SOLID, FS_VERTEX_COLOR, FS_TEXTURE_RGBA, FS_TEXTURE_ALPHA_MASK,
-               FS_TEXTURE_VERTEX_COLOR_RGBA, FS_TEXTURE_RGB_IGNORE_ALPHA };
+               FS_TEXTURE_VERTEX_COLOR_RGBA, FS_TEXTURE_RGB_IGNORE_ALPHA,
+               FS_TEXTURE_NV12, FS_TEXTURE_VERTEX_COLOR_NV12 };
 
 static nir_def *
 load_const(nir_builder *b, unsigned base, unsigned components)
@@ -82,12 +83,12 @@ build_vs(const char *name, bool position_is_vec2, bool has_color, bool color_is_
 }
 
 static nir_def *
-sample_texture(nir_builder *b, nir_def *uv)
+sample_texture(nir_builder *b, nir_def *uv, unsigned index)
 {
-   b->shader->info.num_textures = 1;
-   BITSET_SET(b->shader->info.textures_used, 0);
-   BITSET_SET(b->shader->info.samplers_used, 0);
-   return nir_tex(b, uv, .texture_index = 0, .sampler_index = 0,
+   b->shader->info.num_textures = MAX2(b->shader->info.num_textures, index + 1);
+   BITSET_SET(b->shader->info.textures_used, index);
+   BITSET_SET(b->shader->info.samplers_used, index);
+   return nir_tex(b, uv, .texture_index = index, .sampler_index = index,
                   .dim = GLSL_SAMPLER_DIM_2D, .dest_type = nir_type_float32);
 }
 
@@ -98,23 +99,38 @@ build_fs(const char *name, enum fs_kind kind)
    nir_builder *b = &nb;
    nir_def *color = load_const(b, 16, 4);
    nir_def *vertex_color = NULL, *uv = NULL, *sample = NULL, *result = NULL;
-   if (kind == FS_VERTEX_COLOR || kind == FS_TEXTURE_VERTEX_COLOR_RGBA) {
+   if (kind == FS_VERTEX_COLOR || kind == FS_TEXTURE_VERTEX_COLOR_RGBA || kind == FS_TEXTURE_VERTEX_COLOR_NV12) {
       nir_variable *in = io_var(b, nir_var_shader_in, VARYING_SLOT_VAR0,
                                 glsl_vec4_type());
       vertex_color = nir_load_var(b, in);
    }
    if (kind == FS_TEXTURE_RGBA || kind == FS_TEXTURE_ALPHA_MASK ||
-       kind == FS_TEXTURE_RGB_IGNORE_ALPHA) {
+       kind == FS_TEXTURE_RGB_IGNORE_ALPHA || kind == FS_TEXTURE_NV12) {
       nir_variable *in = io_var(b, nir_var_shader_in, VARYING_SLOT_VAR0,
                                 glsl_vec2_type());
       uv = nir_load_var(b, in);
-   } else if (kind == FS_TEXTURE_VERTEX_COLOR_RGBA) {
+   } else if (kind == FS_TEXTURE_VERTEX_COLOR_RGBA || kind == FS_TEXTURE_VERTEX_COLOR_NV12) {
       nir_variable *in = io_var(b, nir_var_shader_in, VARYING_SLOT_VAR1,
                                 glsl_vec2_type());
       uv = nir_load_var(b, in);
    }
-   if (uv)
-      sample = sample_texture(b, uv);
+   if (kind == FS_TEXTURE_NV12 || kind == FS_TEXTURE_VERTEX_COLOR_NV12) {
+      nir_def *y_transform = load_const(b, 20, 4);
+      nir_def *uv_transform = load_const(b, 24, 4);
+      nir_def *y_coord = nir_fadd(b, nir_fmul(b, uv, nir_channels(b, y_transform, 3)),
+                                  nir_channels(b, y_transform, 12));
+      nir_def *uv_coord = nir_fadd(b, nir_fmul(b, uv, nir_channels(b, uv_transform, 3)),
+                                   nir_channels(b, uv_transform, 12));
+      nir_def *y = sample_texture(b, y_coord, 0);
+      nir_def *cbcr = sample_texture(b, uv_coord, 1);
+      nir_def *yuv = nir_vec4(b, nir_channel(b, y, 0), nir_channel(b, cbcr, 0),
+                                nir_channel(b, cbcr, 1), nir_imm_float(b, 1));
+      sample = nir_vec4(b, nir_fsat(b, nir_fdot4(b, yuv, load_const(b, 28, 4))),
+                          nir_fsat(b, nir_fdot4(b, yuv, load_const(b, 32, 4))),
+                          nir_fsat(b, nir_fdot4(b, yuv, load_const(b, 36, 4))),
+                          nir_imm_float(b, 1));
+   } else if (uv)
+      sample = sample_texture(b, uv, 0);
 
    switch (kind) {
    case FS_SOLID:
@@ -123,6 +139,7 @@ build_fs(const char *name, enum fs_kind kind)
    case FS_VERTEX_COLOR:
       result = nir_fmul(b, vertex_color, color);
       break;
+   case FS_TEXTURE_NV12:
    case FS_TEXTURE_RGBA:
       result = nir_fmul(b, sample, color);
       break;
@@ -132,6 +149,7 @@ build_fs(const char *name, enum fs_kind kind)
                         nir_fmul(b, nir_channel(b, sample, 3),
                                  nir_channel(b, color, 3)));
       break;
+   case FS_TEXTURE_VERTEX_COLOR_NV12:
    case FS_TEXTURE_VERTEX_COLOR_RGBA:
       result = nir_fmul(b, nir_fmul(b, sample, vertex_color), color);
       break;
@@ -305,7 +323,7 @@ main(int argc, char **argv)
    FILE *f = fopen(path, "w"); if (!f) { perror(path); return 2; }
    fprintf(f, "{\n  \"schema_version\":1,\n"
               "  \"mesa_sha\":\"e881540692daac6532cefec76699f7a025563767\",\n"
-              "  \"chipset\":299,\n  \"uniform_bytes\":80,\n  \"variants\":[\n");
+              "  \"chipset\":299,\n  \"uniform_bytes\":160,\n  \"variants\":[\n");
 #define VS(name, p2, color, c3, uv) compile_one(argv[1], f, name, build_vs(name, p2, color, c3, uv), false)
 #define FS(name, kind, last) compile_one(argv[1], f, name, build_fs(name, kind), last)
    VS("vs_stride16_pos2", true, false, false, false);
@@ -320,7 +338,9 @@ main(int argc, char **argv)
    FS("fs_texture_rgba", FS_TEXTURE_RGBA, false);
    FS("fs_texture_alpha_mask", FS_TEXTURE_ALPHA_MASK, false);
    FS("fs_texture_vertex_color_rgba", FS_TEXTURE_VERTEX_COLOR_RGBA, false);
-   FS("fs_texture_rgb_ignore_alpha", FS_TEXTURE_RGB_IGNORE_ALPHA, true);
+   FS("fs_texture_rgb_ignore_alpha", FS_TEXTURE_RGB_IGNORE_ALPHA, false);
+   FS("fs_texture_nv12", FS_TEXTURE_NV12, false);
+   FS("fs_texture_vertex_color_nv12", FS_TEXTURE_VERTEX_COLOR_NV12, true);
    fprintf(f, "  ]\n}\n"); fclose(f);
    glsl_type_singleton_decref();
    return 0;
