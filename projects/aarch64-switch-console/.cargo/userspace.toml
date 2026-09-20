@@ -1,0 +1,36 @@
+# Applied by cargo-scarlet to every userspace package, regardless of its source
+# directory. Cargo resolves the patch paths from the project directory.
+[patch."https://github.com/petitstrawberry/scarlet-ui"]
+scarlet-ui = { path = "../../../scarlet-ui/crates/scarlet-ui" }
+scarlet-ui-core = { path = "../../../scarlet-ui/crates/scarlet-ui-core" }
+scarlet-ui-macros = { path = "../../../scarlet-ui/crates/scarlet-ui-macros" }
+scarlet-ui-platform-sws = { path = "../../../scarlet-ui/crates/scarlet-ui-platform-sws" }
+scarlet-ui-platform-winit = { path = "../../../scarlet-ui/crates/scarlet-ui-platform-winit" }
+scarlet-ui-renderer-wgpu = { path = "../../../scarlet-ui/crates/scarlet-ui-renderer-wgpu" }
+scarlet-ui-renderer-sgfx = { path = "../../../scarlet-ui/crates/scarlet-ui-renderer-sgfx" }
+scarlet-ui-icons-tabler = { path = "../../../scarlet-ui/crates/scarlet-ui-icons-tabler" }
+
+[patch."https://github.com/petitstrawberry/Scarlet"]
+scarlet-abi = { path = "../../../Scarlet/user/lib/scarlet-abi" }
+scarlet-os = { path = "../../../Scarlet/user/lib/scarlet-os" }
+scarlet-rt = { path = "../../../Scarlet/user/lib/scarlet-rt" }
+scarlet-std = { path = "../../../Scarlet/user/lib/std" }
+scarlet-sys = { path = "../../../Scarlet/user/lib/scarlet-sys" }
+gpu-raw = { path = "../../../Scarlet/user/lib/gpu-raw" }
+sws-client = { path = "../../../Scarlet/user/lib/sws-client" }
+sws-protocol = { path = "../../../Scarlet/user/lib/sws-protocol" }
+sws-remote-protocol = { path = "../../../Scarlet/user/lib/sws-remote-protocol" }
+
+[patch."https://github.com/petitstrawberry/sgfx"]
+sgfx = { path = "../../../sgfx/crates/sgfx" }
+sgfx-backend-scarlet-virgl = { path = "../../../sgfx/crates/sgfx-backend-scarlet-virgl" }
+sgfx-backend-wgpu = { path = "../../../sgfx/crates/sgfx-backend-wgpu" }
+sgfx-codegen-virgl = { path = "../../../sgfx/crates/sgfx-codegen-virgl" }
+sgfx-core = { path = "../../../sgfx/crates/sgfx-core" }
+vulkan-sgfx = { path = "../../../sgfx/crates/vulkan-sgfx" }
+
+[patch."https://github.com/petitstrawberry/scarlet-project-switch"]
+sgfx-backend-scarlet-maxwell = { path = "../../userspace/sgfx-backend-scarlet-maxwell" }
+
+[target.aarch64-unknown-scarlet]
+rustflags = ["--cfg", 'getrandom_backend="custom"']
