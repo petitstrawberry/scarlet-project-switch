@@ -69,7 +69,8 @@ Scarlet. The boot script skips SD reads for the two uploaded images.
 
 ## Install and boot
 
-With the FAT32 Switch SD mounted, install only the new `SWV-NX` entry:
+With the FAT32 Switch SD mounted, install the Scarlet `SCR-SWV` entry. The
+separate Switchvisor project uses `SWV-NX`; Hekate IDs must be unique:
 
 ```sh
 python3 scripts/install-sd.py --mount "/Volumes/SWITCH SD" --switchvisor
@@ -86,7 +87,7 @@ already boots the existing Scarlet entry:
 
 ```sh
 cd ../switchvisor
-nxboot --hekate id SWV-NX /path/to/hekate.bin
+nxboot --hekate id SCR-SWV /path/to/hekate.bin
 target/release/switchvisorctl deploy \
   ../scarlet-project-switch/projects/aarch64-switch-console/.scarlet/switchvisor/bundle.json
 ```
@@ -112,9 +113,18 @@ After the first successful Switchvisor boot, repeat the RCM/Hekate/upload cycle
 with one command:
 
 ```sh
-scripts/run-payload.sh /path/to/hekate.bin --bundle \
+SWITCHVISOR_HEKATE_ID=SCR-SWV scripts/run-payload.sh /path/to/hekate.bin --bundle \
   ../scarlet-project-switch/projects/aarch64-switch-console/.scarlet/switchvisor/bundle.json
 ```
+
+Set `SWITCHVISOR_HEKATE_ID` explicitly for Scarlet: the generic script defaults
+to `SWV-NX`, a separate entry which may contain a different monitor build.
+On 2026-09-20, that entry had the optional GDB monitor and repeatedly cleared
+20 KiB of FIFO storage while GDB was disconnected. The same RAM guest went
+from 33–36% to about 11% CPU busy when only the GDB CDC DTR was asserted.
+The existing `SCR-SWV` build has GDB disabled and avoids that path. See
+[the investigation](performance-regression-20260920.md) for the repeated
+comparison, the FIFO fix, and its deployment status.
 
 Rebuild the Scarlet console package and rerun `package-switchvisor.py` after
 changing the kernel or initramfs. The resulting bundle transfers the new
