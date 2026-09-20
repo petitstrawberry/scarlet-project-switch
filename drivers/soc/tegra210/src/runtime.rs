@@ -142,6 +142,11 @@ pub fn nvdec_platform(provider: u32) -> Result<crate::NvdecPlatform, &'static st
 pub fn gpio() -> Result<Arc<TegraGpio>, &'static str> {
     GPIO.lock().clone().ok_or(PROBE_DEFER)
 }
+pub fn audio_platform() -> Result<crate::AudioPlatform, &'static str> {
+    let car = car()?;
+    let pmc = (*PMC.lock()).ok_or(PROBE_DEFER)?;
+    crate::AudioPlatform::new(car, pmc)
+}
 /// SDMMC1 clock and pad ownership uses the same CAR mapping and lock as the
 /// other peripherals. Only the removable SD slot is supported at present.
 pub fn sdmmc_platform(

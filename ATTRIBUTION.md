@@ -26,6 +26,9 @@ retain their own licenses; this repository does not include their binaries.
   The pinned SHA256 is
   `dbdbaccc464367abeff6ecd3792b90442b0cf17b08e1690bbfa9090b4d59560e`.
 - Rust crates `fdt` (MPL-2.0) and `font8x8` (MIT), resolved in the BSP Cargo lockfile.
+- Switchroot's GPL-2.0 RT5639 codec, Icosa speaker EQ/limiter, Tegra ADMA,
+  I2S and clock sequencing references are pinned in [audio bring-up](docs/audio-bringup.md).
+  Original codec/EQ authors: Realtek Semiconductor, NVIDIA and CTCaer.
 
 The distributed Noble BL33 was inspected directly. The cited U-Boot source
 commit is supporting source evidence and does not assert binary reproducibility.

@@ -19,7 +19,8 @@ H.264 picture parameters, and returns tightly packed NV12 output.
 The present path converts NVDEC block-linear surfaces to linear NV12 on the
 CPU. It does not yet expose decoder surfaces directly to SGFX. Other codecs,
 interlacing, POC type 1, slice groups, and custom SPS/PPS scaling matrices are
-not supported by this path. Audio remains a separate bring-up task.
+not supported by this path. Speaker playback is covered separately in
+[audio bring-up](audio-bringup.md).
 
 Scarlet commit `1eddc988` fixes POC type 2, initializes absent scaling
 matrices to 16, rejects unsupported SPS matrices rather than silently discarding

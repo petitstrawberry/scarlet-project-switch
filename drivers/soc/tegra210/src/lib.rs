@@ -11,6 +11,10 @@
 
 extern crate alloc;
 #[cfg(target_os = "none")]
+mod audio;
+#[cfg(target_os = "none")]
+pub use audio::{AudioPlatform, poll as audio_poll};
+#[cfg(target_os = "none")]
 mod gpu;
 pub mod packet;
 #[cfg(target_os = "none")]

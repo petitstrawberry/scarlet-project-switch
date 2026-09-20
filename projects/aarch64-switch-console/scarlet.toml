@@ -12,6 +12,7 @@ source = { path = "../../../Scarlet/kernel" }
 features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true }
 
 [modules]
+"scarlet-driver-tegra210-audio" = { path = "../../drivers/audio/tegra210", enabled = true }
 "scarlet-driver-tegra210" = { path = "../../drivers/soc/tegra210", enabled = true }
 "scarlet-driver-tegra210-cpufreq" = { path = "../../drivers/cpufreq/tegra210", enabled = true }
 "scarlet-driver-nvidia-gm20b" = { path = "../../drivers/gpu/nvidia-gm20b", enabled = true }
