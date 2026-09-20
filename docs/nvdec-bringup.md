@@ -101,6 +101,8 @@ One audio full-ring overrun was observed under this video/UI load, followed
 by automatic PCM restart; see [audio bring-up](audio-bringup.md).
 Evidence: `.cache/audio-bringup-20260920/uart-audio-8.log` (initial timing),
 `uart-audio-9.log` (optimized path and pixel QA), `nvdec-host-tests.log`.
+The optimized driver and speaker audio build were subsequently installed on
+SD; the [boot menu record](boot-menu.md) identifies the exact deployed images.
 
 ## Native NV12 presentation direction (not implemented)
 

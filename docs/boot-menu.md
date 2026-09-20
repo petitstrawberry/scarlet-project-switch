@@ -38,3 +38,23 @@ The initial installed `uImage` SHA-256 was
 Its initramfs SHA-256 was
 `409c6802b1115c14ad2f8ca774fd6fd70ce22fbc6998b4ae6ed2081cf13fc2af`.
 Local receipt: `projects/aarch64-switch-console/.scarlet/sd-installation.json`.
+
+### Audio and NVDEC performance refresh
+
+The SD console images were replaced with the current workspace build including
+speaker playback (`d81607b`) and NVDEC surface reuse/layout conversion
+(`75b0d49`). All 14 files passed SHA-256 readback, all 29 protected files
+remained unchanged, and the two entries above were the only menu files.
+The rediscovered device was `disk12s1`; the whole `disk12` was safely ejected.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Kernel ELF | `938544877c1c6de8444855b5f035649ec89781dca753e6b55bea8513d90195ec` |
+| `Image` | `c6359331fd3b98496818f01612d85edbd55e2fe1ed20f9446e64917d2360536e` |
+| `uImage` | `c6fb623adbd7494bacaa69a46a148b82af35a416585e8a2c701ea056fbca76c2` |
+| `initramfs` | `67ba9ae2a1e306e867b3e6fb24f91114e0500bdce6f200a542f7d1d111bb4483` |
+
+The installation receipt above and
+`.cache/audio-bringup-20260920/sd-install.log` record the refresh.
+Post-refresh boot verification is pending the user leaving UMS and selecting
+`switchvisor`.

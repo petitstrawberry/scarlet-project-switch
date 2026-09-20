@@ -78,7 +78,8 @@ Device evidence on 2026-09-20, Switchvisor without GDB, four CPUs, SD ext2 root:
   The video decoder retired 4,178 pictures across playback and seeking in that
   session with `last_error=none`. The user reported very slow video presentation;
   this is a remaining video performance issue, not a claim of smooth playback.
-  Final SD deployment is pending.
+  The final audio build and subsequent NVDEC performance changes were installed
+  on SD with verified readback; see the [deployment hashes](boot-menu.md).
 - After reducing NVDEC's CPU overhead, the 1080p video/UI run logged one
   full-ring overrun (`count=1508 delta=9`) and the common PCM frontend restarted
   output automatically. This represents at least 180 ms between observations
