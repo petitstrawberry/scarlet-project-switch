@@ -99,6 +99,8 @@ pub enum ImageModifier {
     Linear,
     /// Tegra X1 GOB64x8, uncompressed kind 0xfe, 16-GOB block height.
     NvidiaBlockLinear16Bx2H4,
+    /// Tegra X1 GOB64x8, uncompressed ZF32 kind 0x7b, 16-GOB block height.
+    NvidiaZf32BlockLinear16Bx2H4,
 }
 
 /// Immutable layout of one image plane in an external allocation.

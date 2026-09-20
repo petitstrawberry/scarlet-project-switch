@@ -88,7 +88,7 @@ impl Capabilities {
             presentation: execution_support & GPU_EXECUTION_SUPPORT_PRESENTATION != 0,
             image_upload: execution_support & GPU_EXECUTION_SUPPORT_IMAGE_UPLOAD != 0,
             image_readback: execution_support & GPU_EXECUTION_SUPPORT_IMAGE_READBACK != 0,
-            depth: false,
+            depth: execution_support & gpu_raw::GPU_EXECUTION_SUPPORT_DEPTH != 0,
         }
     }
 

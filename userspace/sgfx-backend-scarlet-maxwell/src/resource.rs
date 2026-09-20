@@ -9,6 +9,7 @@ use core::{
 use gpu_raw::{
     GPU_BUFFER_FLAG_CPU_VISIBLE, GPU_IMAGE_FORMAT_BGRA8_UNORM, GPU_IMAGE_FORMAT_DEPTH32_FLOAT,
     GPU_IMAGE_MODIFIER_LINEAR, GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4,
+    GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4, GPU_IMAGE_USAGE_DEPTH_COMPATIBLE,
     GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT, GPU_IMAGE_USAGE_PRESENTABLE,
     GPU_IMAGE_USAGE_RENDER_TARGET, GPU_IMAGE_USAGE_SAMPLED, GPU_IMAGE_USAGE_TRANSFER_DST,
     GPU_IMAGE_USAGE_TRANSFER_SRC, GpuBuffer, GpuImage, GpuImageLayout,
@@ -60,7 +61,12 @@ impl RawImage {
     ) -> HandleResult<Self> {
         let width = descriptor.extent().width();
         let height = descriptor.extent().height();
-        let (format, usage) = image_create_parameters(descriptor)?;
+        let (format, mut usage) = image_create_parameters(descriptor)?;
+        if usage & GPU_IMAGE_USAGE_RENDER_TARGET != 0
+            && context.device.capabilities.supports_depth()
+        {
+            usage |= GPU_IMAGE_USAGE_DEPTH_COMPATIBLE;
+        }
         let raw = context
             .device
             .gpu
@@ -564,19 +570,34 @@ fn validate_image_layout(
     {
         return Err(HandleError::Unsupported);
     }
-    let tiled = layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4;
+    let depth = logical_format == ir::TextureFormat::Depth32Float;
+    let tiled = layout.modifier
+        == if depth {
+            GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4
+        } else {
+            GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4
+        };
     let padded_height = if tiled {
-        if width != 1280 || height != 720 || plane.row_pitch != 5120 {
+        if plane.row_pitch
+            != minimum_pitch
+                .checked_add(63)
+                .ok_or(HandleError::InvalidParameter)?
+                & !63
+            || plane.offset & 8191 != 0
+        {
             return Err(HandleError::Unsupported);
         }
-        768
+        height
+            .checked_add(127)
+            .ok_or(HandleError::InvalidParameter)?
+            & !127
     } else {
         height
     };
     let minimum_size = u64::from(plane.row_pitch)
         .checked_mul(u64::from(padded_height))
         .ok_or(HandleError::InvalidParameter)?;
-    if logical_format == ir::TextureFormat::Depth32Float
+    if (depth && !tiled)
         || (!tiled && layout.modifier != GPU_IMAGE_MODIFIER_LINEAR)
         || plane.row_pitch < minimum_pitch
         || plane.size < minimum_size

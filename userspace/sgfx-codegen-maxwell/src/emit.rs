@@ -205,9 +205,6 @@ impl Emitter {
         Err(CompileError::UnsupportedFeature)
     }
     pub fn draw(&mut self, s: DrawState) -> Result<(), CompileError> {
-        if s.depth.is_some() {
-            return Err(CompileError::UnsupportedFeature);
-        }
         if s.stride != s.variant.stride() || s.attributes.is_empty() {
             return Err(CompileError::InvalidResource);
         }
@@ -225,6 +222,32 @@ impl Emitter {
             w[22] |= u32::from(t.alpha_mask) << 5;
         }
         w[32..52].copy_from_slice(&s.uniforms);
+        if let Some(depth) = s.depth {
+            if s.target.tile_mode != 0x40
+                || depth.target.tile_mode != 0x40
+                || depth.target.width != s.target.width
+                || depth.target.height != s.target.height
+            {
+                return Err(CompileError::InvalidResource);
+            }
+            w[56] = depth.target.width;
+            w[57] = depth.target.height;
+            w[58] = depth.target.stride;
+            w[59] = depth.target.tile_mode;
+            // Zero means no depth attachment. The comparison vocabulary is
+            // portable; only the trusted kernel translates it to B197 enums.
+            w[60] = match depth.compare {
+                CompareFunction::Never => 1,
+                CompareFunction::Less => 2,
+                CompareFunction::Equal => 3,
+                CompareFunction::LessEqual => 4,
+                CompareFunction::Greater => 5,
+                CompareFunction::NotEqual => 6,
+                CompareFunction::GreaterEqual => 7,
+                CompareFunction::Always => 8,
+            };
+            w[61] = u32::from(depth.write_enabled);
+        }
         match s.draw {
             DrawCall::NonIndexed {
                 first_vertex,
@@ -267,6 +290,17 @@ impl Emitter {
                 Access::READ,
             )?;
         }
+        if let Some(depth) = s.depth {
+            self.surface(
+                base + 54,
+                depth.target,
+                if depth.write_enabled {
+                    Access::READ | Access::WRITE
+                } else {
+                    Access::READ
+                },
+            )?;
+        }
         Ok(())
     }
     pub fn begin_draw_batch(&mut self) -> Result<(), CompileError> {
@@ -278,8 +312,22 @@ impl Emitter {
     pub fn end_draw_batch(&mut self) -> Result<(), CompileError> {
         Ok(())
     }
-    pub fn clear_depth(&mut self, _: Surface, _: PixelRect, _: f32) -> Result<(), CompileError> {
-        Err(CompileError::UnsupportedFeature)
+    pub fn clear_depth(
+        &mut self,
+        target: Surface,
+        rect: PixelRect,
+        value: f32,
+    ) -> Result<(), CompileError> {
+        if !value.is_finite() || !(0.0..=1.0).contains(&value) || target.tile_mode != 0x40 {
+            return Err(CompileError::InvalidResource);
+        }
+        let mut w = [0; 64];
+        w[0] = 4;
+        layout(&mut w, 10, target);
+        rectangle(&mut w, 13, rect);
+        w[32] = value.to_bits();
+        let base = self.record(w)?;
+        self.surface(base + 2, target, Access::WRITE)
     }
     pub fn finish(mut self) -> Result<RelocatableCommands, CompileError> {
         self.artifact.fixups.sort_unstable_by_key(|f| f.word_offset);

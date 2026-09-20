@@ -31,7 +31,8 @@ const SUPPORT: u32 = GPU_EXECUTION_SUPPORT_ADDRESS_SPACE
     | GPU_EXECUTION_SUPPORT_TIMELINE
     | GPU_EXECUTION_SUPPORT_PRESENTATION
     | GPU_EXECUTION_SUPPORT_IMAGE_UPLOAD
-    | GPU_EXECUTION_SUPPORT_IMAGE_READBACK;
+    | GPU_EXECUTION_SUPPORT_IMAGE_READBACK
+    | GPU_EXECUTION_SUPPORT_DEPTH;
 
 #[derive(Clone)]
 pub(super) enum Kind {
@@ -154,7 +155,7 @@ impl State {
         let tiled = matches!(
             &kind,
             Kind::Image { layout, .. }
-                if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4
+                if layout.modifier != GPU_IMAGE_MODIFIER_LINEAR
         );
         let alignment = if tiled { 8192 } else { 4096 };
         let mut va: usize = 0x502000;
@@ -189,6 +190,11 @@ impl State {
             .checked_add(1)
             .ok_or("GPU object identity exhausted")?;
         let page_kind = match &kind {
+            Kind::Image { layout, .. }
+                if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4 =>
+            {
+                0x7b
+            }
             Kind::Image { layout, .. }
                 if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 =>
             {
@@ -443,6 +449,40 @@ impl Context {
                 != u64::from(rect.dst_y) * u64::from(pitch) + u64::from(rect.dst_x) * 4
         {
             return Err("image transfer layout mismatch");
+        }
+        if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 {
+            // Generic backing is linear CPU staging. The independent private
+            // DMA allocation follows the block-linear modifier. Preserve all
+            // pixels outside a partial update when acquiring cache lines.
+            let gpu_base = mem.pages.as_vaddr();
+            arch::invalidate_dcache_to_poc_range(gpu_base, mem.size as usize);
+            for y in rect.dst_y..rect.dst_y + rect.height {
+                let mut x = rect.dst_x as usize * 4;
+                let end = x + rect.width as usize * 4;
+                while x < end {
+                    let n = (16 - x % 16).min(end - x);
+                    let generic = scarlet::vm::phys_to_virt(
+                        backing.paddr + y as u64 * pitch as u64 + x as u64,
+                    );
+                    let gpu =
+                        gpu_base + crate::block_linear::byte_offset(x, y as usize, pitch as usize);
+                    unsafe {
+                        if readback {
+                            core::ptr::copy_nonoverlapping(gpu as *const u8, generic as *mut u8, n);
+                        } else {
+                            core::ptr::copy_nonoverlapping(generic as *const u8, gpu as *mut u8, n);
+                        }
+                    }
+                    x += n;
+                }
+            }
+            if !readback {
+                arch::clean_dcache_to_poc_range(gpu_base, mem.size as usize);
+            }
+            return Ok(());
+        }
+        if layout.modifier != GPU_IMAGE_MODIFIER_LINEAR {
+            return Err("unsupported CPU image transfer modifier");
         }
         for y in 0..rect.height {
             let offset = rect.backing_offset as usize + y as usize * pitch as usize;
@@ -797,33 +837,49 @@ impl GpuBackend for Backend {
         &self,
         create: GpuImageCreateInfo,
     ) -> Result<GpuBackendImageLayout, &'static str> {
-        if create.format != GPU_IMAGE_FORMAT_BGRA8_UNORM
-            || create.usage & GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT != 0
+        let depth = create.format == GPU_IMAGE_FORMAT_DEPTH32_FLOAT;
+        if (!depth && create.format != GPU_IMAGE_FORMAT_BGRA8_UNORM)
+            || (depth && create.usage != GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT)
+            || create.width == 0
+            || create.height == 0
             || create.width > 16384
             || create.height > 16384
+            || create.mip_levels != 1
+            || create.array_layers != 1
+            || create.cube
         {
-            return Err("GM20B requires BGRA8 color images");
+            return Err("GM20B requires single-level BGRA8 or ZF32 2D images");
         }
-        if create.width == 1280
-            && create.height == 720
-            && create.usage & (GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_RENDER_TARGET)
-                == GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_RENDER_TARGET
+        // Old clients keep their original layouts. Depth-capable clients opt
+        // in to block-linear color targets; Maxwell disables ZETA for linear RTs.
+        if depth
+            || create.usage & GPU_IMAGE_USAGE_DEPTH_COMPATIBLE != 0
+            || (create.width == 1280
+                && create.height == 720
+                && create.usage & (GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_RENDER_TARGET)
+                    == GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_RENDER_TARGET)
         {
-            const PITCH: u32 = 1280 * 4;
-            const SIZE: u32 = PITCH * 768; // six 128-row GOB blocks
+            let pitch = (create.width * 4 + 63) & !63;
+            let size = pitch * ((create.height + 127) & !127);
             let mut planes = [GpuBackendImagePlaneLayout::EMPTY; GPU_IMAGE_MAX_PLANES];
             planes[0] = GpuBackendImagePlaneLayout {
                 offset: 0,
-                size: SIZE as u64,
-                row_pitch: PITCH,
-                array_pitch: SIZE,
+                size: size as u64,
+                row_pitch: pitch,
+                array_pitch: size,
                 block_width: 1,
                 block_height: 1,
                 bytes_per_block: 4,
             };
             return Ok(GpuBackendImageLayout {
-                modifier: GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4,
-                total_size: SIZE as u64,
+                modifier: if depth {
+                    GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4
+                } else {
+                    GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4
+                },
+                total_size: size as u64,
+                // Generic backing is CPU staging; private DMA pages and VA
+                // are independently aligned to 8192 in State::allocate.
                 alignment: 4096,
                 plane_count: 1,
                 planes,
@@ -917,29 +973,47 @@ fn validate(
         for (i, word) in w.iter_mut().enumerate() {
             *word = decoded.commands_word(base + i).unwrap();
         }
-        if w[1] != 0 || w[54..].iter().any(|&v| v != 0) || (w[0] == 1 && w[53] != 0) {
+        let has_depth = w[0] == 2 && w[60] != 0;
+        if w[1] != 0
+            || w[62..].iter().any(|&v| v != 0)
+            || (!has_depth && w[54..62].iter().any(|&v| v != 0))
+            || (matches!(w[0], 1 | 4) && w[53] != 0)
+            || w[60] > 8
+            || w[61] > 1
+        {
             return Err("canonical reserved words nonzero");
         }
-        let mut roles = [None, None, None, None];
+        let mut roles = [None, None, None, None, None];
         let target_access = if w[0] == 2 {
             wire::ACCESS_READ | wire::ACCESS_WRITE
         } else {
             wire::ACCESS_WRITE
         };
         let fields: &[(usize, u32)] = match w[0] {
-            1 => &[(2, target_access)],
+            1 | 4 => &[(2, target_access)],
             2 => &[
                 (2, target_access),
                 (4, wire::ACCESS_READ),
                 (6, wire::ACCESS_READ),
                 (8, wire::ACCESS_READ),
+                (
+                    54,
+                    if w[61] != 0 {
+                        wire::ACCESS_READ | wire::ACCESS_WRITE
+                    } else {
+                        wire::ACCESS_READ
+                    },
+                ),
             ],
             3 => &[(2, wire::ACCESS_WRITE), (4, wire::ACCESS_READ)],
             _ => return Err("canonical opcode unsupported"),
         };
         for &(field, access) in fields {
-            let present =
-                field == 2 || field == 4 || field == 6 && w[29] != 0 || field == 8 && w[26] != 0;
+            let present = field == 2
+                || field == 4
+                || field == 6 && w[29] != 0
+                || field == 8 && w[26] != 0
+                || field == 54 && has_depth;
             if !present {
                 if w[field] != 0 || w[field + 1] != 0 {
                     return Err("unused address nonzero");
@@ -977,18 +1051,21 @@ fn validate(
             let address = a.memory.va as u64 + offset;
             w[field] = address as u32;
             w[field + 1] = (address >> 32) as u32;
-            roles[(field - 2) / 2] = Some((&a.memory, offset, r.required_size));
+            roles[if field == 54 { 4 } else { (field - 2) / 2 }] =
+                Some((&a.memory, offset, r.required_size));
             relocation += 1;
         }
         let target = roles[0].ok_or("missing target")?;
-        if w[0] != 4 {
+        {
             surface(
                 target,
                 w[10],
                 w[11],
                 w[12],
                 w[52],
-                if w[0] == 3 {
+                if w[0] == 4 {
+                    GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT
+                } else if w[0] == 3 {
                     GPU_IMAGE_USAGE_TRANSFER_DST
                 } else {
                     GPU_IMAGE_USAGE_RENDER_TARGET
@@ -997,6 +1074,19 @@ fn validate(
             rectangle(&w[13..17], w[10], w[11])?;
         }
         match w[0] {
+            4 => {
+                let value = f32::from_bits(w[32]);
+                if w[4..10]
+                    .iter()
+                    .chain(w[17..32].iter())
+                    .chain(w[33..52].iter())
+                    .any(|&v| v != 0)
+                    || !value.is_finite()
+                    || !(0.0..=1.0).contains(&value)
+                {
+                    return Err("depth clear record invalid");
+                }
+            }
             1 => {
                 if w[4..10]
                     .iter()
@@ -1009,6 +1099,23 @@ fn validate(
                 }
             }
             2 => {
+                if let Some(depth) = roles[4] {
+                    if w[52] != 0x40
+                        || w[56] != w[10]
+                        || w[57] != w[11]
+                        || depth.0.va == target.0.va
+                    {
+                        return Err("depth/color target mismatch");
+                    }
+                    surface(
+                        depth,
+                        w[56],
+                        w[57],
+                        w[58],
+                        w[59],
+                        GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT,
+                    )?;
+                }
                 let variant = PipelineVariant::from_raw(w[21]).ok_or("unknown shader pair")?;
                 let texture = matches!(
                     variant,
@@ -1145,11 +1252,21 @@ fn surface(
     let Kind::Image { create, layout, .. } = &binding.0.kind else {
         return Err("surface requires image");
     };
-    if create.width != width
+    let depth = usage == GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT;
+    if create.format
+        != if depth {
+            GPU_IMAGE_FORMAT_DEPTH32_FLOAT
+        } else {
+            GPU_IMAGE_FORMAT_BGRA8_UNORM
+        }
+        || (depth && layout.modifier != GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4)
+        || create.width != width
         || create.height != height
         || layout.planes[0].row_pitch != pitch
         || tile_mode
-            != if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 {
+            != if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4
+                || layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4
+            {
                 0x40
             } else if layout.modifier == GPU_IMAGE_MODIFIER_LINEAR {
                 0

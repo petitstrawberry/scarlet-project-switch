@@ -798,6 +798,7 @@ impl Push {
         Ok(())
     }
     fn target(&mut self, w: &[u32; 64]) -> Result<(), &'static str> {
+        self.one(RT_CONTROL, 1)?;
         let tiled = w[52] == 0x40;
         self.method(
             0,
@@ -824,19 +825,68 @@ impl Push {
         match w[0] {
             1 => {
                 self.target(w)?;
+                self.disable_depth()?;
                 self.one(SCISSOR_ENABLE, 0)?;
                 self.method(0, CLEAR_COLOR, &w[32..36])?;
                 self.one(CLEAR_BUFFERS, 0x3c)
             }
             2 => self.draw(w),
             3 => self.copy(w),
+            4 => {
+                self.one(RT_CONTROL, 0)?;
+                self.depth_target(&w[2..4], w[10], w[11], w[12])?;
+                self.one(SCISSOR_ENABLE, 0)?;
+                self.method(
+                    0,
+                    SCREEN_SCISSOR_HORIZ,
+                    &[(w[15] << 16) | w[13], (w[16] << 16) | w[14]],
+                )?;
+                self.one(CLEAR_DEPTH, w[32])?;
+                self.one(CLEAR_BUFFERS, 1)
+            }
             _ => Err("unsupported canonical operation"),
         }
+    }
+    fn disable_depth(&mut self) -> Result<(), &'static str> {
+        self.one(ZETA_ENABLE, 0)?;
+        self.one(DEPTH_TEST_ENABLE, 0)?;
+        self.one(DEPTH_WRITE_ENABLE, 0)
+    }
+    fn depth_target(
+        &mut self,
+        address: &[u32],
+        width: u32,
+        height: u32,
+        pitch: u32,
+    ) -> Result<(), &'static str> {
+        // Mesa nvc0_validate_fb / nvc0_clear_depth_stencil, uncompressed ZF32.
+        self.method(
+            0,
+            ZETA_ADDRESS_HIGH,
+            &[
+                address[1],
+                address[0],
+                0x0a,
+                0x40,
+                pitch * ((height + 127) & !127) / 4,
+            ],
+        )?;
+        self.method(0, ZETA_HORIZ, &[width, height, 0x10001])?;
+        self.one(ZETA_BASE_LAYER, 0)?;
+        self.one(ZETA_ENABLE, 1)
     }
     fn draw(&mut self, w: &[u32; 64]) -> Result<(), &'static str> {
         let variant = PipelineVariant::from_raw(w[21]).ok_or("invalid pipeline variant")?;
         let (vs, fs) = variant.shaders();
         self.target(w)?;
+        if w[60] != 0 {
+            self.depth_target(&w[54..56], w[56], w[57], w[58])?;
+            self.one(DEPTH_TEST_FUNC, 0x200 + w[60] - 1)?;
+            self.one(DEPTH_TEST_ENABLE, 1)?;
+            self.one(DEPTH_WRITE_ENABLE, w[61])?;
+        } else {
+            self.disable_depth()?;
+        }
         let uniforms: [u32; 20] = w[32..52].try_into().unwrap();
         let uniforms_changed = self.uniforms != Some(uniforms);
         if uniforms_changed {

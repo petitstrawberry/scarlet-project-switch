@@ -1,0 +1,14 @@
+[package]
+name = "gm20b-depth-qa"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-only"
+
+[dependencies]
+sgfx-codegen-maxwell = { path = "../../userspace/sgfx-codegen-maxwell" }
+maxwell-submit-wire = { path = "../../shared/maxwell-submit-wire" }
+sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "34a47c701fa0d4761f63f3d841c7d312cea45236", default-features = false }
+
+[target.'cfg(target_os = "scarlet")'.dependencies]
+gpu-raw = { path = "../../../Scarlet/user/lib/gpu-raw", default-features = false, features = ["std"] }
+scarlet-os = { path = "../../../Scarlet/user/lib/scarlet-os", default-features = false, features = ["std"] }

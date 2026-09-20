@@ -148,6 +148,10 @@ pub fn compile(input: CompileInput<'_>) -> Result<RelocatableCommands, CompileEr
                 )?;
                 validate_rect(pass.area, target)?;
                 let depth = if let Some(depth) = pass.depth {
+                    // Maxwell cannot enable ZETA alongside a pitch-linear RT.
+                    if target.tile_mode != 0x40 || depth.target == pass.target {
+                        return Err(CompileError::InvalidResource);
+                    }
                     let depth_resource = find_resource(input.resources, depth.target)?;
                     let depth_target = require_depth_surface(
                         depth_resource,
@@ -391,16 +395,28 @@ fn validate_image_layout(
                 .and_then(|bytes| bytes.checked_add(u64::from(row_bytes)))
                 .ok_or(CompileError::Overflow)?
         }
-        ImageModifier::NvidiaBlockLinear16Bx2H4 => {
-            if image.storage_format != TextureFormat::Bgra8Unorm
-                || image.extent.width() != 1280
-                || image.extent.height() != 720
-                || plane.stride != 5120
-                || plane.offset & 0xfff != 0
+        ImageModifier::NvidiaBlockLinear16Bx2H4 | ImageModifier::NvidiaZf32BlockLinear16Bx2H4 => {
+            let expected_format = if image.modifier == ImageModifier::NvidiaZf32BlockLinear16Bx2H4 {
+                TextureFormat::Depth32Float
+            } else {
+                TextureFormat::Bgra8Unorm
+            };
+            if image.storage_format != expected_format
+                || plane.stride != row_bytes.checked_add(63).ok_or(CompileError::Overflow)? & !63
+                || plane.stride > max_pitch
+                || plane.offset & 0x1fff != 0
             {
                 return Err(CompileError::InvalidResource);
             }
-            5120 * 768
+            u64::from(plane.stride)
+                * u64::from(
+                    image
+                        .extent
+                        .height()
+                        .checked_add(127)
+                        .ok_or(CompileError::Overflow)?
+                        & !127,
+                )
         }
     };
     let plane_end = plane
@@ -436,6 +452,9 @@ fn require_image_surface(
         tile_mode: match image.modifier {
             ImageModifier::Linear => 0,
             ImageModifier::NvidiaBlockLinear16Bx2H4 => 0x40,
+            ImageModifier::NvidiaZf32BlockLinear16Bx2H4 => {
+                return Err(CompileError::InvalidResource);
+            }
         },
         alpha_mask: image.format == TextureFormat::R8Unorm,
     })
@@ -456,12 +475,35 @@ fn require_target_surface(
 }
 
 fn require_depth_surface(
-    _: &ResourceMeta,
-    _: u32,
-    _: u32,
-    _: u32,
+    resource: &ResourceMeta,
+    width: u32,
+    height: u32,
+    max_pitch: u32,
 ) -> Result<Surface, CompileError> {
-    Err(CompileError::UnsupportedFeature)
+    let ResourceKind::Image(image) = &resource.kind else {
+        return Err(CompileError::InvalidResource);
+    };
+    if image.format != TextureFormat::Depth32Float
+        || image.storage_format != TextureFormat::Depth32Float
+        || image.modifier != ImageModifier::NvidiaZf32BlockLinear16Bx2H4
+        || !image.usage.contains(TextureUsage::RENDER_ATTACHMENT)
+        || image.extent.width() != width
+        || image.extent.height() != height
+    {
+        return Err(CompileError::InvalidResource);
+    }
+    validate_image_layout(resource.size, image, max_pitch)?;
+    let plane = image.planes[0];
+    Ok(Surface {
+        object: resource.id,
+        plane_offset: plane.offset,
+        plane_size: plane.size,
+        width,
+        height,
+        stride: plane.stride,
+        tile_mode: 0x40,
+        alpha_mask: false,
+    })
 }
 
 fn validate_rect(rect: PixelRect, surface: Surface) -> Result<(), CompileError> {

@@ -732,6 +732,9 @@ fn append_image_resource(
         gpu_raw::GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 => {
             codegen::ImageModifier::NvidiaBlockLinear16Bx2H4
         }
+        gpu_raw::GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4 => {
+            codegen::ImageModifier::NvidiaZf32BlockLinear16Bx2H4
+        }
         _ => {
             return Err(IrSubmitError::Unsupported(
                 UnsupportedIrFeature::ImageLayout,

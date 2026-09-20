@@ -14,6 +14,8 @@ extern crate alloc;
 
 #[cfg(target_os = "none")]
 mod asynchronous;
+#[cfg(any(target_os = "none", test))]
+mod block_linear;
 #[cfg(target_os = "none")]
 mod clock;
 #[cfg(target_os = "none")]
