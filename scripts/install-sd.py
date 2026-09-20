@@ -2,7 +2,8 @@
 """Install only Scarlet FAT32 boot files on the SD described by the handoff.
 
 Defaults to a dry run. Validates the current disk layout via diskutil; never
-opens a raw device, formats a filesystem, or modifies existing boot entries.
+opens a raw device or formats a filesystem. --l4t installs the two current
+entries and removes the named obsolete L4T menu files, retaining their data.
 """
 import argparse
 import hashlib
@@ -23,6 +24,9 @@ EXPECTED_PARTITIONS = {1: 105054208 * 512, 2: 32 * 1024**3,
 PROTECTED = ["bootloader/hekate_ipl.ini", "bootloader/ini/L4T-noble.ini",
              "bootloader/sys/l4t", "switchroot/ubuntu-noble",
              "emuMMC/emummc.ini", "emuMMC/RAW2/raw_based", "atmosphere"]
+OBSOLETE_L4T_ENTRIES = ["bootloader/ini/L4T-noble.ini",
+                        "bootloader/ini/L4T-scarlet.ini",
+                        "bootloader/ini/L4T-switchvisor.ini"]
 
 def diskutil(*args):
     return plistlib.loads(subprocess.check_output(["/usr/sbin/diskutil", *args]))
@@ -72,10 +76,17 @@ def main():
     profile = parser.add_mutually_exclusive_group()
     profile.add_argument("--console", action="store_true", help="install the SWS console entry instead of the diagnostic entry")
     profile.add_argument("--switchvisor", action="store_true", help="install the USB UART/control entry")
+    profile.add_argument("--l4t", action="store_true",
+                         help="install switchvisor + scarlet (console) and remove obsolete L4T menu entries")
     args = parser.parse_args()
     mount = args.mount.resolve(strict=True)
     device = validate_mount(mount)
-    if args.switchvisor:
+    if args.l4t:
+        package = CONSOLE_PACKAGE
+        boot_directory = "scarlet-console"
+        entry_file = "L4T-scarlet-console.ini"
+        protected = [p for p in PROTECTED if p not in OBSOLETE_L4T_ENTRIES]
+    elif args.switchvisor:
         package = SWITCHVISOR_PACKAGE
         boot_directory = "scarlet-switchvisor"
         entry_file = "L4T-scarlet-switchvisor.ini"
@@ -95,23 +106,38 @@ def main():
         entry_file = "L4T-scarlet.ini"
         protected = PROTECTED
     manifest = json.loads((package / "manifest.json").read_text())
+    packages = [(package, manifest, boot_directory, entry_file)]
+    if args.l4t:
+        second = json.loads((SWITCHVISOR_PACKAGE / "manifest.json").read_text())
+        packages.append((SWITCHVISOR_PACKAGE, second, "scarlet-switchvisor", "L4T-scarlet-switchvisor.ini"))
     files = []
-    for relative, expected in manifest["sha256"].items():
-        diagnostic = args.console and relative in {
-            f"switchroot/scarlet-console-logs/{name}"
-            for name in ("bl31.bin", "bl33.bin", "nx-plat.dtimg", "boot.scr")
-        }
-        if relative != f"bootloader/ini/{entry_file}" and not relative.startswith(f"switchroot/{boot_directory}/") and not diagnostic:
-            raise ValueError(f"unexpected package destination: {relative}")
-        path = Path(relative)
-        if path.is_absolute() or ".." in path.parts: raise ValueError("invalid destination path")
-        source, target = package / path, mount / path
-        if not target.resolve().is_relative_to(mount): raise ValueError("destination escapes the volume")
-        if digest(source) != expected: raise ValueError(f"package SHA256 mismatch: {source}")
-        files.append((source, target, expected))
+    installed_hashes = {}
+    for package, manifest, boot_directory, entry_file in packages:
+        for relative, expected in manifest["sha256"].items():
+            diagnostic = args.console and relative in {
+                f"switchroot/scarlet-console-logs/{name}"
+                for name in ("bl31.bin", "bl33.bin", "nx-plat.dtimg", "boot.scr")
+            }
+            if relative != f"bootloader/ini/{entry_file}" and not relative.startswith(f"switchroot/{boot_directory}/") and not diagnostic:
+                raise ValueError(f"unexpected package destination: {relative}")
+            path = Path(relative)
+            if path.is_absolute() or ".." in path.parts: raise ValueError("invalid destination path")
+            source, target = package / path, mount / path
+            if not target.resolve().is_relative_to(mount): raise ValueError("destination escapes the volume")
+            if digest(source) != expected: raise ValueError(f"package SHA256 mismatch: {source}")
+            files.append((source, target, expected))
+            installed_hashes[relative] = expected
+    obsolete = [mount / name for name in OBSOLETE_L4T_ENTRIES] if args.l4t else []
+    for target in obsolete:
+        if target.exists() and (not target.is_file() or target.is_symlink()):
+            raise ValueError(f"obsolete menu path is not a regular file: {target}")
+    protected = [p for p in protected
+                 if p not in OBSOLETE_L4T_ENTRIES or (mount / p).exists()]
     before = protected_hashes(mount, protected)
     print(f"Validated {device}; {len(files)} Scarlet files, {len(before)} protected files")
     for source, target, _ in files: print(f"{source.name} -> {target.relative_to(mount)}")
+    for target in obsolete:
+        if target.exists(): print(f"Remove menu entry: {target.relative_to(mount)}")
     if not args.write:
         print("Dry run complete. Add --write to install these FAT32 files.")
         return
@@ -132,9 +158,12 @@ def main():
         finally:
             temp.unlink(missing_ok=True)
         if digest(target) != expected: raise ValueError(f"SD readback SHA256 mismatch: {target}")
+    for target in obsolete:
+        target.unlink(missing_ok=True)
     after = protected_hashes(mount, protected)
     if after != before: raise ValueError("protected file content changed during installation")
-    receipt = {"device": device, "mount": str(mount), "sha256": manifest["sha256"],
+    receipt = {"device": device, "mount": str(mount), "sha256": installed_hashes,
+               "removed_menu_entries": [str(p.relative_to(mount)) for p in obsolete],
                "protected_files_verified": len(before), "raw_device_accessed": False,
                "hardware_boot_validated": False}
     (package.parent / "sd-installation.json").write_text(json.dumps(receipt, indent=2) + "\n")

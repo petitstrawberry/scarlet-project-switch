@@ -1,5 +1,5 @@
 # Scarlet T210 bring-up through the existing Noble BL31/BL33 stack.
-# All commands read FAT files or change RAM. No MMC writes or rootfs access.
+# U-Boot reads the kernel/initramfs from FAT; init mounts the Scarlet rootfs.
 setenv boot_dir ${prefix}
 setenv kernload 0xA0000000
 setenv initaddr 0x92000000
@@ -88,7 +88,6 @@ elif test "${uart_port}" = 3; then
     fdt set /chosen stdout-path /serial@70006200
 fi
 
-# Kernel initramfs stays the root. No Kubuntu/emuMMC/Scarlet partition mounts.
 # The four A57s share one cpufreq policy. Give the existing CPU-scaling node
 # a provider phandle and use the common performance-domains binding.
 fdt set /cpufreq phandle <0x5343>
@@ -133,7 +132,7 @@ if test "${scarlet_switchvisor_payload}" = 1; then
         reset
     fi
 fi
-setenv bootargs "init=/init maxcpus=4 scarlet.switch=1"
+setenv bootargs "init=/init maxcpus=4 scarlet.switch=1 root=/dev/mmcblk0p4 rootfstype=ext2 rootwait"
 # The USB debug entry runs an interactive login on tty0. Keep PID 1 on the
 # same default console as the ordinary Scarlet distribution for this entry.
 # The screen-only entry still suppresses service-manager output on its TTY.
