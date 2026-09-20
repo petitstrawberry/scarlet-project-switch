@@ -20,6 +20,14 @@ mod vic;
 #[cfg(target_os = "none")]
 pub use vic::VicPlatform;
 #[cfg(target_os = "none")]
+mod nvdec;
+#[cfg(target_os = "none")]
+pub use nvdec::NvdecPlatform;
+#[cfg(target_os = "none")]
+mod host1x;
+#[cfg(target_os = "none")]
+pub use host1x::Host1xSyncpoint;
+#[cfg(target_os = "none")]
 mod sdmmc;
 #[cfg(target_os = "none")]
 pub use sdmmc::SdmmcPlatform;

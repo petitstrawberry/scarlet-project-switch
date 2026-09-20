@@ -1,0 +1,11 @@
+[package]
+name = "nvdec-qa"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-only"
+
+[target.'cfg(target_os = "scarlet")'.dependencies]
+scarlet-video-client = { path = "../../../Scarlet/user/lib/scarlet-video-client", default-features = false, features = ["std", "h264-stateless-hw"] }
+
+[dev-dependencies]
+scarlet-codecs = { path = "../../../Scarlet/user/lib/scarlet-codecs", features = ["h264"] }

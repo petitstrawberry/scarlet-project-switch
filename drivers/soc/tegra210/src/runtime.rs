@@ -127,6 +127,18 @@ pub fn vic_platform(provider: u32) -> Result<crate::VicPlatform, &'static str> {
     let vic = Mmio(scarlet::vm::ioremap(0x54340000, 0x4000)?);
     crate::VicPlatform::new(car, pmc, vic)
 }
+/// NVDEC owns only its dedicated clock, reset, power partition and MC client.
+/// The common CAR lock also serializes PMC commands with VIC power changes.
+pub fn nvdec_platform(provider: u32) -> Result<crate::NvdecPlatform, &'static str> {
+    let car = car()?;
+    if car.phandle != provider {
+        return Err("unexpected NVDEC clock provider");
+    }
+    let pmc = (*PMC.lock()).ok_or(PROBE_DEFER)?;
+    let regs = Mmio(scarlet::vm::ioremap(0x54480000, 0x40000)?);
+    let mc = Mmio(scarlet::vm::ioremap(0x70019000, 0x1000)?);
+    crate::NvdecPlatform::new(car, pmc, regs, mc)
+}
 pub fn gpio() -> Result<Arc<TegraGpio>, &'static str> {
     GPIO.lock().clone().ok_or(PROBE_DEFER)
 }

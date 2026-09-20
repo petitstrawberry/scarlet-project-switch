@@ -16,6 +16,7 @@ features = { linux-boot = true, limine = false, hypervisor = false, network = tr
 "scarlet-driver-tegra210-cpufreq" = { path = "../../drivers/cpufreq/tegra210", enabled = true }
 "scarlet-driver-nvidia-gm20b" = { path = "../../drivers/gpu/nvidia-gm20b", enabled = true }
 "scarlet-driver-tegra210-dc" = { path = "../../drivers/display/tegra210-dc", enabled = true }
+"scarlet-driver-tegra210-nvdec" = { path = "../../drivers/video/tegra210-nvdec", enabled = true }
 "scarlet-driver-max77620" = { path = "../../drivers/rtc/max77620", enabled = true }
 "scarlet-driver-tegra210-sdhci" = { path = "../../drivers/mmc/tegra210-sdhci", enabled = true }
 "scarlet-driver-stm-ftm4" = { path = "../../drivers/input/touchscreen/stm-ftm4", enabled = true }
@@ -30,9 +31,32 @@ kind = "bundle"
 path = ".scarlet/console-bundle.toml"
 
 [[images.initramfs.layers]]
+kind = "bundle"
+path = "bundles/nvdec-player.toml"
+
+[[images.initramfs.layers]]
 kind = "copy"
 source = "initramfs"
 to = "/"
 
 [hooks.post-image]
 command = "tools/package-l4t.sh"
+
+# Persistent distribution for the existing Scarlet MBR partition. This is a
+# filesystem image, never a replacement partition table for the shared SD.
+[images.rootfs]
+format = "ext2"
+output = ".scarlet/images/rootfs-switch-full.ext2"
+
+[[images.rootfs.layers]]
+kind = "bundle"
+path = "../../../Scarlet/bundles/full/bundle.toml"
+
+[[images.rootfs.layers]]
+kind = "bundle"
+path = "bundles/nvdec-player.toml"
+
+[[images.rootfs.layers]]
+kind = "copy"
+source = "initramfs"
+to = "/"
