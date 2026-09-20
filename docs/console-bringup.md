@@ -36,11 +36,16 @@ Its files are under `switchroot/scarlet-console/` with a separate
 existing hardware-tested diagnostic entry and recovery firmware hashes.
 
 `prepare-console.py` resolves the normal distribution layers into a generated
-SDK bundle and sets up the same local library overrides as the reference
-console project. Both applications and Rust std are rebuilt for Cortex-A57
-without LSE. Optional AAC is disabled because its dependency named `std`
-conflicts with Cargo's injected build-std crate. The uncompressed newc archive
+SDK bundle. The project's checked-in `.cargo/userspace.toml` carries local
+library overrides to every package build through cargo-scarlet. A generic
+AArch64 std uses outline atomics, so the ordinary distribution and optional
+AAC can be built without a separate Cortex-A57 std. The uncompressed newc archive
 must fit the dedicated 224 MiB loading buffer; packaging enforces that limit.
+
+The checked-in Nix inputs still pin the older Rust and cargo-scarlet revisions.
+Use the updated local toolchain and SDK until those revisions are published and
+the pins are advanced; a build from the current pins does not validate outline
+atomics on the console.
 
 ## Display and stdio
 
