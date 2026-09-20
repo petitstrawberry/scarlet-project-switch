@@ -32,23 +32,11 @@
         "type": "github"
       }
     },
-    "scarlet-rust-toolchain": {
+    "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs_2",
-        "rust-overlay": "rust-overlay"
-      },
-      "locked": {
-        "lastModified": 1789024923,
-        "narHash": "sha256-OLVKVFXyM8NzruagLRmKDt7E9mroYo2mLyhZkzldwYk=",
-        "owner": "petitstrawberry",
-        "repo": "scarlet-rust-nix",
-        "rev": "ac74be7447d14d801ac0eaaa5235ec1fe388c365",
-        "type": "github"
-      },
-      "original": {
-        "owner": "petitstrawberry",
-        "repo": "scarlet-rust-nix",
-        "type": "github"
+        "nixpkgs": "nixpkgs",
+        "scarlet-rust-toolchain": "scarlet-rust-toolchain",
+        "scarlet-sdk": "scarlet-sdk"
       }
     },
     "rust-overlay": {
@@ -72,28 +60,40 @@
         "type": "github"
       }
     },
+    "scarlet-rust-toolchain": {
+      "inputs": {
+        "nixpkgs": "nixpkgs_2",
+        "rust-overlay": "rust-overlay"
+      },
+      "locked": {
+        "lastModified": 1789024923,
+        "narHash": "sha256-OLVKVFXyM8NzruagLRmKDt7E9mroYo2mLyhZkzldwYk=",
+        "owner": "petitstrawberry",
+        "repo": "scarlet-rust-nix",
+        "rev": "ac74be7447d14d801ac0eaaa5235ec1fe388c365",
+        "type": "github"
+      },
+      "original": {
+        "owner": "petitstrawberry",
+        "repo": "scarlet-rust-nix",
+        "type": "github"
+      }
+    },
     "scarlet-sdk": {
       "flake": false,
       "locked": {
-        "lastModified": 1789025328,
-        "narHash": "sha256-RhbsEGS1UYSthmi5GPMZz3DjnLoKkkP1KwE0RREE2OM=",
+        "lastModified": 1789872325,
+        "narHash": "sha256-G6X1oaritnl2veaYKb7y/QcR8L5F54WH5IP2w+pL4RI=",
         "owner": "petitstrawberry",
         "repo": "scarlet-sdk",
-        "rev": "71c7d9e0510989c23ead340883b30f2b4191521e",
+        "rev": "116882ab42b48a23613d3d574e2c987aca277786",
         "type": "github"
       },
       "original": {
         "owner": "petitstrawberry",
         "repo": "scarlet-sdk",
-        "rev": "71c7d9e0510989c23ead340883b30f2b4191521e",
+        "rev": "116882ab42b48a23613d3d574e2c987aca277786",
         "type": "github"
-      }
-    },
-    "root": {
-      "inputs": {
-        "nixpkgs": "nixpkgs",
-        "scarlet-rust-toolchain": "scarlet-rust-toolchain",
-        "scarlet-sdk": "scarlet-sdk"
       }
     }
   },
