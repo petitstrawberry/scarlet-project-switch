@@ -1,0 +1,12 @@
+[package]
+name = "scarlet-driver-switch-power"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-only"
+
+[dependencies]
+scarlet-abi = { path = "../../../../Scarlet/user/lib/scarlet-abi" }
+
+[target.'cfg(target_os = "none")'.dependencies]
+scarlet = { path = "../../../../Scarlet/kernel", default-features = false, features = ["network"] }
+scarlet-driver-tegra210 = { path = "../../soc/tegra210" }
