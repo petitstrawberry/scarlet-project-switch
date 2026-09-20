@@ -16,6 +16,11 @@ use scarlet::{arch, device::gpu::GpuBackendSubmitError, mem::page::ContiguousPag
 pub const PROGRAM_VA: usize = 0x270000;
 const AUX_VA: usize = 0x280000;
 const DESCRIPTOR_VA: usize = 0x290000;
+const AUX_SIZE: usize = DESCRIPTOR_VA - AUX_VA;
+// Keep CB15 and the vertex runout area in the first page. Each following
+// 256-byte slot holds one immutable CB0 update until this batch retires.
+const UNIFORM_START: usize = 4096;
+const UNIFORM_SIZE: usize = 256;
 pub const CONTEXT_VA: usize = 0x2a0000;
 const PATCH_VA: usize = 0x3a0000;
 const VERTEX_VA: usize = 0x3b0000;
@@ -51,7 +56,7 @@ impl Graphics {
         Ok(Self {
             gpu_base,
             programs: pages(PACK_SIZE / 4096)?,
-            aux: pages(1)?,
+            aux: pages(AUX_SIZE / 4096)?,
             descriptors: pages(1)?,
             context: pages(256)?,
             patches: pages(1)?,
@@ -164,6 +169,13 @@ impl Graphics {
                 ],
             )?;
             push.method(0, 0x50, &[sequence])?;
+            if fifo.has_completion_irq() {
+                // nvgpu gk20a_fifo_add_sema_cmd: host RELEASE with WFI, then
+                // NON_STALLED_INTERRUPT. Keep its slot separate from the
+                // PGRAPH query so the independent completion proof survives.
+                push.method(0, 0x10, &[0, FENCE_VA + 16, sequence, 2 | (1 << 24)])?;
+                push.method(0, 0x20, &[0])?;
+            }
             Ok(())
         })()
         .map_err(GpuBackendSubmitError::Rejected)?;
@@ -374,6 +386,43 @@ impl Graphics {
         }
         scarlet::println!("gm20b: SGFX indexed-u32 draw passed");
 
+        // Exercise immutable CB0 slots and their bounded reuse on the GPU.
+        // 256 independently colored pixels cross the 240-slot arena boundary;
+        // a seven-color period also makes overwritten old slots differ.
+        for (i, p) in [[-1f32, -1.], [3., -1.], [-1., 3.]].into_iter().enumerate() {
+            for (j, value) in [p[0], p[1], 0., 1.].into_iter().enumerate() {
+                store(&self.vertex, i * 4 + j, value.to_bits());
+            }
+        }
+        clean(&self.vertex);
+        let mut uniforms = Vec::new();
+        uniforms
+            .try_reserve_exact(257)
+            .map_err(|_| "uniform arena proof allocation failed")?;
+        uniforms.push(clear);
+        for i in 0..256u32 {
+            let mut pixel = probe_draw(PipelineVariant::Stride16Solid);
+            pixel[17..21].copy_from_slice(&[i % 16, i / 16, 1, 1]);
+            let color = i % 7;
+            for component in 0..3 {
+                pixel[48 + component] = (((color >> component) & 1) as f32).to_bits();
+            }
+            uniforms.push(pixel);
+        }
+        self.execute(fifo, gr, &uniforms).map_err(proof_error)?;
+        arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+        for i in 0..256usize {
+            let color = (i % 7) as u32;
+            let expected = 0xff000000
+                | ((color & 1) * 255 << 16)
+                | (((color >> 1) & 1) * 255 << 8)
+                | (((color >> 2) & 1) * 255);
+            if self.pixel(i % 16, i / 16) != expected {
+                return Err("SGFX uniform arena reuse/readback mismatch");
+            }
+        }
+        scarlet::println!("gm20b: SGFX uniform arena 256-pixel wrap/readback passed");
+
         // The textured proof also executes a linear sampler. Uniform blue
         // texels avoid making the first boot depend on interpolation rounding.
         for (i, p) in [[-0.75f32, -0.75], [0.75, -0.75], [0., 0.75]]
@@ -569,6 +618,7 @@ fn proof_error(error: GpuBackendSubmitError) -> &'static str {
 struct Push {
     words: Vec<u32>,
     uniforms: Option<[u32; 20]>,
+    uniform_next: usize,
     tic: Option<[u32; 8]>,
     tsc: Option<[u32; 8]>,
     texture_handle_initialized: bool,
@@ -578,6 +628,7 @@ impl Push {
         Self {
             words: Vec::new(),
             uniforms: None,
+            uniform_next: UNIFORM_START,
             tic: None,
             tsc: None,
             texture_handle_initialized: false,
@@ -588,6 +639,7 @@ impl Push {
         // contexts. The previous DMA use has retired before execute returns.
         self.words.clear();
         self.uniforms = None;
+        self.uniform_next = UNIFORM_START;
         self.tic = None;
         self.tsc = None;
         self.texture_handle_initialized = false;
@@ -788,11 +840,20 @@ impl Push {
         let uniforms: [u32; 20] = w[32..52].try_into().unwrap();
         let uniforms_changed = self.uniforms != Some(uniforms);
         if uniforms_changed {
-            // Like Mesa's dirty constant/descriptor validation, only upload
-            // changed contents. Our single shared slots still require prior
-            // readers to retire before an overwrite; identical draws do not.
-            self.one(SERIALIZE, 0)?;
-            self.cb(AUX_VA as u64, 0, &uniforms)?;
+            // Bind a fresh fixed-size CB0 instead of stalling every draw to
+            // overwrite the previous one. Mesa's nvc0_screen_bind_cb_3d also
+            // permits an address change without SERIALIZE at the same size.
+            // The bounded arena is reused only after a full batch fence, or
+            // an explicit serialization when a large batch exhausts it.
+            if self.uniform_next == AUX_SIZE {
+                self.one(SERIALIZE, 0)?;
+                self.uniform_next = UNIFORM_START;
+            }
+            self.cb((AUX_VA + self.uniform_next) as u64, 0, &uniforms)?;
+            for stage in [0, 4] {
+                self.one(CB_BIND + stage * 0x20, 1)?;
+            }
+            self.uniform_next += UNIFORM_SIZE;
             self.uniforms = Some(uniforms);
         }
         let sx = w[10] as f32 * 0.5;
@@ -924,7 +985,10 @@ impl Push {
             ];
             let tic_changed = self.tic != Some(tic);
             let tsc_changed = self.tsc != Some(tsc);
-            if (tic_changed || tsc_changed) && !uniforms_changed {
+            // Descriptor slots remain shared; an actual overwrite still
+            // waits for earlier texture readers. CB0 updates no longer supply
+            // that wait implicitly. First use has no readers in this batch.
+            if (tic_changed && self.tic.is_some()) || (tsc_changed && self.tsc.is_some()) {
                 self.one(SERIALIZE, 0)?;
             }
             if tic_changed {

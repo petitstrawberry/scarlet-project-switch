@@ -17,6 +17,8 @@ mod asynchronous;
 #[cfg(target_os = "none")]
 mod clock;
 #[cfg(target_os = "none")]
+mod completion;
+#[cfg(target_os = "none")]
 mod context;
 #[cfg(target_os = "none")]
 mod executor;

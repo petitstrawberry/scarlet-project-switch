@@ -79,10 +79,13 @@ impl UtilizationMonitor {
         let total = total & COUNTER_MASK;
         let busy_delta = busy.wrapping_sub(previous.busy) & COUNTER_MASK;
         let total_delta = total.wrapping_sub(previous.total) & COUNTER_MASK;
+        // Rebase even a rejected interval. A long pause can span multiple
+        // counter wraps; retaining that old baseline makes every later
+        // sample invalid and prevents the governor from recovering.
+        *previous = Previous { busy, total };
         if total_delta == 0 || busy_delta > total_delta.saturating_add(1024) {
             return Err("GM20B PMU activity sample invalid");
         }
-        *previous = Previous { busy, total };
         Ok(DeviceFrequencyUtilization {
             busy: busy_delta.min(total_delta),
             total: total_delta,

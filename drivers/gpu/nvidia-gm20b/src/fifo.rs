@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
-//! Private PFIFO proof and the serialized graphics channel.
+//! Private PFIFO proof and a persistent, serialized graphics channel.
 //! RAMFC, USERD, runlists and reset ordering follow Switchroot nvgpu
 //! 1ae0167d360287ca78f5a2572f0de42594140312's Tegra GM20B HAL. Linux
 //! Nouveau v6.12 supplies additional channel retirement/error references.
 //! The 906f host semaphore and SET_REFERENCE methods execute in PFIFO.
 
-use scarlet::{arch, mem::page::ContiguousPages, sync::Mutex, time};
+use alloc::sync::Arc;
+use scarlet::{
+    arch, device::platform::resource::PlatformDeviceResource, mem::page::ContiguousPages,
+    sync::Mutex, time,
+};
 use scarlet_driver_tegra210::delay_us;
 
 use crate::gmmu::{clean, pages, store};
@@ -46,6 +50,7 @@ const CHANNEL_INST_VIDEO: u32 = 0x80000000; // BIND | Tegra aperture helper's VI
 const FIFO_ERRORS: u32 = 0x19810111;
 const TIMEOUT_NS: u64 = 100_000_000;
 const GRAPHICS_TIMEOUT_NS: u64 = 2_000_000_000;
+const GPFIFO_ENTRIES: u32 = 4096 / 8;
 const SEQUENCES: [u32; 2] = [0x53474631, 0x53474632];
 
 fn host_commands(sequence: u32) -> [u32; 7] {
@@ -64,6 +69,12 @@ pub struct Proof {
     pub gp_get: u32,
     pub reference: u32,
     pub fence: u32,
+}
+
+struct GraphicsChannel {
+    context_va: usize,
+    put: u32,
+    completed_sequence: Option<u32>,
 }
 
 #[derive(Clone, Copy)]
@@ -147,15 +158,34 @@ pub struct Fifo {
     fence: ContiguousPages,
     runlist: ContiguousPages,
     failure: Mutex<Option<FailureSnapshot>>,
+    graphics: Mutex<Option<GraphicsChannel>>,
+    completion: Option<Arc<crate::completion::Completion>>,
 }
 
 impl Fifo {
     pub fn idle(&self) -> Result<(), &'static str> {
+        let graphics = self.graphics.lock();
         let channel = self.read(CHANNEL_INST);
         let get = self.userd(USERD_GP_GET);
         let put = self.userd(USERD_GP_PUT);
-        if [channel, get, put].contains(&u32::MAX) || channel != 0 || get != put {
-            return Err("FIFO channel is not fully retired");
+        let expected_channel = if graphics.is_some() {
+            CHANNEL_INST_VIDEO | (self.instance.as_paddr() >> 12) as u32
+        } else {
+            0
+        };
+        if [channel, get, put].contains(&u32::MAX) || channel != expected_channel || get != put {
+            return Err("FIFO channel is not idle");
+        }
+        if let Some(graphics) = graphics.as_ref() {
+            let sequence = graphics
+                .completed_sequence
+                .ok_or("FIFO graphics submission has not retired")?;
+            if put != graphics.put
+                || self.userd(USERD_REF) != sequence
+                || unsafe { arch::mmio::read32(self.bar1 + FENCE_VA) } != sequence
+            {
+                return Err("FIFO graphics completion is not visible");
+            }
         }
         Ok(())
     }
@@ -171,7 +201,35 @@ impl Fifo {
             fence: pages(1)?,
             runlist: pages(1)?,
             failure: Mutex::new(None),
+            graphics: Mutex::new(None),
+            completion: None,
         })
+    }
+
+    pub fn enable_completion_irq(
+        &mut self,
+        resource: &PlatformDeviceResource,
+    ) -> Result<(), &'static str> {
+        self.completion = Some(crate::completion::Completion::register(
+            self.base, resource,
+        )?);
+        Ok(())
+    }
+
+    pub fn has_completion_irq(&self) -> bool {
+        self.completion.is_some()
+    }
+
+    pub fn disable_completion_irq(&self) {
+        if let Some(completion) = &self.completion {
+            completion.disable();
+        }
+    }
+
+    pub fn report_completion(&self) {
+        if let Some(completion) = &self.completion {
+            completion.report();
+        }
     }
 
     pub fn instance(&self) -> &ContiguousPages {
@@ -394,7 +452,7 @@ impl Fifo {
             (0x10, 0x0000face),
             (0x30, 0x00000102), // Vendor retry settings; no acquire in our pushes.
             (0x48, RING_VA as u32),
-            (0x4c, 9 << 16), // One page: 512 eight-byte GPFIFO entries.
+            (0x4c, GPFIFO_ENTRIES.ilog2() << 16),
             (0x84, 0x20400000),
             (0x94, 0x30000001),
             (0x9c, 0x00000100),
@@ -579,7 +637,9 @@ impl Fifo {
         self.write(PBDMA_INTR1, u32::MAX);
         self.write(0x2a00, u32::MAX);
         self.write(0x2140, FIFO_ERRORS | 0x60000000);
-        self.write(0x2144, 0x80000000);
+        // fifo_intr_en_1_r is 0x2528 on GK20A/GM20B, not adjacent to
+        // INTR_EN_0. A write to 0x2144 leaves channel notifications masked.
+        self.write(0x2528, 0x80000000);
         // gk20a_init_fifo_reset_enable_hw derives both enable masks from
         // silicon's stall masks. An enabled unknown source is still a fault
         // for this polling driver, not an event we may silently dismiss.
@@ -648,6 +708,7 @@ impl Fifo {
             );
         }
         // Match nvgpu_bar1_writel: commands precede the USERD notification.
+        let mut observed = self.completion.as_ref().map(|c| c.events()).unwrap_or(0);
         arch::io_mb();
         unsafe { arch::mmio::write32(self.bar1 + USERD_VA + USERD_GP_PUT, gp_put) };
         arch::io_mb();
@@ -659,6 +720,7 @@ impl Fifo {
         }
         let started = time::current_time_ns();
         let deadline = started.saturating_add(timeout_ns);
+        let mut spin_until = started.saturating_add(20_000);
         for _ in 0..timeout_ns / 2_000 {
             let proof = Proof {
                 gp_get: self.userd(USERD_GP_GET),
@@ -690,8 +752,23 @@ impl Fifo {
                 }
                 return Ok(proof);
             }
-            if time::current_time_ns() >= deadline {
+            let now = time::current_time_ns();
+            if now >= deadline {
                 break;
+            }
+            if let Some(completion) = &self.completion
+                && scarlet::task::mytask().is_some()
+                && now >= spin_until
+            {
+                // No lost wake: the ISR publishes an event generation before
+                // waking, and Waker rechecks it after registering the waiter.
+                // Periodic rechecks also detect faults (still polled) and a
+                // delayed IRQ. Neither an event nor a timeout retires DMA.
+                completion.wait(observed, (deadline - now).min(10_000_000));
+                observed = completion.events();
+                // GP_GET can trail the final notification method slightly.
+                spin_until = time::current_time_ns().saturating_add(20_000);
+                continue;
             }
             delay_us(2);
         }
@@ -760,9 +837,10 @@ impl Fifo {
         Ok(proof)
     }
 
-    /// The sole graphics channel is rearmed only after full retirement. Its
-    /// instance page and all command backing are retained by the power lease.
-    /// The tail uses Mesa's PGRAPH QUERY_GET fence, not a PFIFO-only release.
+    /// Keep RAMFC, USERD and the runlist bound, as nvgpu's submit path does.
+    /// Only the next GPFIFO entry and GP_PUT change between submissions.
+    /// A unique PGRAPH fence and SET_REFERENCE prove retirement before the
+    /// single private pushbuffer is reused, even when the ring index wraps.
     pub fn graphics(
         &self,
         va: usize,
@@ -774,48 +852,80 @@ impl Fifo {
         if words == 0 || words >= 1 << 21 || !va.is_multiple_of(4) || sequence == 0 {
             return Err("graphics GPFIFO entry outside hardware limits");
         }
-        if self.read(CHANNEL_INST) != 0 {
-            return Err("graphics channel was not retired");
+        let mut channel = self.graphics.lock();
+        if channel.is_none() {
+            if self.read(CHANNEL_INST) != 0 {
+                return Err("graphics channel was not retired before initial binding");
+            }
+            // Only the host-method proof precedes this first bind. It has
+            // explicitly retired and flushed its GPU-owned storage.
+            unsafe {
+                core::ptr::write_bytes(self.instance.as_vaddr() as *mut u8, 0, 0x200);
+                core::ptr::write_bytes(self.userd.as_vaddr() as *mut u8, 0, 4096);
+                core::ptr::write_bytes(self.ring.as_vaddr() as *mut u8, 0, 4096);
+                core::ptr::write_bytes(self.fence.as_vaddr() as *mut u8, 0, 4096);
+            }
+            self.prepare();
+            store(&self.instance, 0x210 / 4, context_va as u32 | 4);
+            store(&self.instance, 0x214 / 4, (context_va as u64 >> 32) as u32);
+            clean(&self.instance);
+            self.write(0x70004, 1);
+            self.wait(0x70004, |value| value & 3 == 0)?;
+            self.publish_userd()?;
+            self.write(
+                CHANNEL_INST,
+                CHANNEL_INST_VIDEO | (self.instance.as_paddr() >> 12) as u32,
+            );
+            self.write(CHANNEL, (self.read(CHANNEL) & !0x000f0c00) | 0x400);
+            self.activate_runlist()?;
+            *channel = Some(GraphicsChannel {
+                context_va,
+                put: 0,
+                completed_sequence: None,
+            });
         }
-        unsafe {
-            core::ptr::write_bytes(self.instance.as_vaddr() as *mut u8, 0, 0x200);
-            core::ptr::write_bytes(self.userd.as_vaddr() as *mut u8, 0, 4096);
-            core::ptr::write_bytes(self.ring.as_vaddr() as *mut u8, 0, 4096);
-            core::ptr::write_bytes(self.fence.as_vaddr() as *mut u8, 0, 4096);
+        let channel = channel.as_mut().unwrap();
+        if channel.context_va != context_va
+            || self.userd(USERD_GP_GET) != channel.put
+            || self.userd(USERD_GP_PUT) != channel.put
+        {
+            return Err("graphics channel still owns the previous pushbuffer");
         }
-        self.prepare();
-        store(&self.instance, 0x210 / 4, context_va as u32 | 4);
-        store(&self.instance, 0x214 / 4, (context_va as u64 >> 32) as u32);
-        store(&self.ring, 0, va as u32);
-        store(&self.ring, 1, (words << 10) | ((va as u64 >> 32) as u32));
-        for memory in [&self.instance, &self.userd, &self.ring, &self.fence] {
-            clean(memory);
-        }
-        // All previous DMA was retired/flushed. Drop clean GPU cache copies
-        // after the CPU published the next context and command backing.
+        let offset = channel.put as usize * 8;
+        store(&self.ring, offset / 4, va as u32);
+        store(
+            &self.ring,
+            offset / 4 + 1,
+            (words << 10) | ((va as u64 >> 32) as u32),
+        );
+        arch::clean_dcache_to_poc_range(self.ring.as_vaddr() + offset, 8);
+        // All previous commands completed and their GPU writes were flushed.
+        // Invalidate clean GPU copies after publishing this CPU-written entry,
+        // pushbuffer and resource snapshots. Never clean USERD/RAMFC aliases
+        // over state owned by the bound channel.
         self.write(0x70004, 1);
         self.wait(0x70004, |value| value & 3 == 0)?;
         let prepared = time::current_time_ns();
-        self.publish_userd()?;
-        self.write(
-            CHANNEL_INST,
-            CHANNEL_INST_VIDEO | (self.instance.as_paddr() >> 12) as u32,
-        );
-        self.write(CHANNEL, (self.read(CHANNEL) & !0x000f0c00) | 0x400);
-        self.activate_runlist()?;
-        let bound = time::current_time_ns();
-        self.submit(1, sequence, GRAPHICS_TIMEOUT_NS, false)?;
+        channel.put = (channel.put + 1) & (GPFIFO_ENTRIES - 1);
+        channel.completed_sequence = None;
+        self.submit(channel.put, sequence, GRAPHICS_TIMEOUT_NS, false)?;
         let completed = time::current_time_ns();
-        self.retire(GRAPHICS_TIMEOUT_NS)?;
+        // Preserve the existing writeback contract for CPU image access and
+        // scanout. Binding lifetime is independent of command retirement.
+        self.write(0x70000, 1);
+        self.wait_for(0x70000, GRAPHICS_TIMEOUT_NS, |value| value & 3 == 0)?;
+        self.write(0x70010, 1);
+        self.wait_for(0x70010, GRAPHICS_TIMEOUT_NS, |value| value & 3 == 0)?;
+        channel.completed_sequence = Some(sequence);
         let retired = time::current_time_ns();
         let count = sequence.wrapping_sub(0x53474700);
         if count <= 4 {
             scarlet::println!(
-                "gm20b: fifo={} prepare_us={} bind_us={} execute_us={} retire_us={}",
+                "gm20b: fifo={} put={} prepare_us={} execute_us={} flush_us={}",
                 count,
+                channel.put,
                 prepared.saturating_sub(started) / 1000,
-                bound.saturating_sub(prepared) / 1000,
-                completed.saturating_sub(bound) / 1000,
+                completed.saturating_sub(prepared) / 1000,
                 retired.saturating_sub(completed) / 1000
             );
         }

@@ -244,6 +244,7 @@ impl State {
     }
     fn fault(&mut self) {
         self.lost = true;
+        self.dma().disable_completion_irq();
         // DMA only touches independently owned pages. Failed isolation retains
         // them in Gmmu until Power can safely drain, or leaks them on rollback.
         if let Err(error) = self.power.platform.isolate() {
@@ -735,6 +736,7 @@ impl Shared {
             }
         }
         if trace {
+            s.power.dma.as_ref().unwrap().report_completion();
             scarlet::println!(
                 "gm20b: submit={} ops={} upload_us={} execute_us={} copied={}",
                 sequence,

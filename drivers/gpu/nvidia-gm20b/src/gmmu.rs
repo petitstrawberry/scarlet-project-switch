@@ -216,6 +216,21 @@ impl Gmmu {
         self.fifo.prove_host()
     }
 
+    pub fn enable_completion_irq(
+        &mut self,
+        resource: &scarlet::device::platform::resource::PlatformDeviceResource,
+    ) -> Result<(), &'static str> {
+        self.fifo.enable_completion_irq(resource)
+    }
+
+    pub fn disable_completion_irq(&self) {
+        self.fifo.disable_completion_irq();
+    }
+
+    pub fn report_completion(&self) {
+        self.fifo.report_completion();
+    }
+
     // Power calls this only after GPU isolation and a successful MC drain.
     pub fn report_retired_fifo_failure(&self) {
         self.fifo.report_retired_failure();

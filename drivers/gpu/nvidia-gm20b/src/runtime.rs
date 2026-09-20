@@ -208,6 +208,9 @@ impl Drop for Power {
         if !self.changed {
             return;
         }
+        if let Some(dma) = &self.dma {
+            dma.disable_completion_irq();
+        }
         if let Err(error) = self.platform.isolate() {
             if let Some(dma) = self.dma.take() {
                 // Hardware may still fetch the tables/backing. Never return
@@ -468,7 +471,27 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         .unwrap()
         .initialize_graphics(gr.context_size)?;
     let enable = read(0x200);
-    scarlet::println!("gm20b: interrupt masks disabled; registering control endpoint");
+    let nonstall_index = device.property("interrupt-names").and_then(|property| {
+        property
+            .value()
+            .split(|byte| *byte == 0)
+            .position(|name| name == b"nonstall")
+    });
+    let completion_irq = nonstall_index.and_then(|index| {
+        device
+            .get_resources()
+            .iter()
+            .filter(|resource| resource.res_type == PlatformDeviceResourceType::IRQ)
+            .nth(index)
+    });
+    if let Some(irq) = completion_irq {
+        match power.dma.as_mut().unwrap().enable_completion_irq(irq) {
+            Ok(()) => scarlet::println!("gm20b: FIFO/GR non-stall completion IRQ enabled"),
+            Err(error) => scarlet::println!("gm20b: {}; retaining polled completion", error),
+        }
+    } else {
+        scarlet::println!("gm20b: non-stall IRQ missing; retaining polled completion");
+    }
     let before = power.platform_before;
     let words = [
         6,
@@ -517,6 +540,16 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         // the proven boot rate, but make the missing policy visible in logs.
         scarlet::println!("gm20b: device frequency policy unavailable: {}", error);
     } else {
+        // Leave headroom for interactive bursts. Linux panfrost likewise
+        // supplies 45/5 to simple_ondemand instead of its 90/5 defaults.
+        // The kernel still owns scaling decisions and thermal limits.
+        devfreq::configure_simple_ondemand(
+            "gm20b",
+            devfreq::SimpleOndemandConfig {
+                upthreshold_pct: 45,
+                downdifferential_pct: 5,
+            },
+        )?;
         if let Err(error) = maybe_register_gpu_zone() {
             scarlet::println!("gm20b: GPU thermal cap unavailable: {}", error);
         }
