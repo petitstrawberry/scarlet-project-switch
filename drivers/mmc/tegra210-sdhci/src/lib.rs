@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #![no_std]
-//! Tegra210 SDMMC1 binding; card protocol and SDHCI PIO live in Scarlet.
+//! Tegra210 SDMMC1 binding; card protocol and SDHCI transfers live in Scarlet.
 //! Reference: Switchroot Linux 2d0059fd, drivers/mmc/host/sdhci-tegra.c,
 //! and the ODIN board's legacy 3.3 V production settings.
 

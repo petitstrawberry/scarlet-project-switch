@@ -220,7 +220,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         mmio::write32(base + 0x120, mmio::read32(base + 0x120) | 0x20);
     }
     let _ = unsafe { mmio::read32(base + 0x120) };
-    let host = TegraSdhci {
+    let mut host = TegraSdhci {
         host: SdhciHost::new_with_base_clock_and_config(
             base,
             false,
@@ -230,6 +230,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
                 write_readback: true,
                 external_card_detect: true,
                 reset_command_and_data_together: true,
+                adma2_64bit_descriptor_16: true,
                 ..SdhciHostConfig::default()
             },
         ),
@@ -241,7 +242,24 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         last_calibration_ns: 0,
     };
     scarlet::println!(
-        "tegra210-sdhci: SDMMC1 PIO, source={}Hz, legacy 3.3V, GPIO card detect",
+        "tegra210-sdhci: host-version={} capabilities={:#010x}",
+        host.host.specification_version(),
+        host.read(0x40)
+    );
+    let transfer = match host
+        .platform
+        .direct_dma_context()
+        .and_then(|context| host.host.enable_adma2(&context))
+    {
+        Ok(()) => "ADMA2",
+        Err(error) => {
+            scarlet::println!("tegra210-sdhci: ADMA2 unavailable: {}; using PIO", error);
+            "PIO"
+        }
+    };
+    scarlet::println!(
+        "tegra210-sdhci: SDMMC1 {}, source={}Hz, legacy 3.3V, GPIO card detect",
+        transfer,
         clock
     );
     let disk = MmcBlockDevice::probe_sd("mmcblk0", Box::new(host), MmcBusWidth::Four)

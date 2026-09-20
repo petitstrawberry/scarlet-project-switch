@@ -18,6 +18,20 @@ pub struct SdmmcPlatform {
 }
 
 impl SdmmcPlatform {
+    /// SDMMC1 uses MC's SDMMC1A stream group. Until a Tegra SMMU domain is
+    /// attached, direct DMA is valid only when this group's translation is
+    /// disabled. Do not change global MC/SMMU state owned by firmware.
+    pub fn direct_dma_context(&self) -> Result<scarlet::device::iommu::DmaContext, &'static str> {
+        let base = scarlet::vm::ioremap(0x70019000, 0x1000)?;
+        let asid = Mmio(base).read(0xa94); // Linux tegra210_mc_swgroups: sdmmc1a.
+        scarlet::vm::iounmap(base);
+        if asid == u32::MAX || asid & (1 << 31) != 0 {
+            scarlet::println!("tegra210-sdhci: SDMMC1A ASID={:#010x}", asid);
+            return Err("SDMMC1 direct DMA requires an untranslated stream group");
+        }
+        Ok(scarlet::device::iommu::DmaContext::direct())
+    }
+
     pub(crate) fn new(car: Arc<Car>, gpio: Arc<TegraGpio>, pmc: Mmio, misc: Mmio) -> Self {
         Self {
             car,
