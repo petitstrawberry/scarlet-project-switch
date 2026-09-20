@@ -143,3 +143,23 @@ write無効、2D stateへの復帰を描画し、全pixelをreadbackして照合
 `uart-distributed.log`は上記の実機試験、`package-distributed.json`はそのimage hash。
 試験initramfsはSD rootへpivotするため、重複する大型desktop binaryだけ省いて
 USB転送量を約93 MBから約30 MBに減らした。SDの通常アプリはこの時点で未変更。
+
+### Boxcraft操作と性能の到達点
+
+Joy-Con入力をBoxcraftのnative gamepad hookへ接続。左stickはanalog移動、右は
+時間基準の視点移動、Bはjump、ZR/ZLは破壊/設置、L/Rはhotbar、+は設定、−はfullscreen。
+pointer lockなしで操作できる。focus/resetで入力を解放し、設定中だけmenu navigationを有効化。
+hostでdead zone・押下edge・複数deviceのresetを3件、移動速度・衝突等を3件確認した。
+
+ユーザーの実機報告は操作中約15 FPS。`performance`でGPUを307.2 MHzに固定した
+対照では約20 FPS。CPUはschedutilで1017.6 MHz、GPUの設定可能範囲は76.8–307.2 MHz。
+CPU側の無駄という仮説は未確定であり、ユーザー指示により詳細調査を後回しにする。
+GPUは`simple_ondemand`へ戻したことを`/dev/devfreq`で確認（idle 76.8 MHz、失敗sample 0）。
+この測定は通常のBoxcraft操作で行い、worldサイズやrender distanceを変えていない。
+GPU上限拡張・benchmark・起動時の追加計測は行っていない。次はHWDC、その後sound。
+
+最新版を実機の`/old_root/bin/boxcraft-depth`からSD rootfsの`/bin/boxcraft`へコピー済み。
+`storage-check hash`で両者が5,845,960 bytes、SHA-256
+`1d90b5580d1fd39687b9bde83dfb223f19ac7209d6e444d8ce8b21ac899526ba`
+で一致した。rootfsに旧版の退避ファイルは残していない。
+このコピーはuserspaceのみで、起動中のdepth対応kernelはUSB bundleからロードしたもの。
