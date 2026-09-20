@@ -42,9 +42,8 @@ AArch64 std uses outline atomics, so the ordinary distribution and optional
 AAC can be built without a separate Cortex-A57 std. The uncompressed newc archive
 must fit the dedicated 224 MiB loading buffer; packaging enforces that limit.
 
-The checked-in Nix toolchain input still pins the older Rust revision. A build
-from that toolchain pin does not validate outline atomics on the console; the
-pin must advance after the three-host toolchain build is published.
+The checked-in Nix inputs pin the outline-enabled Rust toolchain and the SDK
+that passes this userspace config to each package build.
 
 ## Display and stdio
 
