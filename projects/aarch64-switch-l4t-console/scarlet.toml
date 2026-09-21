@@ -1,0 +1,64 @@
+schema_version = 2
+
+[project]
+name = "scarlet-aarch64-switch-l4t-console"
+
+[userspace]
+cargo-config = ".scarlet/userspace.toml"
+
+[bsp]
+path = "bsp"
+package = "scarlet"
+
+[bsp.kernel]
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "b3d2a55740a3d2ca49daad0ec7baba233f706f7a" }
+features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true }
+
+[modules]
+"scarlet-driver-switch-power" = { path = "../../drivers/power/switch-power", enabled = true }
+"scarlet-driver-tegra210-audio" = { path = "../../drivers/audio/tegra210", enabled = true }
+"scarlet-driver-tegra210" = { path = "../../drivers/soc/tegra210", enabled = true }
+"scarlet-driver-tegra210-cpufreq" = { path = "../../drivers/cpufreq/tegra210", enabled = true }
+"scarlet-driver-nvidia-gm20b" = { path = "../../drivers/gpu/nvidia-gm20b", enabled = true }
+"scarlet-driver-tegra210-dc" = { path = "../../drivers/display/tegra210-dc", enabled = true }
+"scarlet-driver-tegra210-nvdec" = { path = "../../drivers/video/tegra210-nvdec", enabled = true }
+"scarlet-driver-max77620" = { path = "../../drivers/rtc/max77620", enabled = true }
+"scarlet-driver-tegra210-sdhci" = { path = "../../drivers/mmc/tegra210-sdhci", enabled = true }
+"scarlet-driver-stm-ftm4" = { path = "../../drivers/input/touchscreen/stm-ftm4", enabled = true }
+"scarlet-driver-joycon" = { path = "../../drivers/input/joycon", enabled = true }
+
+[images.initramfs]
+format = "newc"
+output = ".scarlet/images/initramfs.cpio"
+
+[[images.initramfs.layers]]
+kind = "bundle"
+path = ".scarlet/initramfs-bundle.toml"
+
+[[images.initramfs.layers]]
+kind = "copy"
+source = ".scarlet/gm20b-firmware"
+to = "/"
+
+[hooks.post-image]
+command = "tools/package-l4t.sh"
+
+# Persistent distribution for the existing Scarlet MBR partition. This is a
+# filesystem image, never a replacement partition table for the shared SD.
+[images.rootfs]
+format = "ext2"
+output = ".scarlet/images/rootfs-switch-full.ext2"
+
+[[images.rootfs.layers]]
+kind = "bundle"
+path = ".scarlet/full-bundle.toml"
+
+[[images.rootfs.layers]]
+kind = "copy"
+source = ".scarlet/gm20b-firmware"
+to = "/"
+
+[[images.rootfs.layers]]
+kind = "copy"
+source = "rootfs"
+to = "/"

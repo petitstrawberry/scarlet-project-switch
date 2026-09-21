@@ -8,7 +8,10 @@ use scarlet::{
     device::{
         Device, DeviceType,
         char::CharDevice,
-        input::event_device::{EventDevice, INPUT_CAP_KEY, InputDeviceKind, InputDeviceMetadata},
+        input::event_device::{
+            EventDevice, INPUT_CAP_DIRECT_TOUCH, INPUT_CAP_INTERNAL, INPUT_CAP_KEY,
+            InputDeviceKind, InputDeviceMetadata,
+        },
         manager::{DeviceManager, DriverPriority},
         platform::{PlatformDeviceDriver, PlatformDeviceInfo, PlatformProbeOptions},
     },
@@ -121,6 +124,32 @@ fn probe(_: &PlatformDeviceInfo) -> Result<(), &'static str> {
         .register_device_with_name(event.get_name().to_string(), event.clone());
     DeviceManager::get_manager().register_device_with_name(
         "input-qa-control".to_string(),
+        Arc::new(Control {
+            event,
+            lock: SpinLock::new(()),
+        }),
+    );
+    // Match STM FTM4's ten-slot type-B ABI, with screen-sized logical axes.
+    let mut metadata = InputDeviceMetadata::new(
+        InputDeviceKind::Touchscreen,
+        INPUT_CAP_KEY | INPUT_CAP_DIRECT_TOUCH | INPUT_CAP_INTERNAL,
+    )
+    .with_multitouch_slots(10)?;
+    for (code, min, max) in [
+        (0, 0, 1279),
+        (1, 0, 719),
+        (0x35, 0, 1279),
+        (0x36, 0, 719),
+        (0x2f, 0, 9),
+        (0x39, -1, i32::MAX),
+    ] {
+        metadata = metadata.with_absolute_axis(code, min, max)?;
+    }
+    let event = Arc::new(EventDevice::new_with_metadata("touchscreen", metadata));
+    DeviceManager::get_manager()
+        .register_device_with_name(event.get_name().to_string(), event.clone());
+    DeviceManager::get_manager().register_device_with_name(
+        "touch-qa-control".to_string(),
         Arc::new(Control {
             event,
             lock: SpinLock::new(()),

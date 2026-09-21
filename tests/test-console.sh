@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
-CARGO_HOME="$PWD/projects/aarch64-switch-console/.scarlet/cache/cargo-home" \
+CARGO_HOME="$PWD/projects/aarch64-switch-l4t-console/.scarlet/cache/cargo-home" \
 CARGO_TARGET_DIR="$PWD/.cache/console-qa-target" \
 CARGO_UNSTABLE_BUILD_STD=std,panic_abort \
 CARGO_UNSTABLE_BUILD_STD_FEATURES=compiler-builtins-mem \

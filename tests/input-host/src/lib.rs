@@ -1,12 +1,7 @@
 //! Runs the production SWS input policies on the host, without MMIO or syscalls.
 #![allow(dead_code)]
 
-#[path = "../../../../Scarlet/user/std-bin/src/sws/gamepad.rs"]
-mod gamepad;
-#[path = "../../../../Scarlet/user/std-bin/src/sws/key_repeat.rs"]
-mod key_repeat;
-#[path = "../../../../scarlet-ui/crates/scarlet-ui-core/src/event/gamepad.rs"]
-mod ui_gamepad;
+include!(concat!(env!("OUT_DIR"), "/input_modules.rs"));
 
 #[cfg(test)]
 mod tests {
@@ -21,6 +16,16 @@ mod tests {
         assert!(!keys.update(KeyboardSource::Gamepad(0), 28, 0));
         assert_eq!(keys.source_for_code(28), Some(KeyboardSource::Local(0)));
         assert!(keys.update(KeyboardSource::Local(0), 28, 0));
+    }
+
+    #[test]
+    fn panel_modifier_release_preserves_physical_modifier() {
+        let mut keys = HeldKeys::default();
+        assert!(keys.update(KeyboardSource::Local(0), 29, 1));
+        assert!(!keys.update(KeyboardSource::InputPanel(3), 29, 1));
+        assert!(!keys.update(KeyboardSource::InputPanel(3), 29, 0));
+        assert_eq!(keys.source_for_code(29), Some(KeyboardSource::Local(0)));
+        assert!(keys.update(KeyboardSource::Local(0), 29, 0));
     }
 
     #[test]

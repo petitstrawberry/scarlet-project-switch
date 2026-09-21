@@ -1,0 +1,28 @@
+schema_version = 2
+
+[project]
+name = "switch-boot-probe-test"
+
+[bsp]
+path = "bsp"
+package = "scarlet"
+
+[bsp.kernel]
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "b3d2a55740a3d2ca49daad0ec7baba233f706f7a" }
+features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true }
+
+[modules]
+
+[images.initramfs]
+format = "newc"
+output = ".scarlet/images/initramfs.cpio"
+
+[[images.initramfs.layers]]
+kind = "cargo"
+source = "../../userspace/switch-init"
+package = "switch-init"
+bin = "switch-init"
+to = "/init"
+
+[hooks.post-image]
+command = "package.py"

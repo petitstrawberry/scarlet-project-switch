@@ -5,11 +5,11 @@ edition = "2024"
 publish = false
 
 [dependencies]
-scarlet-os = { path = "../../../Scarlet/user/lib/scarlet-os", default-features = false, features = ["std"] }
-sws-client = { path = "../../../Scarlet/user/lib/sws-client", default-features = false, features = ["std"] }
-sws-protocol = { path = "../../../Scarlet/user/lib/sws-protocol", default-features = false, features = ["std"] }
-scarlet-ui = { path = "../../../scarlet-ui/crates/scarlet-ui", features = ["platform-sws"] }
-scarlet-ui-macros = { path = "../../../scarlet-ui/crates/scarlet-ui-macros" }
+scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "b3d2a55740a3d2ca49daad0ec7baba233f706f7a", default-features = false, features = ["std"] }
+sws-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "b3d2a55740a3d2ca49daad0ec7baba233f706f7a", default-features = false, features = ["std"] }
+sws-protocol = { git = "https://github.com/petitstrawberry/Scarlet", rev = "b3d2a55740a3d2ca49daad0ec7baba233f706f7a", default-features = false, features = ["std"] }
+scarlet-ui = { git = "https://github.com/petitstrawberry/scarlet-ui", rev = "e6e00f11c95de371057899ec05b7a832d04adc7f", features = ["platform-sws"] }
+scarlet-ui-macros = { git = "https://github.com/petitstrawberry/scarlet-ui", rev = "e6e00f11c95de371057899ec05b7a832d04adc7f" }
 
 [profile.release]
 panic = "abort"

@@ -1,0 +1,15 @@
+# Switch uses the Tegra210 stateless H.264 backend.
+[[layers]]
+kind = "cargo"
+source = "../.scarlet/sources/scarlet-distribution/user/video_player"
+package = "video_player"
+bin = "video-player"
+default-features = false
+features = ["h264-stateless-hw", "mp4-aac"]
+replace = true
+to = "/bin/video-player"
+
+[[layers]]
+kind = "copy"
+source = "../.scarlet/sources/scarlet-distribution/bundles/desktop/fs/etc/stemd.d/apps/org.scarlet-os.video-player.desktop"
+to = "/etc/stemd.d/apps/org.scarlet-os.video-player.desktop"

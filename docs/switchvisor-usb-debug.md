@@ -1,71 +1,100 @@
-# Switchvisor USB bring-up for Scarlet
+# Switchvisor USB setup
 
-This entry uses Switchvisor `main` with USB UART, control, and guest-bundle
-loading. The EL2 GDB port under development is not enabled. The working
-Scarlet console and diagnostic Hekate entries remain separate.
+This entry uses the public Switchvisor revision pinned in `flake.lock` with
+USB UART, control, and guest-bundle loading. The EL2 GDB port is not enabled in this profile.
+The direct Scarlet SD entry remains available separately.
 
 Switchvisor owns the Switch USB controller in this entry. The guest uses its
-virtual NS16550A UART for logs and input; it cannot use a USB NIC here. Connect
-the USB data cable before boot to capture early UART output.
+virtual NS16550A UART for logs and input. The optional USB network profile
+exposes a virtio-net NIC to Scarlet through Switchvisor's CDC-NCM bridge.
+Connect the USB data cable before boot to capture early UART output.
 
 The guest's Tegra210 LIC driver now owns all six banks and registers as an
 intermediate interrupt controller. DT `interrupt-parent` decides which IRQs
 pass through it. The virtual UART's LIC source 44 is enabled through the same
 IRQ lifecycle as other consumers, including when UART probes before LIC.
-On the 2026-09-19 Switchvisor bundle, `LIC_GENERIC_OK` entered through the
-UART shell and the normal desktop/showcase started. After several minutes the
-host lost both USB CDC ports without a preceding guest panic in the captured
-UART log; this remains to be separated from a guest halt or power/USB reset.
-
-A second controlled run kept Switchvisor in preboot for about 90 seconds with
-both CDC ports healthy. After bundle deployment at 02:59:40 UTC, the normal
-desktop and Clock ran for about four minutes. `ui-sgfx-showcase &` started at
-03:03:41; both CDC ports disappeared together at 03:05:04, with neither APX
-nor Switchvisor re-enumerating. The last UART text was a successful `top` and
-shell prompt, with no guest panic. The CPU sample was 18.8% busy and showed no
-logd/sbusd saturation. Passive USB presence polling was used after the first
-two minutes. Evidence is in `.cache/gm20b-linux-audit/` as
-`guest-uart-black-screen-repro.log`, `switchvisor-control-black-screen-repro.log`
-and `usb-presence-passive.log`. This establishes a reproducible whole-device
-loss, but does not yet prove whether showcase, elapsed time, or heat triggered
-it. The physical display state during this second run was not captured.
+See [input and RTC](input.md) for the other UART consumers.
 
 ## Build the host and SD artifacts
 
+Run from this repository. The Nix shell provides `switchvisorctl`,
+`switchvisor-tool`, the compiled EL2 monitor and USB overlays, and `minicom`.
+On macOS it also provides `nxboot`. No separate Switchvisor checkout is needed.
 Build the normal console package first if its kernel or initramfs changed:
 
 ```sh
-cd ../scarlet-project-switch
 nix develop --accept-flake-config
 scripts/build-console.sh
-```
-
-Then build Switchvisor from its `main` branch with the pinned Noble U-Boot as
-the EL1 guest. `--no-fallback` means the guest does not start until the host
-uploads a bundle.
-
-```sh
-cd ../switchvisor
-git switch main
-nix develop --accept-flake-config
-scripts/build-payload.sh \
-  ../scarlet-project-switch/projects/aarch64-switch-console/.scarlet/bootstack/bl33.bin \
-  0x68200 \
-  ../scarlet-project-switch/projects/aarch64-switch-console/.scarlet/bootstack \
-  .cache/scarlet-uart --usb-uart --usb-control --no-fallback
-cargo build -p switchvisorctl --release
-
-cd ../scarlet-project-switch
 python3 scripts/package-switchvisor.py
 ```
 
-The packager verifies the pinned U-Boot and bootstack, the console image
+The packager combines the Nix-built monitor with the pinned Noble U-Boot as
+the EL1 guest, enabling USB UART/control with `--no-fallback`: the guest waits
+for a host-uploaded bundle. It verifies the pinned U-Boot and bootstack, the console image
 hashes, and Switchvisor's USB/no-fallback profile. It writes an SD package
-under `projects/aarch64-switch-console/.scarlet/switchvisor/` and a host
+under `projects/aarch64-switch-l4t-console/.scarlet/switchvisor/` and a host
 `bundle.json`. The bundle sends U-Boot to `0xaa000000`, `uImage` to
 `0xa0000000`, and initramfs to `0x92000000`. U-Boot selects the platform DTB
 from the pinned `nx-plat.dtimg` on SD, applies `usb-uart.dtbo`, then enters
 Scarlet. The boot script skips SD reads for the two uploaded images.
+
+### USB network profile
+
+Select the network-enabled profile explicitly:
+
+```sh
+python3 scripts/package-switchvisor.py --usb-net
+```
+
+The packager reads `usb_net.enabled` from the Switchvisor manifest. For this
+profile it requires and installs both `usb-net.dtbo` and `usb-uart.dtbo`, and
+enables the network overlay in `boot.scr`. A UART-only build leaves networking
+disabled. Reinstall the SD package when changing profiles; uploading a guest
+bundle alone does not replace EL2 or its device-tree overlays.
+
+The guest NIC is modern virtio MMIO at `0x700fe000`, with MAC
+`02:53:56:00:00:02` and INTID 71. Scarlet must include PR #569 (merged as
+`2907183585d869158f70f2116c89950d2907fdae`) for VERSION_1 negotiation and the
+12-byte network header. UART remains at `0x700ff000`, INTID 76.
+
+The initial static subnet is `192.168.77.0/24`: Switchvisor management uses
+`.1`, the host `.2`, and Scarlet `.3`. Identify the actual host CDC-NCM
+interface and guest interface before configuring them. Switchvisor provides
+neither DHCP nor NAT. Its management endpoint can answer ICMP and UDP port
+7777 (`ping` / `status`) before the guest boots. See
+[Switchvisor's USB network guide](https://github.com/petitstrawberry/switchvisor/blob/62d18a6c87a7886a60ded785a57051132ad3af64/docs/usb-network.md)
+for the bridge's protocol and interrupt constraints.
+
+For the bring-up subnet, a persistent Scarlet configuration can be placed in
+`/etc/netcfgd.d/90-switchvisor.toml`:
+
+```toml
+[[interface]]
+name = "veth0"
+method = "static"
+address = "192.168.77.3/24"
+gateway = "192.168.77.2"
+dns = ["8.8.8.8", "1.1.1.1"]
+default = true
+required = false
+```
+
+The Mac must route/NAT that subnet for Internet access. On the tested host,
+USB-NCM was `en13` and the Internet uplink was `en6`. IP forwarding was enabled
+and the existing Apple PF NAT anchor hierarchy received a dedicated
+`com.apple/switchvisor` rule:
+
+```pf
+nat on en6 inet from 192.168.77.0/24 to any -> (en6)
+```
+
+This leaves the host's default route and unrelated PF rules intact. Verify
+the actual interfaces and active anchor hierarchy before applying it. The
+bring-up setup is runtime-only; host reboot requires restoring forwarding and
+NAT, and USB reenumeration may require restoring the host's `.2` address.
+HTTPS additionally requires valid UTC and a working cryptographic entropy
+source. Scarlet's network time service can correct the RTC-derived clock once
+DNS and external connectivity are available.
 
 ## Install and boot
 
@@ -80,16 +109,15 @@ diskutil eject "/Volumes/SWITCH SD"
 
 The installer verifies the SD layout and hashes of the existing Stock,
 Kubuntu, Scarlet console, and diagnostic entries before and after copying.
-Its receipt confirms file transfer, not hardware boot.
+The installation receipt is written to the project's generated state.
 
 For the first launch, put the Switch in RCM, then use the Hekate payload that
 already boots the existing Scarlet entry:
 
 ```sh
-cd ../switchvisor
 nxboot --hekate id SCR-SWV /path/to/hekate.bin
-target/release/switchvisorctl deploy \
-  ../scarlet-project-switch/projects/aarch64-switch-console/.scarlet/switchvisor/bundle.json
+switchvisorctl deploy \
+  projects/aarch64-switch-l4t-console/.scarlet/switchvisor/bundle.json
 ```
 
 `deploy` verifies CRC32 for every uploaded image, commits the bundle, and
@@ -104,29 +132,37 @@ Use the actual console port listed by the host. The control port is separate;
 `switchvisorctl` selects it automatically. To inspect or reset a running guest:
 
 ```sh
-target/release/switchvisorctl status
-target/release/switchvisorctl reboot
-target/release/switchvisorctl reboot-rcm
+switchvisorctl status
+switchvisorctl reboot
+switchvisorctl reboot-rcm
 ```
 
-After the first successful Switchvisor boot, repeat the RCM/Hekate/upload cycle
-with one command:
-
-```sh
-SWITCHVISOR_HEKATE_ID=SCR-SWV scripts/run-payload.sh /path/to/hekate.bin --bundle \
-  ../scarlet-project-switch/projects/aarch64-switch-console/.scarlet/switchvisor/bundle.json
-```
-
-Set `SWITCHVISOR_HEKATE_ID` explicitly for Scarlet: the generic script defaults
-to `SWV-NX`, a separate entry which may contain a different monitor build.
-On 2026-09-20, that entry had the optional GDB monitor and repeatedly cleared
-20 KiB of FIFO storage while GDB was disconnected. The same RAM guest went
-from 33–36% to about 11% CPU busy when only the GDB CDC DTR was asserted.
-The existing `SCR-SWV` build has GDB disabled and avoids that path. See
-[the investigation](performance-regression-20260920.md) for the repeated
-comparison, the FIFO fix, and its deployment status.
+After `reboot-rcm`, wait for the Switch to appear in RCM, then repeat the
+`nxboot` and `switchvisorctl deploy` commands above with entry `SCR-SWV`.
+Keep the GDB-disabled profile for ordinary use; select another profile explicitly
+when debugging the monitor.
 
 Rebuild the Scarlet console package and rerun `package-switchvisor.py` after
 changing the kernel or initramfs. The resulting bundle transfers the new
 images over USB; the SD debug entry does not need rewriting unless its BL33,
 boot script, overlay, or bootstack changed.
+
+## Custom Switchvisor builds
+
+To develop Switchvisor locally, override its flake input explicitly:
+
+```sh
+nix develop --accept-flake-config --no-write-lock-file \
+  --override-input switchvisor-src path:/path/to/switchvisor
+```
+
+Alternatively, pass an existing output from Switchvisor's `build-payload.sh`
+to `package-switchvisor.py --switchvisor-dist /path/to/distribution`. Its
+manifest selects the UART/network profile and must match the pinned bootstack
+and no-fallback settings. The normal Nix build records the public source commit
+in the package manifest; a custom build without source metadata records no
+revision.
+
+`nix build .#switchvisor` builds just the monitor, overlays and host utilities;
+`.#switchvisorctl` and `.#switchvisor-tool` select the same package. The EL2
+image is data under `share/switchvisor/`, not a host executable.

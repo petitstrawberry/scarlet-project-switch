@@ -35,8 +35,13 @@
     "root": {
       "inputs": {
         "nixpkgs": "nixpkgs",
+        "rust-overlay": [
+          "scarlet-rust-toolchain",
+          "rust-overlay"
+        ],
         "scarlet-rust-toolchain": "scarlet-rust-toolchain",
-        "scarlet-sdk": "scarlet-sdk"
+        "scarlet-sdk": "scarlet-sdk",
+        "switchvisor-src": "switchvisor-src"
       }
     },
     "rust-overlay": {
@@ -93,6 +98,23 @@
         "owner": "petitstrawberry",
         "repo": "scarlet-sdk",
         "rev": "116882ab42b48a23613d3d574e2c987aca277786",
+        "type": "github"
+      }
+    },
+    "switchvisor-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789921821,
+        "narHash": "sha256-BkRXGPdvPldaUMs9i6kCEim5btMvlSfdEl9AD+r6EGw=",
+        "owner": "petitstrawberry",
+        "repo": "switchvisor",
+        "rev": "62d18a6c87a7886a60ded785a57051132ad3af64",
+        "type": "github"
+      },
+      "original": {
+        "owner": "petitstrawberry",
+        "repo": "switchvisor",
+        "rev": "62d18a6c87a7886a60ded785a57051132ad3af64",
         "type": "github"
       }
     }

@@ -3,24 +3,39 @@ use scarlet_desktop_config::{
     DESKTOP_STEMD_BUS_NAME, DESKTOP_STEMD_INTERFACE,
     DESKTOP_STEMD_LIST_APPLICATIONS_WITH_ARTWORK_METHOD, DESKTOP_STEMD_OBJECT_PATH,
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 fn main() {
-    let content = b"console QA: ordinary writable initramfs Environment\n";
-    std::fs::write("/tmp/console-qa.txt", content).expect("write to normal tmpfs backing");
-    assert_eq!(std::fs::read("/tmp/console-qa.txt").unwrap(), content);
+    let content = b"console QA: writable ext2 root and temporary storage\n";
+    for path in ["/tmp/console-qa.txt", "/root/console-qa.txt"] {
+        std::fs::write(path, content).expect("write to normal Environment backing");
+        assert_eq!(std::fs::read(path).unwrap(), content);
+        std::fs::remove_file(path).unwrap();
+    }
     println!("CONSOLE_FILE_IO_PASS");
-    let mut bus = Connection::connect().expect("connect to the normal sbus service");
-    let catalog = bus
-        .call_method_timeout(
-            DESKTOP_STEMD_BUS_NAME,
-            DESKTOP_STEMD_OBJECT_PATH,
-            DESKTOP_STEMD_INTERFACE,
-            DESKTOP_STEMD_LIST_APPLICATIONS_WITH_ARTWORK_METHOD,
-            vec![],
-            5000,
-        )
-        .expect("query the real stemd application catalog");
+    let catalog_deadline = Instant::now() + Duration::from_secs(30);
+    let catalog = loop {
+        let result = Connection::connect().and_then(|mut bus| {
+            bus.call_method_timeout(
+                DESKTOP_STEMD_BUS_NAME,
+                DESKTOP_STEMD_OBJECT_PATH,
+                DESKTOP_STEMD_INTERFACE,
+                DESKTOP_STEMD_LIST_APPLICATIONS_WITH_ARTWORK_METHOD,
+                vec![],
+                1_000,
+            )
+        });
+        match result {
+            Ok(catalog) => break catalog,
+            Err(error) => {
+                assert!(
+                    Instant::now() < catalog_deadline,
+                    "query the real stemd application catalog: {error:?}"
+                );
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+    };
     let names: Vec<_> = catalog
         .chunks_exact(5)
         .filter_map(|fields| {

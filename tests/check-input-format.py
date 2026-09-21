@@ -2,17 +2,20 @@
 """Check Rust formatting for the coordinated input changes, without rewriting."""
 from pathlib import Path
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-SCARLET = ROOT.parent / "Scarlet"
-UI = ROOT.parent / "scarlet-ui"
+sys.path.insert(0, str(ROOT / "scripts"))
+from project_sources import source
 
 
 def main():
+    scarlet = source("scarlet")
+    ui = source("scarlet-ui")
     files = list((ROOT / "drivers").rglob("*.rs"))
     for crate in ("input-host", "input-fixture", "input-qa"):
         files.extend((ROOT / "tests" / crate / "src").rglob("*.rs"))
-    files.extend(SCARLET / path for path in (
+    files.extend(scarlet / path for path in (
         "kernel/src/device/mod.rs",
         "kernel/src/device/platform/mod.rs",
         "kernel/src/device/manager.rs",
@@ -29,7 +32,7 @@ def main():
         "user/std-bin/src/sws/window.rs",
         "user/std-bin/src/sws/gamepad.rs",
     ))
-    files.extend(UI / path for path in (
+    files.extend(ui / path for path in (
         "crates/scarlet-ui-core/src/application.rs",
         "crates/scarlet-ui-core/src/platform/mod.rs",
         "crates/scarlet-ui-core/src/lib.rs",

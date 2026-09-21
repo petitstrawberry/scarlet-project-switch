@@ -5,6 +5,7 @@ target/
 result
 result-*
 scarlet.local.toml
+/.cargo/config.toml
 __pycache__/
 *.py[cod]
 *.log

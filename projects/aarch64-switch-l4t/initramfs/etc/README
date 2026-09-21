@@ -1,2 +1,0 @@
-Scarlet Switch bring-up initramfs. /init prints a userspace arrival marker.
-The default Hekate entry stops at the BSP boot probe before userspace.

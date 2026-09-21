@@ -2,7 +2,7 @@
 set -eu
 task_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 if [ "${1:-}" = --help ]; then
-    echo "usage: $0 [menu|probe|kernel|ums-sd] <Hekate payload.bin>"
+    echo "usage: $0 [menu|console|switchvisor|ums-sd] <Hekate payload.bin>"
     exit 0
 fi
 mode=${1:-menu}
@@ -20,8 +20,8 @@ fi
 /usr/bin/codesign --verify --strict "$task_root/.cache/nxboot"
 case "$mode" in
     menu) set -- --hekate menu ;;
-    probe) set -- --hekate id SCR-NX ;;
-    kernel) set -- --hekate id SCR-NXK ;;
+    console) set -- --hekate id SCR-NXC ;;
+    switchvisor) set -- --hekate id SCR-SWV ;;
     ums-sd) set -- --hekate ums sd ;;
     *) echo "Unknown mode: $mode" >&2; exit 1 ;;
 esac

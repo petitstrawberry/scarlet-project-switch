@@ -14,7 +14,10 @@ use sws_client::{Connection, EventReceiver};
 use sws_protocol::gamepad::{RESET, State as GamepadState, button_bit};
 
 fn inject(records: &[(u16, u16, i32)]) {
-    let control = Handle::open("/dev/input-qa-control", 1).expect("open test-only input control");
+    inject_to("/dev/input-qa-control", records);
+}
+fn inject_to(path: &str, records: &[(u16, u16, i32)]) {
+    let control = Handle::open(path, 1).expect("open test-only input control");
     let mut bytes = Vec::new();
     for &(type_, code, value) in records {
         bytes.extend_from_slice(&0u64.to_le_bytes());
@@ -76,8 +79,7 @@ fn collect_until(
     }
 }
 fn is_held(state: &GamepadState) -> bool {
-    state.device_id == 0
-        && state.buttons == button_bit(0x131).unwrap()
+    state.buttons == button_bit(0x131).unwrap()
         && state.left_x == 32767
         && state.right_x == -32767
         && state.right_y == 32767
@@ -116,8 +118,6 @@ fn surface(connection: &Connection, name: &str) -> u32 {
     id
 }
 fn sws_checks() {
-    // Let the normal console shell finish its asynchronous initial creation.
-    std::thread::sleep(Duration::from_secs(3));
     let connection = Connection::connect_default().expect("connect to production SWS");
     assert!(
         connection
@@ -133,6 +133,28 @@ fn sws_checks() {
         );
         std::thread::sleep(Duration::from_millis(50));
     }
+    // Home presentation state exists before its asynchronous surface does.
+    // Wait for actual Home focus so late shell creation cannot steal focus.
+    let startup = surface(&connection, "Input QA startup");
+    press_button(0x13c);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        connection.dispatch().unwrap();
+        if connection.drain_events().iter().any(|event| {
+            matches!(event,
+                sws_client::Event::FocusChanged { app_id, .. }
+                if app_id == "org.scarlet-os.desktop.shell.console-home"
+            )
+        }) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "console Home surface did not become ready"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    connection.destroy_surface(startup).unwrap();
     let id = surface(&connection, "Input QA menu");
     let receiver = connection.subscribe_window_events(id);
     connection.set_gamepad_input(id, true, true).unwrap();
@@ -154,6 +176,17 @@ fn sws_checks() {
         has_gamepad(&events, id, is_held),
         "normalized snapshot missing: {events:?}"
     );
+    // Current SWS IDs identify reader instances across all device classes;
+    // they are not the reusable /dev/gamepadN index.
+    let device_id = events
+        .iter()
+        .find_map(|event| match event {
+            sws_client::Event::GamepadInput { state, .. } if is_held(state) => {
+                Some(state.device_id)
+            }
+            _ => None,
+        })
+        .unwrap();
     for code in [28, 106] {
         assert!(
             has_key(&events, code, 1),
@@ -201,10 +234,13 @@ fn sws_checks() {
     let second_receiver = connection.subscribe_window_events(second);
     snapshot(true);
     let events = collect_until(&connection, &second_receiver, |events| {
-        has_gamepad(events, second, is_held)
+        has_gamepad(events, second, |state| {
+            is_held(state) && state.device_id == device_id
+        })
     });
     assert!(
-        has_gamepad(&events, second, is_held),
+        has_gamepad(&events, second, |state| is_held(state)
+            && state.device_id == device_id),
         "new focus did not receive native state: {events:?}"
     );
     inject(&[(0, 3, 0)]);
@@ -263,15 +299,45 @@ fn ui_checks() {
     let ready = Arc::new(AtomicBool::new(false));
     let events = Arc::new(Mutex::new(Vec::new()));
     let input_ready = ready.clone();
+    let received = events.clone();
     let producer = std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(20);
         while !input_ready.load(Ordering::Acquire) {
             assert!(Instant::now() < deadline);
             std::thread::sleep(Duration::from_millis(10));
         }
-        std::thread::sleep(Duration::from_millis(300));
+        // This QA app is created directly, without a launcher activation token.
+        // Select its real surface before injecting seat-owned gamepad input.
+        let connection = Connection::connect_default().unwrap();
+        let window = connection
+            .get_window_list()
+            .unwrap()
+            .into_iter()
+            .find(|window| window.app_id == "org.scarlet-os.scarletui.input-qa")
+            .expect("ScarletUI QA surface missing");
+        connection.focus_window_any(window.window_id).unwrap();
+        assert!(
+            connection
+                .get_window_list()
+                .unwrap()
+                .iter()
+                .any(|entry| { entry.window_id == window.window_id && entry.focused }),
+            "ScarletUI QA did not receive focus"
+        );
         snapshot(true);
-        std::thread::sleep(Duration::from_millis(300));
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !received
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|event: &GamepadEvent| event.pressed(GamepadButton::East))
+        {
+            assert!(
+                Instant::now() < deadline,
+                "ScarletUI gamepad callback timed out"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
         snapshot(false);
     });
     UiInputApp {
@@ -294,6 +360,175 @@ fn ui_checks() {
     println!("INPUT_SCARLET_UI_PASS native_callback button_identity axes release");
 }
 
+fn touch_snapshot(contact: Option<(i32, i32, i32)>) {
+    let mut records = Vec::new();
+    for slot in 0..10 {
+        records.push((3, 0x2f, slot));
+        if slot == 0
+            && let Some((id, x, y)) = contact
+        {
+            records.extend([(3, 0x39, id), (3, 0x35, x), (3, 0x36, y)]);
+        } else {
+            records.push((3, 0x39, -1));
+        }
+    }
+    records.push((1, 0x14a, i32::from(contact.is_some())));
+    if let Some((_, x, y)) = contact {
+        records.extend([(3, 0, x), (3, 1, y)]);
+    }
+    records.push((0, 0, 0));
+    inject_to("/dev/touch-qa-control", &records);
+}
+
+fn touch_scroll_checks() {
+    use scarlet_ui::{
+        SWSPlatformWindow,
+        event::{Event, TouchPhase},
+        pipeline::RenderingPipeline,
+        views::ScrollViewRenderObject,
+    };
+
+    let connection = Connection::connect_default().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !connection
+        .get_input_environment()
+        .unwrap()
+        .has_direct_touch()
+    {
+        assert!(Instant::now() < deadline, "touchscreen discovery timed out");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert!(
+        connection
+            .get_capabilities()
+            .unwrap()
+            .supports_touch_input()
+    );
+    let mut window = SWSPlatformWindow::new(
+        "org.scarlet-os.touch-qa",
+        "Native touch scroll QA",
+        Size::new(1280.0, 720.0),
+    )
+    .unwrap();
+    window.set_fullscreen(true).unwrap();
+    let mut pipeline = RenderingPipeline::new();
+    pipeline.set_root(
+        ScrollView::new(Text::new("Swipe scroll QA"))
+            .content_size(1280.0, 3000.0)
+            .create_element(),
+    );
+    pipeline.layout_initial();
+    pipeline.resize(window.size());
+    // Present the actual UI surface before SWS hit-tests the injected contact.
+    let deadline = Instant::now() + Duration::from_millis(500);
+    while Instant::now() < deadline {
+        while let Some(event) = window.poll_event() {
+            if let Event::Resize { width, height } = event {
+                pipeline.resize(Size::new(width as f32, height as f32));
+            }
+            pipeline.handle_event(&event);
+        }
+        if let Some(buffer) = pipeline.render() {
+            window.present(buffer);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    connection.focus_window_any(window.surface_id()).unwrap();
+    connection.get_window_list().unwrap();
+
+    let offset = |pipeline: &RenderingPipeline| {
+        pipeline
+            .element_tree()
+            .root()
+            .unwrap()
+            .render_object()
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ScrollViewRenderObject<Text>>()
+            .unwrap()
+            .offset()
+            .1
+    };
+    let receive = |window: &mut SWSPlatformWindow,
+                   pipeline: &mut RenderingPipeline,
+                   phase: TouchPhase| {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(event) = window.poll_event() {
+                let observed = matches!(&event, Event::TouchFrame(frame)
+                    if frame.changes.iter().any(|change| change.phase == phase));
+                assert!(
+                    !matches!(
+                        event,
+                        Event::Mouse(
+                            MouseEvent::ButtonPressed { .. } | MouseEvent::ButtonReleased { .. }
+                        )
+                    ),
+                    "native touch emitted a button mirror: {event:?}"
+                );
+                pipeline.handle_event(&event);
+                if observed {
+                    return;
+                }
+            } else {
+                assert!(
+                    Instant::now() < deadline,
+                    "ScarletUI did not receive touch {phase:?}"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+    };
+    assert_eq!(offset(&pipeline), 0.0);
+    // A hardware producer does not wait for compositor/client round trips.
+    // Preserve physical sample timing even when software rendering is slow.
+    let producer = std::thread::spawn(|| {
+        touch_snapshot(Some((1, 640, 500)));
+        for y in [440, 380, 320] {
+            std::thread::sleep(Duration::from_millis(16));
+            touch_snapshot(Some((1, 640, y)));
+        }
+        touch_snapshot(None);
+    });
+    receive(&mut window, &mut pipeline, TouchPhase::Down);
+    receive(&mut window, &mut pipeline, TouchPhase::Up);
+    producer.join().unwrap();
+    let dragged = offset(&pipeline);
+    assert!(dragged >= 170.0, "finger drag did not scroll: {dragged}");
+    assert!(
+        pipeline.has_active_animation(),
+        "fling did not start momentum"
+    );
+    pipeline.advance_animations(Duration::from_millis(16));
+    let momentum = offset(&pipeline);
+    assert!(
+        momentum > dragged,
+        "released scroll did not continue: {dragged} -> {momentum}"
+    );
+
+    touch_snapshot(Some((2, 640, 400)));
+    receive(&mut window, &mut pipeline, TouchPhase::Down);
+    assert!(
+        !pipeline.has_active_animation(),
+        "new touch did not stop momentum"
+    );
+    inject_to("/dev/touch-qa-control", &[(0, 3, 0), (0, 0, 0)]);
+    receive(&mut window, &mut pipeline, TouchPhase::Cancel);
+    let cancelled = offset(&pipeline);
+    pipeline.advance_animations(Duration::from_millis(100));
+    assert_eq!(
+        offset(&pipeline),
+        cancelled,
+        "cancelled contact kept scrolling"
+    );
+    if let Some(buffer) = pipeline.render() {
+        window.present(buffer);
+    }
+    touch_snapshot(None);
+    window.close().unwrap();
+    println!("INPUT_TOUCH_SCROLL_PASS native_frame drag={dragged} momentum={momentum} cancel");
+}
+
 fn press_button(code: u16) {
     inject(&[(1, code, 1), (0, 0, 0)]);
     std::thread::sleep(Duration::from_millis(120));
@@ -305,7 +540,7 @@ fn wait_presentation(
     connection: &Connection,
     expected: sws_protocol::workspace::ShellPresentation,
 ) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let state = connection.get_workspace_state().unwrap();
         if state.presentation == expected {
@@ -328,12 +563,14 @@ fn console_shell_checks() {
     wait_presentation(&connection, ShellPresentation::Home);
     std::thread::sleep(Duration::from_millis(500));
 
-    // The real console catalog starts with Clock, then Files. A directional
+    // The full console catalog starts with Boxcraft, Clock, then Files. Directional
     // press must change the actual shell selection before Nintendo A launches.
-    inject(&[(3, 0x10, 1), (0, 0, 0)]);
-    std::thread::sleep(Duration::from_millis(120));
-    inject(&[(3, 0x10, 0), (0, 0, 0)]);
-    std::thread::sleep(Duration::from_millis(120));
+    for _ in 0..2 {
+        inject(&[(3, 0x10, 1), (0, 0, 0)]);
+        std::thread::sleep(Duration::from_millis(120));
+        inject(&[(3, 0x10, 0), (0, 0, 0)]);
+        std::thread::sleep(Duration::from_millis(120));
+    }
     press_button(0x131);
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -360,6 +597,7 @@ fn console_shell_checks() {
 
 fn main() {
     sws_checks();
+    touch_scroll_checks();
     ui_checks();
     console_shell_checks();
     println!("INPUT_QA_PASS");

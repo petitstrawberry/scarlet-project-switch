@@ -31,7 +31,7 @@ class SdInstallTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"existing recovery configuration")
         self.hashes = {}
-        for relative in ["switchroot/scarlet/uImage", "bootloader/ini/L4T-scarlet.ini"]:
+        for relative in ["switchroot/scarlet-console/uImage", "bootloader/ini/L4T-scarlet-console.ini"]:
             path = self.package / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"new Scarlet boot artifact")
@@ -49,8 +49,7 @@ class SdInstallTests(unittest.TestCase):
             argv.append("--console")
         if switchvisor:
             argv.append("--switchvisor")
-        with patch.object(sd, "PACKAGE", self.package), \
-                patch.object(sd, "CONSOLE_PACKAGE", self.package), \
+        with patch.object(sd, "CONSOLE_PACKAGE", self.package), \
                 patch.object(sd, "SWITCHVISOR_PACKAGE", self.package), \
                 patch.object(sd, "validate_mount", return_value="disk99s1"), \
                 patch("sys.argv", argv), contextlib.redirect_stdout(io.StringIO()):
@@ -59,7 +58,7 @@ class SdInstallTests(unittest.TestCase):
     def test_dry_run_and_verified_write_preserve_recovery_files(self):
         before = sd.protected_hashes(self.volume)
         self.invoke()
-        self.assertFalse((self.volume / "switchroot/scarlet").exists())
+        self.assertFalse((self.volume / "switchroot/scarlet-console").exists())
         self.invoke(write=True)
         for relative, expected in self.hashes.items():
             self.assertEqual(sd.digest(self.volume / relative), expected)
@@ -69,10 +68,10 @@ class SdInstallTests(unittest.TestCase):
         self.assertFalse(receipt["hardware_boot_validated"])
 
     def test_checksum_failure_precedes_any_write(self):
-        (self.package / "switchroot/scarlet/uImage").write_bytes(b"corrupted")
+        (self.package / "switchroot/scarlet-console/uImage").write_bytes(b"corrupted")
         with self.assertRaisesRegex(ValueError, "SHA256 mismatch"):
             self.invoke(write=True)
-        self.assertFalse((self.volume / "switchroot/scarlet").exists())
+        self.assertFalse((self.volume / "switchroot/scarlet-console").exists())
 
     def test_console_install_preserves_the_working_diagnostic_entry(self):
         diagnostic = ["switchroot/scarlet/uImage", "bootloader/ini/L4T-scarlet.ini"]
@@ -93,19 +92,35 @@ class SdInstallTests(unittest.TestCase):
         for relative, expected in self.hashes.items():
             self.assertEqual(sd.digest(self.volume / relative), expected)
         # A console package cannot smuggle in a write to the known-good entry.
+        (self.package / diagnostic[0]).parent.mkdir(parents=True, exist_ok=True)
+        (self.package / diagnostic[0]).write_bytes(b"unexpected diagnostic artifact")
         self.hashes[diagnostic[0]] = sd.digest(self.package / diagnostic[0])
         self.manifest()
         with self.assertRaisesRegex(ValueError, "unexpected package destination"):
             self.invoke(write=True, console=True)
 
     def test_rejects_recovery_destination_and_path_traversal(self):
-        for relative in ["bootloader/hekate_ipl.ini", "switchroot/scarlet/../../escape"]:
+        for relative in ["bootloader/hekate_ipl.ini", "switchroot/scarlet-console/../../escape"]:
             with self.subTest(relative=relative):
                 self.hashes = {relative: hashlib.sha256(b"payload").hexdigest()}
                 self.manifest()
                 with self.assertRaises(ValueError):
                     self.invoke(write=True)
+        self.assertFalse((self.volume / "switchroot/scarlet-console").exists())
+
+    def test_default_console_preserves_switchvisor_without_legacy_probe(self):
+        existing = ["bootloader/ini/L4T-scarlet-switchvisor.ini",
+                    "switchroot/scarlet-switchvisor/bl33.bin"]
+        for relative in existing:
+            path = self.volume / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"existing Switchvisor artifact")
+        self.invoke(write=True)
         self.assertFalse((self.volume / "switchroot/scarlet").exists())
+        for relative in existing:
+            self.assertEqual((self.volume / relative).read_bytes(), b"existing Switchvisor artifact")
+        for relative, expected in self.hashes.items():
+            self.assertEqual(sd.digest(self.volume / relative), expected)
 
     def test_switchvisor_install_preserves_existing_scarlet_entries(self):
         existing = [
