@@ -118,12 +118,20 @@ fn probe(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
     {
         return Err("unexpected SE/entropy clocks");
     }
-    // Physical AHB descriptors require identity DMA. Do not reprogram an
-    // inherited SMMU or disturb the other engines' memory mappings.
+    // Physical descriptors require the SE clients to bypass translation.
+    // Check their ASID enable bits directly: MC_SMMU_CONFIG is TrustZone-owned
+    // and can read as all ones from the non-secure kernel, even with both SE
+    // clients in bypass. Do not change global SMMU or other clients' mappings.
     let mc = Mmio::map(0x70019000, 0x1000)?;
-    let smmu = mc.read(0x10);
-    if smmu == u32::MAX || (smmu & 1 != 0 && (mc.read(0xabc) | mc.read(0xac8)) & (1 << 31) != 0) {
-        return Err("SE inherited SMMU translation is unsupported");
+    let se_asid = mc.read(0xabc);
+    let se1_asid = mc.read(0xac8);
+    if (se_asid | se1_asid) & (1 << 31) != 0 {
+        scarlet::println!(
+            "tegra210-se-rng: DMA unavailable: se_asid={:#010x} se1_asid={:#010x}",
+            se_asid,
+            se1_asid
+        );
+        return Err("SE clients are not in physical DMA bypass");
     }
     enable_se_clocks(provider)?;
     let regs = Mmio::map(resource.start, resource.size()?)?;
