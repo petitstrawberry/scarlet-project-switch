@@ -17,7 +17,7 @@ import zlib
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "projects/aarch64-switch-console"
+PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
 
 
 def require(condition, message):
@@ -78,7 +78,7 @@ def prepare(source, output, dtimg, overlay):
     require("load mmc" not in boot, "boot script still loads from SD")
 
     spec = importlib.util.spec_from_file_location(
-        "package_l4t", ROOT / "projects/aarch64-switch-l4t/tools/package_l4t.py"
+        "package_l4t", PROJECT / "tools/package_l4t.py"
     )
     package = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(package)
@@ -164,6 +164,6 @@ if __name__ == "__main__":
     parser.add_argument("output", type=Path)
     parser.add_argument("--dtimg", type=Path, default=PROJECT / ".scarlet/bootstack/nx-plat.dtimg")
     parser.add_argument("--overlay", type=Path,
-                        default=ROOT.parent / "switchvisor/.cache/scarlet-uart/usb-uart.dtbo")
+                        default=PROJECT / ".scarlet/switchvisor/switchroot/scarlet-switchvisor/usb-uart.dtbo")
     args = parser.parse_args()
     prepare(args.source_bundle.resolve(), args.output.resolve(), args.dtimg.resolve(), args.overlay.resolve())

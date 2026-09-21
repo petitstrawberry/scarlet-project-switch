@@ -10,4 +10,4 @@ path = "src/lib.rs"
 [dependencies]
 maxwell-shader-pack = { path = "../../shared/maxwell-shader-pack" }
 maxwell-submit-wire = { path = "../../shared/maxwell-submit-wire" }
-sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "5ea41a0dfd6992bb1c0fce06c8e65425dc978140", default-features = false }
+sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "ddf00563c617a30bbf64fa5dbe8152c852d493f9", default-features = false }

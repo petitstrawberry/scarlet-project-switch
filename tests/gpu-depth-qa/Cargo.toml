@@ -7,8 +7,8 @@ license = "GPL-2.0-only"
 [dependencies]
 sgfx-codegen-maxwell = { path = "../../userspace/sgfx-codegen-maxwell" }
 maxwell-submit-wire = { path = "../../shared/maxwell-submit-wire" }
-sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "5ea41a0dfd6992bb1c0fce06c8e65425dc978140", default-features = false }
+sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "ddf00563c617a30bbf64fa5dbe8152c852d493f9", default-features = false }
 
 [target.'cfg(target_os = "scarlet")'.dependencies]
-gpu-raw = { path = "../../../Scarlet/user/lib/gpu-raw", default-features = false, features = ["std"] }
-scarlet-os = { path = "../../../Scarlet/user/lib/scarlet-os", default-features = false, features = ["std"] }
+gpu-raw = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e027956300006bd8a41c42691c6925c63039fd43", default-features = false, features = ["std"] }
+scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e027956300006bd8a41c42691c6925c63039fd43", default-features = false, features = ["std"] }

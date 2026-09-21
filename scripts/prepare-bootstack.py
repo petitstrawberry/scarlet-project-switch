@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "projects/aarch64-switch-l4t"
+PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

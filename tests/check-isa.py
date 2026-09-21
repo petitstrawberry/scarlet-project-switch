@@ -8,13 +8,13 @@ import re
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "projects/aarch64-switch-l4t"
+PROJECT = ROOT / "tests/boot-probe"
 LSE = re.compile(r"(?:cas[p]?|swp|ld(?:add|clr|eor|set|smax|smin|umax|umin)|st(?:add|clr|eor|set|smax|smin|umax|umin))(?:a|al|l)?(?:b|h)?")
 
 
-def packaged_elves(project, boot_directory):
+def packaged_elves(boot):
     # Inspect the actual bytes passed to the kernel, not a separate Cargo build.
-    data = (project / ".scarlet/l4t/switchroot" / boot_directory / "initramfs").read_bytes()[64:]
+    data = (boot / "initramfs").read_bytes()[64:]
     position = 0
     while True:
         header = data[position:position + 110]
@@ -48,13 +48,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--console", action="store_true", help="check every executable in the actual SWS console RAMDisk")
     args = parser.parse_args()
-    project = ROOT / "projects/aarch64-switch-console" if args.console else PROJECT
-    boot_directory = "scarlet-console" if args.console else "scarlet"
+    project = ROOT / "projects/aarch64-switch-l4t-console" if args.console else PROJECT
+    boot = project / (".scarlet/l4t/switchroot/scarlet-console" if args.console else ".scarlet/boot")
     cache = ROOT / ".cache"
     cache.mkdir(exist_ok=True)
     results = [inspect(project / "bsp/target/aarch64-switch-none-elf/release/scarlet")]
     found_init = False
-    for name, elf in packaged_elves(project, boot_directory):
+    for name, elf in packaged_elves(boot):
         if not args.console and name != "init":
             continue
         if len(elf) < 64 or elf[7] != 0x53:

@@ -5,7 +5,7 @@ edition = "2024"
 license = "GPL-2.0-only"
 
 [target.'cfg(target_os = "none")'.dependencies]
-scarlet = { path = "../../../../Scarlet/kernel", default-features = false, features = ["network"] }
+scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e027956300006bd8a41c42691c6925c63039fd43", default-features = false, features = ["network"] }
 scarlet-driver-tegra210 = { path = "../../soc/tegra210" }
 fdt = "0.1.5"
 maxwell-shader-pack = { path = "../../../shared/maxwell-shader-pack" }

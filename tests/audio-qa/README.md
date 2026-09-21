@@ -15,7 +15,7 @@ Build with the same userspace sysroot/configuration as the console project:
 nix develop --command sh -c '
   unset CARGO_UNSTABLE_BUILD_STD CARGO_UNSTABLE_BUILD_STD_FEATURES
   CARGO_TARGET_DIR=.cache/audio-qa-target cargo build \
-    --config projects/aarch64-switch-console/.cargo/userspace.toml \
+    --config projects/aarch64-switch-l4t-console/.scarlet/userspace.toml \
     --manifest-path tests/audio-qa/Cargo.toml \
     --target aarch64-unknown-scarlet --release
 '

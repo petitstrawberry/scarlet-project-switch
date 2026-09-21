@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Install only Scarlet FAT32 boot files on the SD described by the handoff.
 
-Defaults to a dry run. Validates the current disk layout via diskutil; never
+Defaults to a console dry run. Validates the current disk layout via diskutil; never
 opens a raw device or formats a filesystem. --l4t installs the two current
 entries and removes the named obsolete L4T menu files, retaining their data.
 """
@@ -15,9 +15,8 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = ROOT / "projects/aarch64-switch-l4t/.scarlet/l4t"
-CONSOLE_PACKAGE = ROOT / "projects/aarch64-switch-console/.scarlet/l4t"
-SWITCHVISOR_PACKAGE = ROOT / "projects/aarch64-switch-console/.scarlet/switchvisor"
+CONSOLE_PACKAGE = ROOT / "projects/aarch64-switch-l4t-console/.scarlet/l4t"
+SWITCHVISOR_PACKAGE = ROOT / "projects/aarch64-switch-l4t-console/.scarlet/switchvisor"
 EXPECTED_BYTES = 123773911040
 EXPECTED_PARTITIONS = {1: 105054208 * 512, 2: 32 * 1024**3,
                        3: 61143040 * 512, 4: 4 * 1024**3}
@@ -74,10 +73,10 @@ def main():
     parser.add_argument("--mount", type=Path, required=True, help='e.g. "/Volumes/SWITCH SD"; rediscover the current SD')
     parser.add_argument("--write", action="store_true", help="copy the verified files (default: dry run)")
     profile = parser.add_mutually_exclusive_group()
-    profile.add_argument("--console", action="store_true", help="install the SWS console entry instead of the diagnostic entry")
+    profile.add_argument("--console", action="store_true", help="install the SWS console entry (default)")
     profile.add_argument("--switchvisor", action="store_true", help="install the USB UART/control entry")
     profile.add_argument("--l4t", action="store_true",
-                         help="install switchvisor + scarlet (console) and remove obsolete L4T menu entries")
+                         help="install switchvisor + scarlet and remove obsolete L4T menu entries")
     args = parser.parse_args()
     mount = args.mount.resolve(strict=True)
     device = validate_mount(mount)
@@ -90,21 +89,19 @@ def main():
         package = SWITCHVISOR_PACKAGE
         boot_directory = "scarlet-switchvisor"
         entry_file = "L4T-scarlet-switchvisor.ini"
-        protected = PROTECTED + [
+        protected = PROTECTED + [p for p in (
             "bootloader/ini/L4T-scarlet.ini", "switchroot/scarlet",
             "bootloader/ini/L4T-scarlet-console.ini", "switchroot/scarlet-console",
             "switchroot/scarlet-console-logs",
-        ]
-    elif args.console:
+        ) if (mount / p).exists()]
+    else:
         package = CONSOLE_PACKAGE
         boot_directory = "scarlet-console"
         entry_file = "L4T-scarlet-console.ini"
-        protected = PROTECTED + ["bootloader/ini/L4T-scarlet.ini", "switchroot/scarlet"]
-    else:
-        package = PACKAGE
-        boot_directory = "scarlet"
-        entry_file = "L4T-scarlet.ini"
-        protected = PROTECTED
+        protected = PROTECTED + [p for p in (
+            "bootloader/ini/L4T-scarlet.ini", "switchroot/scarlet",
+            "bootloader/ini/L4T-scarlet-switchvisor.ini", "switchroot/scarlet-switchvisor",
+        ) if (mount / p).exists()]
     manifest = json.loads((package / "manifest.json").read_text())
     packages = [(package, manifest, boot_directory, entry_file)]
     if args.l4t:
@@ -114,11 +111,7 @@ def main():
     installed_hashes = {}
     for package, manifest, boot_directory, entry_file in packages:
         for relative, expected in manifest["sha256"].items():
-            diagnostic = args.console and relative in {
-                f"switchroot/scarlet-console-logs/{name}"
-                for name in ("bl31.bin", "bl33.bin", "nx-plat.dtimg", "boot.scr")
-            }
-            if relative != f"bootloader/ini/{entry_file}" and not relative.startswith(f"switchroot/{boot_directory}/") and not diagnostic:
+            if relative != f"bootloader/ini/{entry_file}" and not relative.startswith(f"switchroot/{boot_directory}/"):
                 raise ValueError(f"unexpected package destination: {relative}")
             path = Path(relative)
             if path.is_absolute() or ".." in path.parts: raise ValueError("invalid destination path")

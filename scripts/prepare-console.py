@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
-"""Reuse Scarlet's normal base, CLI and desktop layers for a RAM-only console."""
+"""Prepare pinned sources, firmware and bootstack for the SD-root console."""
 import hashlib
 import json
-import os
+import argparse
 from pathlib import Path
-import shlex
-import shutil
 import subprocess
 import sys
 import tomllib
+from project_sources import pins, prepare, refresh_pinned_dependencies
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "projects/aarch64-switch-console"
-SCARLET = ROOT.parent / "Scarlet"
-DESKTOP_BINS = {
-    "scarlet-desktop", "desktop-settings", "files", "notepad", "scarlet-shell",
-    "terminal", "sws", "sas", "sasctl", "settings", "task-manager", "clock",
-    "sgfx-probe", "sgfx-cube", "sgfx-showcase", "ui-sgfx-showcase", "ui-benchmark",
-}
+PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
 
 
 def value(item):
@@ -32,33 +25,49 @@ def value(item):
     return str(item)
 
 
-def flatten(path):
+def full_layers(path, sources):
+    """Retain the complete upstream distribution with this project's source pins."""
     for original in tomllib.loads(path.read_text())["layers"]:
         layer = dict(original)
         if layer["kind"] == "bundle":
-            yield from flatten((path.parent / layer["path"]).resolve())
+            yield from full_layers((path.parent / layer["path"]).resolve(), sources)
             continue
-        if path.parent.name == "desktop":
-            if layer["kind"] == "cargo" and layer.get("bin") not in DESKTOP_BINS:
-                continue
-            if layer["kind"] == "script":
-                continue
         source = layer.get("source")
         if isinstance(source, str):
             layer["source"] = str((path.parent / source).resolve())
+        elif isinstance(source, dict) and source.get("git", "").removesuffix(".git") in sources:
+            layer["source"] = str(sources[source["git"].removesuffix(".git")])
         yield layer
 
 
 def main():
-    sgfx = Path(os.environ.get("SCARLET_SGFX_SOURCE", ROOT.parent / "sgfx")).resolve()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--published", action="store_true",
+                        help="ignore local source overrides and use the public pins")
+    args = parser.parse_args()
+    if args.published and (PROJECT / "scarlet.local.toml").exists():
+        parser.error("published builds require removing the project's scarlet.local.toml override")
+    checkouts = prepare(published=args.published)
+    sgfx = checkouts["sgfx"]
     sgfx_manifest = tomllib.loads((sgfx / "crates/sgfx/Cargo.toml").read_text())
     if "backend-scarlet-maxwell" not in sgfx_manifest.get("features", {}).get("default", []):
         raise SystemExit(
             f"SGFX checkout {sgfx} does not enable the Maxwell backend; "
-            "set SCARLET_SGFX_SOURCE to a compatible checkout"
+            "select a compatible pinned revision or an explicit local source override"
         )
     subprocess.run([sys.executable, str(ROOT / "scripts/verify-maxwell-shaders.py")], check=True)
     subprocess.run([sys.executable, str(ROOT / "scripts/prepare-gm20b-firmware.py")], check=True)
+    sources = {pin["git"].removesuffix(".git"): checkouts[name] for name, pin in pins().items()}
+    bundles = checkouts["scarlet"] / "bundles"
+    for name, inputs in {
+        "initramfs": [bundles / "base/bundle.toml", bundles / "cli-utils/bundle.toml"],
+        "full": [bundles / "full/bundle.toml", PROJECT / "bundles/nvdec-player.toml"],
+    }.items():
+        # Canonical paths avoid treating a source symlink and its destination
+        # as two separate Cargo packages in the same dependency graph.
+        layers = [layer for path in inputs for layer in full_layers(path, sources)]
+        text = "\n\n".join("[[layers]]\n" + "\n".join(f"{key} = {value(item)}" for key, item in layer.items()) for layer in layers)
+        (PROJECT / f".scarlet/{name}-bundle.toml").write_text(text + "\n")
     cache = PROJECT / ".scarlet/cache"
     cargo_home = cache / "cargo-home"
     cargo_home.mkdir(parents=True, exist_ok=True)
@@ -75,42 +84,15 @@ def main():
         shared = Path.home() / ".cargo" / name
         if not link.exists() and shared.exists():
             link.symlink_to(shared, target_is_directory=True)
-    layers = list(flatten(SCARLET / "bundles/desktop/bundle.toml"))
-    layers.append({"kind": "copy", "source": str(PROJECT / ".scarlet/gm20b-firmware"), "to": "/"})
-    # Keep the original desktop assets and configuration, including the
-    # resident Files service. Catalog entries and optional services must match
-    # the applications actually installed by this first RAM-only image.
-    desktop_source = SCARLET / "bundles/desktop/fs"
-    desktop_fs = PROJECT / ".scarlet/desktop-fs"
-    if desktop_fs.exists():
-        shutil.rmtree(desktop_fs)
-    shutil.copytree(desktop_source, desktop_fs)
-    installed = {layer["to"] for layer in layers if layer["kind"] == "cargo"}
-    for entry in (desktop_fs / "etc/stemd.d/apps").glob("*.desktop"):
-        commands = [line.split("=", 1)[1] for line in entry.read_text().splitlines() if line.startswith("Exec=")]
-        if commands and shlex.split(commands[0])[0] not in installed:
-            entry.unlink()
-    for entry in (desktop_fs / "etc/stemd.d/services").glob("*.toml"):
-        # stemd accepts legacy order = 01 syntax, which strict TOML rejects.
-        commands = [shlex.split(line.split("=", 1)[1].strip())[0]
-                    for line in entry.read_text().splitlines()
-                    if line.split("=", 1)[0].strip() == "exec"]
-        if any(shlex.split(command)[0] not in installed for command in commands):
-            entry.unlink()
-    for layer in layers:
-        if layer["kind"] == "copy" and layer["source"] == str(desktop_source):
-            layer["source"] = str(desktop_fs)
-    text = "\n\n".join("[[layers]]\n" + "\n".join(f"{key} = {value(item)}" for key, item in layer.items()) for layer in layers)
-    (PROJECT / ".scarlet/console-bundle.toml").write_text(text + "\n")
-    pins = json.loads((PROJECT / "bootstack.json").read_text())["files"]
+    for checkout in checkouts.values():
+        refresh_pinned_dependencies(checkout, PROJECT / ".scarlet/userspace.toml")
+    bootstack_pins = json.loads((PROJECT / "bootstack.json").read_text())["files"]
     stack = PROJECT / ".scarlet/bootstack"
-    stack.mkdir(parents=True, exist_ok=True)
-    for name, expected in pins.items():
-        source = ROOT / "projects/aarch64-switch-l4t/.scarlet/bootstack" / name
+    for name, expected in bootstack_pins.items():
+        source = stack / name
         if not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != expected:
             raise SystemExit("import the pinned Noble bootstack with scripts/prepare-bootstack.py first")
-        shutil.copyfile(source, stack / name)
-    print(f"Prepared {len(layers)} normal distribution layers")
+    print("Prepared base + CLI initramfs and full SD rootfs dependencies")
 
 
 if __name__ == "__main__":

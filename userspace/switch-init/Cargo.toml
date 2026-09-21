@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-scarlet-std = { path = "../../../Scarlet/user/lib/std" }
+scarlet-std = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e027956300006bd8a41c42691c6925c63039fd43" }

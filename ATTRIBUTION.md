@@ -5,9 +5,13 @@ external board projects. Firmware and tools imported into generated state
 retain their own licenses; this repository does not include their binaries.
 
 - [Scarlet](https://github.com/petitstrawberry/Scarlet), kernel/runtime interfaces
-  and Linux Image bootstrap, host checkout `85f0cead4cb4c9add021360f1b469f08bf0d23a9`.
+  and Linux Image bootstrap; source revisions are pinned in
+  [source-pins.toml](source-pins.toml).
 - [Scarlet Chromebook project](https://github.com/petitstrawberry/scarlet-project-chromebook),
   external repository layout and Nix/SDK conventions.
+- [Switchvisor](https://github.com/petitstrawberry/switchvisor), GPL-2.0-only EL2
+  monitor, USB control CLI and image tools; public revision pinned in
+  [flake.lock](flake.lock).
 - [Hekate 6.5.3 L4T source](https://github.com/CTCaer/hekate/blob/v6.5.3/bootloader/l4t/l4t.c),
   BL31/BL33 handoff and environment contract.
 - [Switchroot bootstack documentation](https://wiki.switchroot.org/wiki/linux/linux-bootstack-documentation)
@@ -27,7 +31,7 @@ retain their own licenses; this repository does not include their binaries.
   `dbdbaccc464367abeff6ecd3792b90442b0cf17b08e1690bbfa9090b4d59560e`.
 - Rust crates `fdt` (MPL-2.0) and `font8x8` (MIT), resolved in the BSP Cargo lockfile.
 - Switchroot's GPL-2.0 RT5639 codec, Icosa speaker EQ/limiter, Tegra ADMA,
-  I2S and clock sequencing references are pinned in [audio bring-up](docs/audio-bringup.md).
+  I2S and clock sequencing references are pinned in [speaker audio](docs/audio.md).
   Original codec/EQ authors: Realtek Semiconductor, NVIDIA and CTCaer.
 
 The distributed Noble BL33 was inspected directly. The cited U-Boot source

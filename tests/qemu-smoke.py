@@ -17,7 +17,7 @@ import time
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "projects/aarch64-switch-l4t"
+PROJECT = ROOT / "tests/boot-probe"
 OUT = ROOT / ".cache/qa"
 FB_BASE = 0xb0000000
 FB_SIZE = 720 * 1280 * 4
@@ -159,7 +159,7 @@ def run(name, el1=False, kernel=False, framebuffer=True, invalid_stride=False, i
     (case / "entry.o").unlink(missing_ok=True)
     subprocess.run(["aarch64-unknown-linux-gnu-as", f"--defsym=ENTER_EL1={int(el1)}", str(ROOT / "tests/entry.S"), "-o", str(case / "entry.o")], check=True)
     subprocess.run(["llvm-objcopy", "-O", "binary", str(case / "entry.o"), str(case / "entry.bin")], check=True)
-    boot = PROJECT / ".scarlet/l4t/switchroot/scarlet"
+    boot = PROJECT / ".scarlet/boot"
     image = case / "Image"
     image.write_bytes(gzip.decompress(legacy_payload(boot / "uImage", 2, 1)))
     assert image.read_bytes() == (boot / "Image").read_bytes(), "packaged uImage differs from raw Image"

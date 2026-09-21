@@ -1,0 +1,29 @@
+# Upstream dependency revisions. Local source patches are not supported.
+[scarlet]
+git = "https://github.com/petitstrawberry/Scarlet"
+rev = "b3d2a55740a3d2ca49daad0ec7baba233f706f7a"
+
+[sgfx]
+git = "https://github.com/petitstrawberry/sgfx"
+rev = "49fa00da35a6ea416c99207b49ba7aee480d6985"
+
+[scarlet-ui]
+git = "https://github.com/petitstrawberry/scarlet-ui"
+rev = "e6e00f11c95de371057899ec05b7a832d04adc7f"
+
+[scarlet-project-chromebook]
+git = "https://github.com/petitstrawberry/scarlet-project-chromebook"
+rev = "bbda822ca72d7a5a7391c543e4accc21fda15fa5"
+
+[moonlight-scarlet]
+git = "https://github.com/petitstrawberry/moonlight-scarlet"
+rev = "6665716efa09d9a87d50f82705475e5a5d6d6cc7"
+
+[yt-for-scarlet]
+git = "https://github.com/petitstrawberry/yt-for-scarlet"
+rev = "660b9d82dfa6dc5b434b9ac662de3e4e6009f6b8"
+
+[blitz]
+git = "https://github.com/petitstrawberry/blitz"
+# The Scarlet port is maintained on the scarlet branch.
+rev = "808409712e7f77ac1cf8f00f3a43d15af574d95b"

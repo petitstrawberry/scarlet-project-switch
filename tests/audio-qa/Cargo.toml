@@ -5,4 +5,4 @@ edition = "2024"
 license = "GPL-2.0-only"
 
 [dependencies]
-sas-client = { path = "../../../Scarlet/user/lib/sas-client" }
+sas-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e027956300006bd8a41c42691c6925c63039fd43" }

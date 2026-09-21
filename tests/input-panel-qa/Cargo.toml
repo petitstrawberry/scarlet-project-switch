@@ -1,0 +1,10 @@
+[package]
+name = "input-panel-qa"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e027956300006bd8a41c42691c6925c63039fd43", default-features = false, features = ["std"] }
+sws-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e027956300006bd8a41c42691c6925c63039fd43", default-features = false, features = ["std"] }
+sws-protocol = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e027956300006bd8a41c42691c6925c63039fd43", default-features = false, features = ["std"] }
