@@ -34,28 +34,35 @@ class SourceTests(unittest.TestCase):
             ["git", "-C", str(self.upstream), "rev-parse", "HEAD"], text=True).strip()
         (self.root / "source-pins.toml").write_text(
             f'[scarlet]\ngit = "{self.upstream.as_posix()}"\nrev = "{self.rev}"\n')
-        self.override = Path(self.temp.name) / "local-source"
-        self.override.mkdir()
-        (self.root / "source-paths.local.toml").write_text(
-            '[paths]\nscarlet = "../local-source"\n')
         self.patch_root = patch.object(sources, "ROOT", self.root)
         self.patch_root.start()
         self.addCleanup(self.patch_root.stop)
 
-    def test_published_resolution_ignores_explicit_local_override(self):
-        self.assertEqual(sources.source("scarlet"), self.override.resolve())
-        public = sources.source("scarlet", published=True)
+    def test_pinned_resolution_uses_the_recorded_upstream_commit(self):
+        public = sources.source("scarlet")
         self.assertTrue(public.is_relative_to(self.root))
         self.assertEqual((public / "source.txt").read_text(), "published source")
-        self.assertNotEqual(public.resolve(), self.override.resolve())
+
+    def test_local_source_override_is_rejected(self):
+        (self.root / "source-paths.local.toml").write_text(
+            '[paths]\nscarlet = "../local-source"\n')
+        with self.assertRaisesRegex(ValueError, "no longer supported"):
+            sources.source("scarlet")
+        self.assertFalse((self.root / ".cache").exists())
 
     def test_cached_pin_is_reusable_offline_but_rejects_tracked_edits(self):
-        public = sources.source("scarlet", published=True)
+        public = sources.source("scarlet")
         self.upstream.rename(self.upstream.with_name("offline"))
-        self.assertEqual(sources.source("scarlet", published=True), public)
+        self.assertEqual(sources.source("scarlet"), public)
         (public / "source.txt").write_text("unexpected edit")
         with self.assertRaisesRegex(ValueError, "cached source differs"):
-            sources.source("scarlet", published=True)
+            sources.source("scarlet")
+
+    def test_untracked_source_additions_are_rejected(self):
+        public = sources.source("scarlet")
+        (public / "panel.rs").write_text("pub const PANEL: bool = true;\n")
+        with self.assertRaisesRegex(ValueError, "cached source differs"):
+            sources.source("scarlet")
 
     def test_existing_user_cargo_config_is_preserved(self):
         config = self.root / ".cargo/config.toml"
@@ -65,73 +72,47 @@ class SourceTests(unittest.TestCase):
             sources.write_generated(config, sources.GENERATED + "[env]\n")
         self.assertEqual(config.read_text(), "[build]\njobs = 2\n")
 
-    def test_cargo_can_update_generated_path_patch_lock_entries(self):
-        public = sources.source("scarlet", published=True)
-        (public / "Cargo.lock").write_text("# resolved local path patches\n")
-        self.assertEqual(sources.source("scarlet", published=True), public)
+    def test_target_lockfile_resolution_does_not_allow_source_changes(self):
+        public = sources.source("scarlet")
+        (public / "Cargo.lock").write_text("# target-specific dependency resolution\n")
+        self.assertEqual(sources.source("scarlet"), public)
         (public / "source.txt").write_text("unexpected source edit")
         with self.assertRaisesRegex(ValueError, "cached source differs"):
-            sources.source("scarlet", published=True)
+            sources.source("scarlet")
 
-    def test_dependency_refresh_only_unlocks_patched_packages(self):
-        (self.root / "Cargo.toml").write_text('[package]\nname = "app"\nversion = "0.1.0"\n')
-        (self.root / "Cargo.lock").write_text('''[[package]]
-name = "scarlet-ui"
-version = "0.1.0"
-source = "git+https://example.invalid/ui.git?branch=main#old"
-[[package]]
-name = "unrelated"
-version = "0.2.0"
-source = "git+https://example.invalid/other#unchanged"
-[[package]]
-name = "local-library"
-version = "1.0.0"
-''')
-        config = self.root / "userspace.toml"
-        config.write_text('[patch."https://example.invalid/ui"]\nscarlet-ui = { path = "new-ui" }\n')
-        with patch.object(sources.subprocess, "run") as run:
-            sources.refresh_pinned_dependencies(self.root, config)
-        run.assert_called_once_with([
-            "cargo", "--config", str(config), "update", "-p",
-            "https://example.invalid/ui.git#scarlet-ui@0.1.0",
-        ], cwd=self.root, check=True)
-
-    def test_recorded_port_patch_is_applied_and_unexpected_edits_are_rejected(self):
-        (self.upstream / "source.txt").write_text("published source with compatibility fix")
-        port_patch = subprocess.check_output(
-            ["git", "-C", str(self.upstream), "diff", "--binary", "HEAD"], text=True)
-        (self.root / "compat.patch").write_text(port_patch)
+    def test_local_patch_declarations_are_rejected_before_fetch(self):
         with (self.root / "source-pins.toml").open("a") as manifest:
             manifest.write('patch = "compat.patch"\n')
-        public = sources.source("scarlet", published=True)
-        self.assertEqual((public / "source.txt").read_text(),
-                         "published source with compatibility fix")
-        self.assertEqual(sources.source("scarlet", published=True), public)
-        (public / "source.txt").write_text("unrecorded edit")
-        with self.assertRaisesRegex(ValueError, "cached source differs"):
-            sources.source("scarlet", published=True)
+        with self.assertRaisesRegex(ValueError, "local source patches are not supported"):
+            sources.source("scarlet")
+        self.assertFalse((self.root / ".cache").exists())
 
-    def test_port_patch_additions_are_reusable_and_verified(self):
-        (self.upstream / "panel.rs").write_text("pub const PANEL: bool = true;\n")
-        subprocess.run(["git", "-C", str(self.upstream), "add", "--intent-to-add",
-                        "panel.rs"], check=True)
-        port_patch = subprocess.check_output(
-            ["git", "-C", str(self.upstream), "diff", "--binary", "HEAD"], text=True)
-        (self.root / "panel.patch").write_text(port_patch)
+    def test_preparation_removes_old_generated_dependency_overrides(self):
         with (self.root / "source-pins.toml").open("a") as manifest:
-            manifest.write('patch = "panel.patch"\n')
-        public = sources.source("scarlet", published=True)
-        self.assertEqual(sources.source("scarlet", published=True), public)
-        self.assertEqual((public / "panel.rs").read_text(), "pub const PANEL: bool = true;\n")
-        (public / "panel.rs").write_text("unexpected source edit\n")
-        with self.assertRaisesRegex(ValueError, "cached source differs"):
-            sources.source("scarlet", published=True)
+            manifest.write(f'[scarlet-ui]\ngit = "{self.upstream.as_posix()}"\nrev = "{self.rev}"\n')
+        config = self.root / ".cargo/config.toml"
+        sources.write_generated(config, sources.GENERATED +
+                                '[patch."https://example.invalid/ui"]\nui = { path = "old" }\n')
+        project = self.root / "project"
+        with patch.object(sources, "PROJECT", project):
+            checkouts = sources.prepare()
+        generated = tomllib.loads(config.read_text())
+        self.assertEqual(set(generated), {"env", "target"})
+        self.assertEqual(generated["env"]["SCARLET_UI_SOURCE"]["value"], str(checkouts["scarlet-ui"]))
+        self.assertEqual(config.read_text(), (project / ".scarlet/userspace.toml").read_text())
 
 
 class PublishedManifestTests(unittest.TestCase):
+    def test_no_local_patch_files_or_declarations_remain(self):
+        self.assertFalse(list((ROOT / "patches").rglob("*")))
+        for pin in sources.pins().values():
+            self.assertEqual(set(pin), {"git", "rev"})
+            self.assertTrue(pin["git"].startswith("https://github.com/"))
+
     def test_cargo_and_kernel_sources_match_the_public_pins(self):
         pins = tomllib.loads((ROOT / "source-pins.toml").read_text())
-        revisions = {item["git"].removesuffix(".git"): item["rev"] for item in pins.values()}
+        revisions = {item["git"].removesuffix(".git"): item["rev"] for name, item in pins.items()
+                     if name not in ("scarlet-distribution", "sgfx-core")}
         manifests = []
         for directory in ("drivers", "userspace", "tests", "shared", "projects"):
             manifests.extend(p for p in (ROOT / directory).rglob("Cargo.toml")
@@ -139,19 +120,20 @@ class PublishedManifestTests(unittest.TestCase):
         manifests += [ROOT / "projects/aarch64-switch-l4t-console/scarlet.toml",
                       ROOT / "tests/boot-probe/scarlet.toml"]
 
-        def check(value, manifest):
+        def check(value, manifest, key=None):
             if isinstance(value, dict):
                 if "git" in value and value["git"].removesuffix(".git") in revisions:
-                    self.assertEqual(value.get("rev"), revisions[value["git"].removesuffix(".git")],
-                                     str(manifest))
+                    expected = (pins["sgfx-core"]["rev"] if value.get("package", key) == "sgfx-core"
+                                else revisions[value["git"].removesuffix(".git")])
+                    self.assertEqual(value.get("rev"), expected, str(manifest))
                 if "path" in value:
-                    # Inspect the tracked path, without following ignored
-                    # source links that may intentionally select local work.
+                    # Inspect the manifest path without following generated
+                    # source links into the upstream cache.
                     path = Path(os.path.abspath(manifest.parent / value["path"]))
                     self.assertTrue(path.is_relative_to(ROOT),
                                     f"{manifest}: external path {value['path']}")
-                for child in value.values():
-                    check(child, manifest)
+                for name, child in value.items():
+                    check(child, manifest, name)
             elif isinstance(value, list):
                 for child in value:
                     check(child, manifest)

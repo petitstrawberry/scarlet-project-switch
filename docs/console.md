@@ -19,9 +19,9 @@ The full root image uses Scarlet's full distribution catalog.
 
 Published builds use the URLs and full commit IDs in
 [source-pins.toml](../source-pins.toml). Console preparation downloads these
-sources into ignored `.cache/sources/` and generates Cargo overrides that
-keep the kernel, runtime, SGFX and ScarletUI source identities consistent.
-No sibling repository is required.
+sources into ignored `.cache/sources/`. Cargo resolves dependencies from
+their upstream manifests and lockfiles. No sibling repository, source patch
+or generated Cargo dependency override is used.
 
 The Nix toolchain and SDK are pinned in `flake.lock`. The SGFX facade must
 enable `backend-scarlet-maxwell`; preparation checks that feature.
@@ -29,35 +29,22 @@ Firmware pins remain separate from source revisions.
 Rootfs preparation retains every layer of Scarlet's `full` bundle and applies
 the application revisions from `source-pins.toml`, including Widget Factory,
 Moonlight, yt and Blitz. Board settings come from the project's `rootfs/` tree.
-Preparation refreshes their locked Scarlet library entries so older upstream
-lockfiles cannot bypass the pinned Cargo overrides.
-Recorded compatibility patches in `source-pins.toml` are applied to public
-checkouts and verified on reuse. Moonlight and yt patches adapt their raw syscall
-calls to Scarlet's explicit unsafe API.
+`scarlet` pins the common kernel/native API revision used by the applications;
+`scarlet-distribution` selects the dependency-only update to the full catalog.
+`sgfx-core` preserves the IR crate revision shared by the graphics backends.
 
-For local development, create the ignored `source-paths.local.toml` at the
-repository root and override only the repositories you are editing:
-
-```toml
-[paths]
-scarlet = "../Scarlet"
-# sgfx = "../sgfx"
-# scarlet-ui = "../scarlet-ui"
-# scarlet-project-chromebook = "../scarlet-project-chromebook"
-```
-
-Paths are relative to this repository. These overrides are never required
-for a published build. To resolve only the public pins and regenerate Cargo
-configuration independently of local overrides, run:
+Make dependency fixes in the owning repository, push them upstream, and update
+the commit pins here. Preparation rejects local patch declarations, source
+overrides and edited cached source files. To prepare the pinned sources, run:
 
 ```sh
-python3 scripts/project_sources.py --published
+python3 scripts/project_sources.py
 ```
 
-For a build that ignores those source overrides, use
-`scripts/build-console.sh --published`. It also rejects a project-level
-`scarlet.local.toml` override. Generated configuration and source links stay
-outside Git.
+`scripts/build-console.sh` uses the same pins and rejects a project-level
+`scarlet.local.toml` override. `--published` remains a compatibility alias
+for this default behavior. Generated target flags, test fixture paths and
+source links stay outside Git.
 
 ## Build
 

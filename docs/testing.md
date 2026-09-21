@@ -2,8 +2,9 @@
 
 Run commands from the repository root inside `nix develop`.
 Run `python3 scripts/project_sources.py` to prepare the pinned source
-dependencies and Cargo configuration; sibling checkouts are optional local
-overrides as described in the [setup guide](console.md#dependencies).
+dependencies and target configuration as described in the
+[setup guide](console.md#dependencies). Local source patches and dependency
+overrides are not supported.
 Build the relevant project before running tests that consume its packaged
 Image and initramfs.
 

@@ -3,9 +3,20 @@
 git = "https://github.com/petitstrawberry/Scarlet"
 rev = "b3d2a55740a3d2ca49daad0ec7baba233f706f7a"
 
+# Dependency-only distribution update; the kernel/native API stays at the
+# common revision used by ScarletUI and all GPU backends.
+[scarlet-distribution]
+git = "https://github.com/petitstrawberry/Scarlet"
+rev = "c06ddda3a341f17bcadaa63dea6af21243424b69"
+
 [sgfx]
 git = "https://github.com/petitstrawberry/sgfx"
 rev = "49fa00da35a6ea416c99207b49ba7aee480d6985"
+
+# SGFX backends share this IR crate identity with the pinned facade.
+[sgfx-core]
+git = "https://github.com/petitstrawberry/sgfx"
+rev = "5ea41a0dfd6992bb1c0fce06c8e65425dc978140"
 
 [scarlet-ui]
 git = "https://github.com/petitstrawberry/scarlet-ui"
@@ -15,9 +26,25 @@ rev = "e6e00f11c95de371057899ec05b7a832d04adc7f"
 git = "https://github.com/petitstrawberry/scarlet-project-chromebook"
 rev = "bbda822ca72d7a5a7391c543e4accc21fda15fa5"
 
+[carmine]
+git = "https://github.com/petitstrawberry/carmine"
+rev = "5ed3e9270b4949e4ee27052e62d12443770d1884"
+
+[myrica]
+git = "https://github.com/petitstrawberry/myrica"
+rev = "37a34c4195def793923cfb5868f41780aaded167"
+
+[vellum]
+git = "https://github.com/petitstrawberry/vellum"
+rev = "98dfc25b60a0b179ad8f0b65738f0d2191f160ea"
+
+[boxcraft]
+git = "https://github.com/petitstrawberry/boxcraft"
+rev = "859bb7b41c0c8fa46bc3cd3e54a0b607fb26f90e"
+
 [moonlight-scarlet]
 git = "https://github.com/petitstrawberry/moonlight-scarlet"
-rev = "6665716efa09d9a87d50f82705475e5a5d6d6cc7"
+rev = "d0e1ce9e661a9f76c18deacbdcc13357a3c350af"
 
 [yt-for-scarlet]
 git = "https://github.com/petitstrawberry/yt-for-scarlet"

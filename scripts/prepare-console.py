@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tomllib
-from project_sources import pins, prepare, refresh_pinned_dependencies
+from project_sources import pins, prepare
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
@@ -43,22 +43,25 @@ def full_layers(path, sources):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--published", action="store_true",
-                        help="ignore local source overrides and use the public pins")
-    args = parser.parse_args()
-    if args.published and (PROJECT / "scarlet.local.toml").exists():
-        parser.error("published builds require removing the project's scarlet.local.toml override")
-    checkouts = prepare(published=args.published)
+                        help="compatibility option; upstream commit pins are always used")
+    parser.parse_args()
+    if (PROJECT / "scarlet.local.toml").exists():
+        parser.error("remove the project's scarlet.local.toml override; use upstream commit pins")
+    checkouts = prepare()
     sgfx = checkouts["sgfx"]
     sgfx_manifest = tomllib.loads((sgfx / "crates/sgfx/Cargo.toml").read_text())
     if "backend-scarlet-maxwell" not in sgfx_manifest.get("features", {}).get("default", []):
         raise SystemExit(
             f"SGFX checkout {sgfx} does not enable the Maxwell backend; "
-            "select a compatible pinned revision or an explicit local source override"
+            "select a compatible upstream revision"
         )
     subprocess.run([sys.executable, str(ROOT / "scripts/verify-maxwell-shaders.py")], check=True)
     subprocess.run([sys.executable, str(ROOT / "scripts/prepare-gm20b-firmware.py")], check=True)
-    sources = {pin["git"].removesuffix(".git"): checkouts[name] for name, pin in pins().items()}
-    bundles = checkouts["scarlet"] / "bundles"
+    # The runtime/core pins preserve crate identity in native applications.
+    # Distribution layers use the newer commit that selects the updated apps.
+    sources = {pin["git"].removesuffix(".git"): checkouts[name] for name, pin in pins().items()
+               if name not in ("scarlet", "sgfx-core")}
+    bundles = checkouts["scarlet-distribution"] / "bundles"
     for name, inputs in {
         "initramfs": [bundles / "base/bundle.toml", bundles / "cli-utils/bundle.toml"],
         "full": [bundles / "full/bundle.toml", PROJECT / "bundles/nvdec-player.toml"],
@@ -84,8 +87,6 @@ def main():
         shared = Path.home() / ".cargo" / name
         if not link.exists() and shared.exists():
             link.symlink_to(shared, target_is_directory=True)
-    for checkout in checkouts.values():
-        refresh_pinned_dependencies(checkout, PROJECT / ".scarlet/userspace.toml")
     bootstack_pins = json.loads((PROJECT / "bootstack.json").read_text())["files"]
     stack = PROJECT / ".scarlet/bootstack"
     for name, expected in bootstack_pins.items():
