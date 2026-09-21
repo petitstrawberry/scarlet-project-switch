@@ -104,17 +104,17 @@
     "switchvisor-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1789921821,
-        "narHash": "sha256-BkRXGPdvPldaUMs9i6kCEim5btMvlSfdEl9AD+r6EGw=",
+        "lastModified": 1790009949,
+        "narHash": "sha256-HFStk270K9tGfoBImXXT2uArR6WQyLI6MaDCSVpjkvQ=",
         "owner": "petitstrawberry",
         "repo": "switchvisor",
-        "rev": "62d18a6c87a7886a60ded785a57051132ad3af64",
+        "rev": "8a84a0be7d1aebe22a6636b80319abb37edfef8a",
         "type": "github"
       },
       "original": {
         "owner": "petitstrawberry",
         "repo": "switchvisor",
-        "rev": "62d18a6c87a7886a60ded785a57051132ad3af64",
+        "rev": "8a84a0be7d1aebe22a6636b80319abb37edfef8a",
         "type": "github"
       }
     }

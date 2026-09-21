@@ -62,7 +62,7 @@ The initial static subnet is `192.168.77.0/24`: Switchvisor management uses
 interface and guest interface before configuring them. Switchvisor provides
 neither DHCP nor NAT. Its management endpoint can answer ICMP and UDP port
 7777 (`ping` / `status`) before the guest boots. See
-[Switchvisor's USB network guide](https://github.com/petitstrawberry/switchvisor/blob/62d18a6c87a7886a60ded785a57051132ad3af64/docs/usb-network.md)
+[Switchvisor's USB network guide](https://github.com/petitstrawberry/switchvisor/blob/8a84a0be7d1aebe22a6636b80319abb37edfef8a/docs/usb-network.md)
 for the bridge's protocol and interrupt constraints.
 
 For the bring-up subnet, a persistent Scarlet configuration can be placed in
@@ -89,9 +89,25 @@ nat on en6 inet from 192.168.77.0/24 to any -> (en6)
 ```
 
 This leaves the host's default route and unrelated PF rules intact. Verify
-the actual interfaces and active anchor hierarchy before applying it. The
-bring-up setup is runtime-only; host reboot requires restoring forwarding and
-NAT, and USB reenumeration may require restoring the host's `.2` address.
+the actual interfaces and active anchor hierarchy before applying it.
+Forwarding and PF NAT are runtime-only; a Mac reboot requires restoring them.
+
+Persist the host's `.2` address in the macOS network service so a Switch reboot
+or USB reconnection does not replace it with a DHCP/link-local address:
+
+```sh
+networksetup -listnetworkserviceorder
+sudo networksetup -setmanual "Switchvisor USB" 192.168.77.2 255.255.255.0 0.0.0.0
+networksetup -getinfo "Switchvisor USB"
+route -n get default
+```
+
+Use the service mapped to the actual NCM interface. On the tested Mac this was
+`Switchvisor USB` on `en13`, with MAC `02:53:56:00:00:01`. The USB service has
+no Internet gateway; the default route must still use the uplink (`en6` here).
+To restore this service's previous DHCP setting, use
+`sudo networksetup -setdhcp "Switchvisor USB"`.
+
 HTTPS additionally requires valid UTC and a working cryptographic entropy
 source. Scarlet's network time service can correct the RTC-derived clock once
 DNS and external connectivity are available.

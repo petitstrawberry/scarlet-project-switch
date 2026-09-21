@@ -15,7 +15,7 @@
     };
     rust-overlay.follows = "scarlet-rust-toolchain/rust-overlay";
     switchvisor-src = {
-      url = "github:petitstrawberry/switchvisor/62d18a6c87a7886a60ded785a57051132ad3af64";
+      url = "github:petitstrawberry/switchvisor/8a84a0be7d1aebe22a6636b80319abb37edfef8a";
       flake = false;
     };
   };
