@@ -23,6 +23,7 @@ features = { linux-boot = true, limine = false, hypervisor = false, network = tr
 "scarlet-driver-tegra210-dc" = { path = "../../drivers/display/tegra210-dc", enabled = true }
 "scarlet-driver-tegra210-nvdec" = { path = "../../drivers/video/tegra210-nvdec", enabled = true }
 "scarlet-driver-max77620" = { path = "../../drivers/rtc/max77620", enabled = true }
+"scarlet-driver-tegra210-se-rng" = { path = "../../drivers/random/tegra210-se", enabled = true }
 "scarlet-driver-tegra210-sdhci" = { path = "../../drivers/mmc/tegra210-sdhci", enabled = true }
 "scarlet-driver-stm-ftm4" = { path = "../../drivers/input/touchscreen/stm-ftm4", enabled = true }
 "scarlet-driver-joycon" = { path = "../../drivers/input/joycon", enabled = true }

@@ -23,6 +23,9 @@ use scarlet::{
 #[derive(Clone, Copy)]
 pub struct Mmio(pub(crate) usize);
 impl Mmio {
+    pub fn map(address: u64, size: usize) -> Result<Self, &'static str> {
+        Ok(Self(scarlet::vm::ioremap(address, size)?))
+    }
     pub fn read(self, offset: usize) -> u32 {
         unsafe { scarlet::arch::mmio::read32(self.0 + offset) }
     }
@@ -105,6 +108,42 @@ pub fn cpu_clock_registers(provider: u32) -> Result<Mmio, &'static str> {
         return Err("unexpected CPU clock provider");
     }
     Ok(car.regs)
+}
+/// Enable SE and its ring-oscillator entropy source under the shared CAR lock.
+/// Keep an already-running engine's clock and key state; never assert its reset.
+pub fn enable_se_clocks(provider: u32) -> Result<(), &'static str> {
+    let car = car()?;
+    if car.phandle != provider {
+        return Err("unexpected SE clock provider");
+    }
+    let _guard = car.lock.lock();
+    let regs = car.regs;
+    const SE: u32 = 1 << 31; // bank V, hardware clock/reset 127
+    const ENTROPY: u32 = 1 << 21; // bank W, hardware clock/reset 149
+    let enabled = regs.read(0x360);
+    let reset = regs.read(0x358);
+    if [enabled, reset, regs.read(0x364), regs.read(0x35c)].contains(&u32::MAX) {
+        return Err("SE clock registers are unreadable");
+    }
+    if enabled & SE == 0 || reset & SE != 0 {
+        regs.write(0x42c, 6); // PLLP / 4 = 102 MHz
+    }
+    regs.write(0x440, SE);
+    regs.write(0x448, ENTROPY);
+    let _ = regs.read(0x364);
+    delay_us(2);
+    regs.write(0x434, SE);
+    regs.write(0x43c, ENTROPY);
+    let _ = regs.read(0x35c);
+    delay_us(2);
+    if regs.read(0x360) & SE == 0
+        || regs.read(0x364) & ENTROPY == 0
+        || regs.read(0x358) & SE != 0
+        || regs.read(0x35c) & ENTROPY != 0
+    {
+        return Err("SE clocks did not become active");
+    }
+    Ok(())
 }
 /// GPU clocks share the CAR lock with peripheral clock changes. The GPU's
 /// dedicated PMC clamp register is separate from rail I/O pad configuration.
