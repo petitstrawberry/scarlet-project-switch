@@ -5,6 +5,7 @@
 use crate::{
     engine::Engine,
     h264::{Geometry, INPUT_BYTES, OUTPUT_BYTES, Pending, Session},
+    lifecycle::Lifecycle,
 };
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -38,22 +39,20 @@ struct Timing {
 
 struct State {
     engine: Engine,
-    session_id: Option<u32>,
-    next_id: u32,
+    lifecycle: Lifecycle,
     session: Option<Session>,
     pending: Option<Pending>,
     frames: u64,
     last_status: [u32; 4],
-    error: Option<&'static str>,
     timing: Timing,
 }
 impl State {
     fn fail(&mut self, error: &'static str) -> Result<(), &'static str> {
-        self.error = Some(error);
-        self.pending = None;
+        self.lifecycle.fail(error);
         // DMA backing is retained if reset/drain cannot be proven. That error
         // also prevents reopening the engine or recycling output references.
         self.engine.isolate()?;
+        self.pending = None;
         self.session = None;
         Ok(())
     }
@@ -95,7 +94,7 @@ impl VideoDecodeBackend for Backend {
     fn debug_status(&self) -> Option<String> {
         let s = self.state.lock();
         Some(format!(
-            " firmware={} frames={} pending={} status={:x?} last_error={} completion=syncpoint-poll size={}x{} samples={} avg_us(submit/ready/linear)={}/{}/{}",
+            " firmware={} frames={} pending={} status={:x?} last_error={} completion=syncpoint-poll size={}x{} samples={} avg_us(submit/ready/linear)={}/{}/{} owner={:?} recovery_required={}",
             if s.engine.active() {
                 "running"
             } else {
@@ -104,13 +103,15 @@ impl VideoDecodeBackend for Backend {
             s.frames,
             s.pending.is_some(),
             s.last_status,
-            s.error.unwrap_or("none"),
+            s.lifecycle.error().unwrap_or("none"),
             s.timing.width,
             s.timing.height,
             s.timing.completed,
             s.timing.submit_ns / s.timing.submitted.max(1) / 1000,
             s.timing.ready_ns / s.timing.completed.max(1) / 1000,
             s.timing.linear_ns / s.timing.completed.max(1) / 1000,
+            s.lifecycle.owner(),
+            s.lifecycle.recovery_required(),
         ))
     }
     fn create_session(&self, coded_format: u32) -> Result<u32, &'static str> {
@@ -118,41 +119,41 @@ impl VideoDecodeBackend for Backend {
             return Err("NVDEC currently supports H.264 only");
         }
         let mut s = self.state.lock();
-        if s.session_id.is_some() {
-            return Err("NVDEC session already owned");
-        }
-        if s.error.is_some() {
+        let State {
+            lifecycle,
+            engine,
+            session,
+            pending,
+            ..
+        } = &mut *s;
+        let id = lifecycle.open(|| {
             // An earlier failed drain leaves active=true; never free or reuse
             // those pages until a successful isolation handshake.
-            s.engine.isolate()?;
-            s.session = None;
-            s.engine.boot()?;
-        }
-        let id = s.next_id;
-        s.next_id = s
-            .next_id
-            .checked_add(1)
-            .ok_or("NVDEC session IDs exhausted")?;
-        s.session_id = Some(id);
-        s.error = None;
+            engine.isolate()?;
+            *pending = None;
+            *session = None;
+            engine.boot()
+        })?;
         s.timing = Timing::default();
         Ok(id)
     }
     fn destroy_session(&self, id: u32) -> Result<(), &'static str> {
         let mut s = self.state.lock();
-        if s.session_id != Some(id) {
-            return Err("NVDEC session ID invalid");
-        }
-        if s.pending.is_some() || s.error.is_some() {
-            s.engine.isolate()?;
-            s.pending = None;
-            s.session = None;
-            s.error = Some("session reset");
-        } else {
-            s.session = None;
-        }
-        s.session_id = None;
-        Ok(())
+        let State {
+            lifecycle,
+            engine,
+            session,
+            pending,
+            ..
+        } = &mut *s;
+        lifecycle.close(id, || {
+            // Always retire Falcon, including clean closes. The next session
+            // starts from a fresh firmware context and completion FIFO.
+            engine.isolate()?;
+            *pending = None;
+            *session = None;
+            Ok(())
+        })
     }
     fn submit_decode(&self, _: &VideoBackendDecodeRequest) -> Result<(), &'static str> {
         Err("NVDEC needs stateless H.264 parameters")
@@ -164,13 +165,13 @@ impl VideoDecodeBackend for Backend {
         let started = time::current_time_ns();
         let geometry = Geometry::from_params(&request.h264)?;
         let mut s = self.state.lock();
-        if s.session_id != Some(request.decode.stream_id) {
+        if s.lifecycle.owner() != Some(request.decode.stream_id) {
             return Err("NVDEC session ID invalid");
         }
         if s.pending.is_some() {
             return Err("NVDEC decode already in flight");
         }
-        if s.error.is_some() {
+        if s.lifecycle.error().is_some() {
             return Err("NVDEC session must be reopened after failure");
         }
         if s.session
@@ -197,10 +198,10 @@ impl VideoDecodeBackend for Backend {
     }
     fn dequeue_frame(&self, id: u32) -> Result<Option<VideoBackendDecodedFrame>, &'static str> {
         let mut s = self.state.lock();
-        if s.session_id != Some(id) {
+        if s.lifecycle.owner() != Some(id) {
             return Err("NVDEC session ID invalid");
         }
-        if let Some(error) = s.error {
+        if let Some(error) = s.lifecycle.error() {
             return Err(error);
         }
         let Some(pending) = s.pending else {
@@ -278,13 +279,11 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     let backend = Arc::new(Backend {
         state: SpinLock::new(State {
             engine,
-            session_id: None,
-            next_id: 1,
+            lifecycle: Lifecycle::new(),
             session: None,
             pending: None,
             frames: 0,
             last_status: [0; 4],
-            error: None,
             timing: Timing::default(),
         }),
     });

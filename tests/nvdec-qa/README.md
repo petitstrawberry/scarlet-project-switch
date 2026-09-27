@@ -12,6 +12,28 @@ B pictures and three slices per picture. Together they exercise cropping,
 P/B references, timestamps, resolution changes between sessions, and reopen.
 The hardware run checks 72 frames across four sessions.
 
+Run `nvdec-qa --recovery` with other video applications stopped to check abrupt
+process teardown. In three rounds it starts children that exit without running
+Rust destructors after opening, submitting without dequeueing, receiving mapped
+output, and holding a shared NV12 image. Each child also has a live sibling
+thread. After each exit, the parent waits up to five seconds for deferred kernel
+cleanup, reopens the decoder, and checks a decoded frame against the reference
+hash. It then runs the normal 72-frame suite. The final marker is
+`RECOVERY ALL PASS: 12 abrupt exits and verified reopens`; this does not test
+SIGKILL in the middle of a kernel call or emulate a hardware DMA fault.
+
+Run `nvdec-qa --recovery-unreaped` to repeat the same cases while deliberately
+leaving each child as a zombie until after reopening and decoding. The parent
+observes the child's `Z` state through `/bin/ps` without calling `wait` first.
+This catches mmap-backed device ownership retained until zombie reaping, which
+the normal `--recovery` test cannot detect. Both modes verify the child's exit
+status after cleanup; successful output includes `unreaped=true` for this mode.
+
+Host `cargo test --manifest-path drivers/video/tegra210-nvdec/Cargo.toml`
+(from the repository root) injects teardown/reboot failures into the driver's
+ownership state machine. It checks that failed closes allow recovery retries,
+live sessions cannot be stolen, and a stale close cannot reset a new session.
+
 Regenerate both fixtures and hashes with `python3 generate.py` (FFmpeg with
 libx264 is required). For example, the Baseline fixture is generated with:
 

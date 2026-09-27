@@ -10,6 +10,8 @@ mod firmware;
 mod h264;
 #[cfg(any(target_os = "none", test))]
 mod layout;
+#[cfg(any(target_os = "none", test))]
+mod lifecycle;
 #[cfg(target_os = "none")]
 mod runtime;
 #[cfg(target_os = "none")]
