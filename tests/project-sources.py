@@ -112,7 +112,7 @@ class PublishedManifestTests(unittest.TestCase):
     def test_cargo_and_kernel_sources_match_the_public_pins(self):
         pins = tomllib.loads((ROOT / "source-pins.toml").read_text())
         revisions = {item["git"].removesuffix(".git"): item["rev"] for name, item in pins.items()
-                     if name not in ("scarlet-distribution", "sgfx-core")}
+                     if name not in ("scarlet-distribution", "scarlet-native", "sgfx-core")}
         manifests = []
         for directory in ("drivers", "userspace", "tests", "shared", "projects"):
             manifests.extend(p for p in (ROOT / directory).rglob("Cargo.toml")
@@ -125,6 +125,11 @@ class PublishedManifestTests(unittest.TestCase):
                 if "git" in value and value["git"].removesuffix(".git") in revisions:
                     expected = (pins["sgfx-core"]["rev"] if value.get("package", key) == "sgfx-core"
                                 else revisions[value["git"].removesuffix(".git")])
+                    if (value["git"].removesuffix(".git") == pins["scarlet"]["git"]
+                            and manifest.name == "Cargo.toml"
+                            and manifest.relative_to(ROOT).parts[0] != "drivers"
+                            and value.get("package", key) != "scarlet"):
+                        expected = pins["scarlet-native"]["rev"]
                     self.assertEqual(value.get("rev"), expected, str(manifest))
                 if "path" in value:
                     # Inspect the manifest path without following generated

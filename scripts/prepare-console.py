@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare pinned sources, firmware and bootstack for the SD-root console."""
+"""Prepare console bundles from published pins or a selected local Scarlet."""
 import hashlib
 import json
 import argparse
@@ -25,16 +25,21 @@ def value(item):
     return str(item)
 
 
-def full_layers(path, sources):
+def full_layers(path, sources, local_roots=None):
     """Retain the complete upstream distribution with this project's source pins."""
     for original in tomllib.loads(path.read_text())["layers"]:
         layer = dict(original)
         if layer["kind"] == "bundle":
-            yield from full_layers((path.parent / layer["path"]).resolve(), sources)
+            yield from full_layers((path.parent / layer["path"]).resolve(), sources, local_roots)
             continue
         source = layer.get("source")
         if isinstance(source, str):
-            layer["source"] = str((path.parent / source).resolve())
+            resolved = (path.parent / source).resolve()
+            for upstream_root, local_root in (local_roots or {}).items():
+                if resolved.is_relative_to(upstream_root):
+                    resolved = local_root / resolved.relative_to(upstream_root)
+                    break
+            layer["source"] = str(resolved)
         elif isinstance(source, dict) and source.get("git", "").removesuffix(".git") in sources:
             layer["source"] = str(sources[source["git"].removesuffix(".git")])
         yield layer
@@ -42,12 +47,27 @@ def full_layers(path, sources):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--published", action="store_true",
-                        help="compatibility option; upstream commit pins are always used")
-    parser.parse_args()
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--published", action="store_true",
+                      help="select published bundles and clear the saved local selection")
+    mode.add_argument("--local-bundles", type=Path, metavar="SCARLET",
+                      help="use this Scarlet checkout's bundles; remember the selection locally")
+    args = parser.parse_args()
     if (PROJECT / "scarlet.local.toml").exists():
         parser.error("remove the project's scarlet.local.toml override; use upstream commit pins")
     checkouts = prepare()
+    selection = PROJECT / ".scarlet/bundle-source.local"
+    local = args.local_bundles
+    if not args.published and local is None and selection.is_file():
+        local = Path(selection.read_text().strip())
+    local_roots = {}
+    if local is not None:
+        local = local.resolve(strict=True)
+        for bundle in ("base", "cli-utils", "full"):
+            if not (local / "bundles" / bundle / "bundle.toml").is_file():
+                parser.error(f"missing local Scarlet bundle: {local / 'bundles' / bundle}")
+        local_roots[checkouts["scarlet-distribution"]] = local
+        checkouts["scarlet-distribution"] = local
     sgfx = checkouts["sgfx"]
     sgfx_manifest = tomllib.loads((sgfx / "crates/sgfx/Cargo.toml").read_text())
     if "backend-scarlet-maxwell" not in sgfx_manifest.get("features", {}).get("default", []):
@@ -57,10 +77,10 @@ def main():
         )
     subprocess.run([sys.executable, str(ROOT / "scripts/verify-maxwell-shaders.py")], check=True)
     subprocess.run([sys.executable, str(ROOT / "scripts/prepare-gm20b-firmware.py")], check=True)
-    # The runtime/core pins preserve crate identity in native applications.
-    # Distribution layers use the newer commit that selects the updated apps.
+    # Native runtime/core pins preserve crate identity in applications.
+    # Bundle sources use the distribution pin instead of the native API pin.
     sources = {pin["git"].removesuffix(".git"): checkouts[name] for name, pin in pins().items()
-               if name not in ("scarlet", "sgfx-core")}
+               if name not in ("scarlet", "scarlet-native", "sgfx-core")}
     bundles = checkouts["scarlet-distribution"] / "bundles"
     for name, inputs in {
         "initramfs": [bundles / "base/bundle.toml", bundles / "cli-utils/bundle.toml"],
@@ -68,7 +88,7 @@ def main():
     }.items():
         # Canonical paths avoid treating a source symlink and its destination
         # as two separate Cargo packages in the same dependency graph.
-        layers = [layer for path in inputs for layer in full_layers(path, sources)]
+        layers = [layer for path in inputs for layer in full_layers(path, sources, local_roots)]
         text = "\n\n".join("[[layers]]\n" + "\n".join(f"{key} = {value(item)}" for key, item in layer.items()) for layer in layers)
         (PROJECT / f".scarlet/{name}-bundle.toml").write_text(text + "\n")
     cache = PROJECT / ".scarlet/cache"
@@ -93,7 +113,11 @@ def main():
         source = stack / name
         if not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != expected:
             raise SystemExit("import the pinned Noble bootstack with scripts/prepare-bootstack.py first")
-    print("Prepared base + CLI initramfs and full SD rootfs dependencies")
+    if local is not None:
+        selection.write_text(str(local) + "\n")
+    elif args.published:
+        selection.unlink(missing_ok=True)
+    print(f"Prepared base + CLI initramfs and full SD rootfs from {bundles}")
 
 
 if __name__ == "__main__":

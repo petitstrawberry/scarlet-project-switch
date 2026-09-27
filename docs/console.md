@@ -29,22 +29,34 @@ Firmware pins remain separate from source revisions.
 Rootfs preparation retains every layer of Scarlet's `full` bundle and applies
 the application revisions from `source-pins.toml`, including Widget Factory,
 Moonlight, yt and Blitz. Board settings come from the project's `rootfs/` tree.
-`scarlet` pins the common kernel/native API revision used by the applications;
-`scarlet-distribution` selects the dependency-only update to the full catalog.
-`sgfx-core` preserves the IR crate revision shared by the graphics backends.
+`scarlet` and `scarlet-distribution` pin the kernel and full catalog to the same
+upstream revision. `scarlet-native` retains the native userspace API revision
+shared by ScarletUI and the published GPU backends; `sgfx-core` likewise
+preserves their shared IR crate identity. Update these compatibility pins
+when their upstream consumers migrate together.
 
 Make dependency fixes in the owning repository, push them upstream, and update
-the commit pins here. Preparation rejects local patch declarations, source
+the commit pins here. Preparation rejects local patch declarations, dependency
 overrides and edited cached source files. To prepare the pinned sources, run:
 
 ```sh
 python3 scripts/project_sources.py
 ```
 
-`scripts/build-console.sh` uses the same pins and rejects a project-level
-`scarlet.local.toml` override. `--published` remains a compatibility alias
-for this default behavior. Generated target flags, test fixture paths and
-source links stay outside Git.
+`scripts/build-console.sh` defaults to these pins. For local development,
+select a Scarlet checkout's bundles and userspace sources explicitly:
+
+```sh
+scripts/build-console.sh --local-bundles /path/to/Scarlet
+```
+
+This selection is remembered in the ignored `.scarlet/bundle-source.local`
+file. It includes the Switch video-player override; kernel and external
+dependency pins still come from the public manifests. Run
+`scripts/build-console.sh --published` to clear the local selection and build
+from published pins again. Project-level `scarlet.local.toml` overrides remain
+unsupported. Generated target flags, test fixture paths and source links stay
+outside Git.
 
 ## Build
 
