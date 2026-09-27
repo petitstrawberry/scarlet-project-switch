@@ -284,6 +284,10 @@ impl Application for UiInputApp {
     }
     fn on_window_created(&mut self, _ctx: &WindowContext, window: &mut dyn PlatformWindow) {
         window.set_gamepad_input(true, false).unwrap();
+    }
+    fn on_frame_presented(&mut self, _ctx: &WindowContext) {
+        // Window creation precedes the first renderer/event-loop turn. Wait
+        // for a usable surface before testing delivery of a single snapshot.
         self.ready.store(true, Ordering::Release);
     }
     fn on_gamepad(&mut self, ctx: &WindowContext, event: GamepadEvent) {
@@ -301,7 +305,7 @@ fn ui_checks() {
     let input_ready = ready.clone();
     let received = events.clone();
     let producer = std::thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + Duration::from_secs(120);
         while !input_ready.load(Ordering::Acquire) {
             assert!(Instant::now() < deadline);
             std::thread::sleep(Duration::from_millis(10));

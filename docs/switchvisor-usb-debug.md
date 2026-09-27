@@ -62,7 +62,7 @@ The initial static subnet is `192.168.77.0/24`: Switchvisor management uses
 interface and guest interface before configuring them. Switchvisor provides
 neither DHCP nor NAT. Its management endpoint can answer ICMP and UDP port
 7777 (`ping` / `status`) before the guest boots. See
-[Switchvisor's USB network guide](https://github.com/petitstrawberry/switchvisor/blob/8a84a0be7d1aebe22a6636b80319abb37edfef8a/docs/usb-network.md)
+[Switchvisor's USB network guide](https://github.com/petitstrawberry/switchvisor/blob/8d2bc1db0dc858fb0b253540397e8105f137cba5/docs/usb-network.md)
 for the bridge's protocol and interrupt constraints.
 
 For the bring-up subnet, a persistent Scarlet configuration can be placed in

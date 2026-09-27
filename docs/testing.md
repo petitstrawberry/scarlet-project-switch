@@ -16,6 +16,7 @@ python3 tests/qemu-smoke.py --kernel
 python3 tests/host-tools.py
 python3 tests/project-sources.py
 python3 tests/switchvisor-package.py
+python3 tests/isa-audit.py
 python3 tests/check-isa.py
 ```
 
@@ -26,8 +27,11 @@ measured timer sleeps. The entry fixture initializes the secure GIC priority
 mask before handing control to Scarlet.
 
 The host-tools tests use temporary directories to check package copying,
-readback and preservation of recovery files. The ISA check rejects LSE
-instructions on the Cortex-A57 and checks native ELF OSABI.
+readback and preservation of recovery files. The ISA check rejects LSE in the
+kernel and unguarded LSE in userspace, and
+checks native ELF OSABI. Recognized Rust outline-atomic helpers may contain an
+LSE alternative behind a runtime-flag check with an LL/SC fallback. The A57
+QEMU boot checks remain necessary to validate runtime feature selection.
 The Switchvisor package tests cover custom distributions, UART/network
 profile changes, source metadata and rejection of invalid inputs.
 

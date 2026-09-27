@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check built executables for LSE instructions unavailable on Cortex-A57."""
+"""Reject unguarded LSE; permit recognized userspace outline-atomic fallbacks."""
 import argparse
 import hashlib
 import json
@@ -32,16 +32,58 @@ def packaged_elves(boot):
         position = (start + size + 3) & ~3
 
 
-def inspect(path):
-    # Enable the extension in the decoder so prohibited instructions do not
-    # appear merely as <unknown> under a baseline AArch64 disassembler.
+def audit_disassembly(asm, allow_outline_atomics=False):
+    functions = []
+    instructions = []
+    for line in asm.splitlines():
+        symbol = re.fullmatch(r"[0-9a-f]+ <([^>]+)>:", line)
+        if symbol:
+            instructions = []
+            functions.append((symbol[1], instructions))
+        instruction = re.match(r"^\s*([0-9a-f]+):\s+([a-z0-9.]+)\s*(.*)", line)
+        if instruction:
+            if not functions:
+                functions.append(("<unknown>", instructions))
+            instructions.append((int(instruction[1], 16), instruction[2], instruction[3]))
+    lse_count = 0
+    for symbol, instructions in functions:
+        hits = [i for i, (_, op, _) in enumerate(instructions) if LSE.fullmatch(op)]
+        if not hits:
+            continue
+        # Rust/compiler-builtins dispatches on a runtime LSE flag. On A57 the
+        # CBZ takes the LL/SC path; merely containing the alternate opcode is
+        # not a minimum-ISA violation. Keep kernel checks strictly LSE-free.
+        valid = allow_outline_atomics and re.fullmatch(
+            r"__aarch64_(?:cas|swp|ldadd|ldclr|ldeor|ldset)(?:1|2|4|8|16)_(?:relax|acq|rel|acq_rel|sync)", symbol)
+        valid = valid and hits == [3] and len(instructions) > 5
+        if valid:
+            _, first, first_args = instructions[0]
+            _, second, second_args = instructions[1]
+            _, guard, guard_args = instructions[2]
+            target = re.match(r"w16, (0x[0-9a-f]+)(?:\s|$)", guard_args)
+            fallback = [op for _, op, _ in instructions[5:]]
+            valid = (first == "adrp" and first_args.startswith("x16,")
+                     and second == "ldrb" and second_args.startswith("w16, [x16")
+                     and guard == "cbz" and target is not None
+                     and int(target[1], 16) == instructions[5][0]
+                     and instructions[4][1] == "ret"
+                     and any(re.fullmatch(r"ld(?:a?xr[bh]?|a?xp)", op) for op in fallback)
+                     and any(re.fullmatch(r"st(?:l?xr[bh]?|l?xp)", op) for op in fallback))
+        if not valid:
+            raise ValueError(f"unsupported/unguarded LSE in {symbol}: {[instructions[i][1] for i in hits]}")
+        lse_count += len(hits)
+    return sum(len(instructions) for _, instructions in functions), lse_count
+
+
+def inspect(path, allow_outline_atomics=False):
     asm = subprocess.check_output(["llvm-objdump", "--mattr=+lse", "--no-show-raw-insn", "-d", str(path)], text=True)
-    names = re.findall(r"^\s*[0-9a-f]+:\s+([a-z0-9]+)\s", asm, re.M)
-    matches = [name for name in names if LSE.fullmatch(name)]
-    if matches:
-        raise ValueError(f"{path}: unsupported LSE instructions: {sorted(set(matches))}")
+    try:
+        count, outlined = audit_disassembly(asm, allow_outline_atomics)
+    except ValueError as error:
+        raise ValueError(f"{path}: {error}") from error
     return {"file": str(path.relative_to(ROOT)), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-            "decoded_instructions": len(names), "lse_instructions": 0}
+            "decoded_instructions": count, "unguarded_lse_instructions": 0,
+            "guarded_outline_lse_instructions": outlined}
 
 
 def main():
@@ -63,13 +105,13 @@ def main():
         path = cache / "console-packaged-elf" / name if args.console else cache / "switch-init-packaged.elf"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(elf)
-        result = inspect(path)
+        result = inspect(path, allow_outline_atomics=True)
         result["image_path"] = "/" + name
         results.append(result)
     if not found_init:
         raise ValueError("/init missing from packaged RAMDisk")
     for result in results:
-        print(f"PASS {result['file']}: {result['decoded_instructions']} instructions; no LSE")
+        print(f"PASS {result['file']}: {result['decoded_instructions']} instructions; no unguarded LSE; {result['guarded_outline_lse_instructions']} guarded outline atomics")
     output = "console-isa-verification.json" if args.console else "isa-verification.json"
     (cache / output).write_text(json.dumps({"native_osabi": "0x53", "executables": results}, indent=2) + "\n")
 
