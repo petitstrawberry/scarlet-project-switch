@@ -277,7 +277,7 @@ depends = ["scarlet-desktop", "console-qa-functional"]
                 if input_panel_qa:
                     assert "INPUT_PANEL_QA_PASS" in text, "software keyboard scenario did not finish"
                 if input_qa:
-                    for marker in ("INPUT_QA_FIXTURE_READY", "INPUT_GAMEPAD_SWS_PASS", "INPUT_SCARLET_UI_PASS", "INPUT_TOUCH_SCROLL_PASS", "INPUT_CONSOLE_SHELL_PASS", "INPUT_QA_PASS"):
+                    for marker in ("INPUT_QA_FIXTURE_READY", "INPUT_GAMEPAD_SWS_PASS", "INPUT_SCARLET_UI_PASS", "INPUT_TOUCH_SCROLL_PASS", "INPUT_CONSOLE_SHELL_PASS", "INPUT_VOLUME_OSD_PASS", "INPUT_QA_PASS"):
                         assert marker in text, f"missing input observation: {marker}"
                     for provider in ("reset", "iommu", "dma"):
                         name = f"input-qa-required-{provider}"
@@ -311,6 +311,7 @@ depends = ["scarlet-desktop", "console-qa-functional"]
                       "scarlet_ui_gamepad_callback_observed": input_qa,
                       "scarlet_ui_touch_scroll_observed": input_qa,
                       "console_shell_gamepad_navigation_observed": input_qa,
+                      "volume_osd_focus_repeat_timeout_observed": input_qa,
                       "uart_present": not screen_only, "home_reference_match": match_ratio,
                       "sleep_wakes": [{"api": api, "requested_ns": int(requested), "elapsed_ns": int(elapsed), "result": int(result)} for api, requested, elapsed, result in timers],
                       "file_io_observed": not screen_only, "application_catalog_observed": not screen_only,

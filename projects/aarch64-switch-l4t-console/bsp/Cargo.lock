@@ -166,7 +166,7 @@ dependencies = [
 [[package]]
 name = "scarlet"
 version = "1.0.1"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=4a3d0f34273e11b57345ce06e21ee4420c910043#4a3d0f34273e11b57345ce06e21ee4420c910043"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=07fb5d374d1478872ed79707c559078cae544f69#07fb5d374d1478872ed79707c559078cae544f69"
 dependencies = [
  "chacha20",
  "fdt",
@@ -182,7 +182,7 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=4a3d0f34273e11b57345ce06e21ee4420c910043#4a3d0f34273e11b57345ce06e21ee4420c910043"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=07fb5d374d1478872ed79707c559078cae544f69#07fb5d374d1478872ed79707c559078cae544f69"
 
 [[package]]
 name = "scarlet-driver-joycon"
@@ -217,6 +217,15 @@ version = "0.1.0"
 dependencies = [
  "scarlet",
  "scarlet-driver-max77620",
+ "scarlet-driver-tegra210",
+]
+
+[[package]]
+name = "scarlet-driver-switch-buttons"
+version = "0.1.0"
+dependencies = [
+ "fdt",
+ "scarlet",
  "scarlet-driver-tegra210",
 ]
 
@@ -296,6 +305,7 @@ dependencies = [
  "scarlet-driver-max77620",
  "scarlet-driver-nvidia-gm20b",
  "scarlet-driver-stm-ftm4",
+ "scarlet-driver-switch-buttons",
  "scarlet-driver-switch-power",
  "scarlet-driver-tegra210",
  "scarlet-driver-tegra210-audio",

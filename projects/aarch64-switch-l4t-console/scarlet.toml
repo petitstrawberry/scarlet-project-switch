@@ -11,7 +11,7 @@ path = "bsp"
 package = "scarlet"
 
 [bsp.kernel]
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "4a3d0f34273e11b57345ce06e21ee4420c910043" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "07fb5d374d1478872ed79707c559078cae544f69" }
 features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true }
 
 [modules]
@@ -27,6 +27,7 @@ features = { linux-boot = true, limine = false, hypervisor = false, network = tr
 "scarlet-driver-tegra210-sdhci" = { path = "../../drivers/mmc/tegra210-sdhci", enabled = true }
 "scarlet-driver-stm-ftm4" = { path = "../../drivers/input/touchscreen/stm-ftm4", enabled = true }
 "scarlet-driver-joycon" = { path = "../../drivers/input/joycon", enabled = true }
+"scarlet-driver-switch-buttons" = { path = "../../drivers/input/switch-buttons", enabled = true }
 
 [images.initramfs]
 format = "newc"

@@ -1,5 +1,5 @@
 [package]
-name = "scarlet-driver-tegra210-se-rng"
+name = "scarlet-driver-switch-buttons"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-2.0-only"
@@ -7,3 +7,4 @@ license = "GPL-2.0-only"
 [target.'cfg(target_os = "none")'.dependencies]
 scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "07fb5d374d1478872ed79707c559078cae544f69", default-features = false, features = ["network"] }
 scarlet-driver-tegra210 = { path = "../../soc/tegra210" }
+fdt = "0.1.5"

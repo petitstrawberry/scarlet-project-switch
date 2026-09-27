@@ -23,6 +23,10 @@ fn main() {
             scarlet.join("user/std-bin/src/sws/key_repeat.rs"),
         ),
         (
+            "volume_policy",
+            scarlet.join("user/std-bin/src/scarlet_shell/volume_policy.rs"),
+        ),
+        (
             "ui_gamepad",
             ui.join("crates/scarlet-ui-core/src/event/gamepad.rs"),
         ),

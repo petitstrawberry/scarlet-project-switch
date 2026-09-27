@@ -155,6 +155,19 @@ fn probe(_: &PlatformDeviceInfo) -> Result<(), &'static str> {
             lock: SpinLock::new(()),
         }),
     );
+    let event = Arc::new(EventDevice::new_with_metadata(
+        "buttons",
+        InputDeviceMetadata::new(InputDeviceKind::Buttons, INPUT_CAP_KEY | INPUT_CAP_INTERNAL),
+    ));
+    DeviceManager::get_manager()
+        .register_device_with_name(event.get_name().to_string(), event.clone());
+    DeviceManager::get_manager().register_device_with_name(
+        "buttons-qa-control".to_string(),
+        Arc::new(Control {
+            event,
+            lock: SpinLock::new(()),
+        }),
+    );
     scarlet::println!("INPUT_QA_FIXTURE_READY");
     Ok(())
 }

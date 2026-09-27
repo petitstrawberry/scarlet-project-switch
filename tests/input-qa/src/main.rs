@@ -599,10 +599,65 @@ fn console_shell_checks() {
     println!("INPUT_CONSOLE_SHELL_PASS direction A_launch_files HOME B_return");
 }
 
+fn volume_checks() {
+    const OSD: &str = "org.scarlet-os.desktop.shell.volume-osd";
+    let connection = Connection::connect_default().unwrap();
+    let id = surface(&connection, "Volume QA focus");
+    let receiver = connection.subscribe_window_events(id);
+    assert!(
+        connection
+            .get_window_list()
+            .unwrap()
+            .iter()
+            .any(|w| w.window_id == id && w.focused)
+    );
+    inject_to("/dev/buttons-qa-control", &[(1, 0x73, 1), (0, 0, 0)]);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let windows = connection.get_window_list().unwrap();
+        assert!(
+            windows.iter().any(|w| w.window_id == id && w.focused),
+            "volume OSD stole focus"
+        );
+        if windows.iter().any(|w| w.app_id == OSD && w.visible) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "volume OSD did not appear");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // Hold beyond the OSD lifetime: compositor repeat must keep it visible.
+    let events = collect(&connection, &receiver, Duration::from_millis(1800));
+    assert!(!events.iter().any(|e| matches!(e, sws_client::Event::Input(i) if i.type_ == 1 && matches!(i.code, 0x72 | 0x73))), "reserved volume key leaked to app");
+    assert!(
+        connection
+            .get_window_list()
+            .unwrap()
+            .iter()
+            .any(|w| w.app_id == OSD && w.visible)
+    );
+    inject_to("/dev/buttons-qa-control", &[(1, 0x73, 0), (0, 0, 0)]);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let windows = connection.get_window_list().unwrap();
+        assert!(windows.iter().any(|w| w.window_id == id && w.focused));
+        if !windows.iter().any(|w| w.app_id == OSD && w.visible) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "volume release did not expire OSD"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    connection.destroy_surface(id).unwrap();
+    println!("INPUT_VOLUME_OSD_PASS reserved_keys focus hold release timeout");
+}
+
 fn main() {
     sws_checks();
     touch_scroll_checks();
     ui_checks();
+    volume_checks();
     console_shell_checks();
     println!("INPUT_QA_PASS");
 }

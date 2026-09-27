@@ -14,8 +14,19 @@ firmware properties remain intact; existing drivers keep every dependency hook.
 | `scarlet-driver-max77620` | PMIC on I2C5, RTC at address 0x68 | RTC read latch and wall-clock seed; LDO6 touch supply |
 | `scarlet-driver-stm-ftm4` | STM FTM4 on I2C3 at 0x49 | Ten-contact type-B `/dev/touchscreenN` stream |
 | `scarlet-driver-joycon` | Official attached left/right Joy-Con rails | Combined native `/dev/gamepadN`, buttons, both sticks and hat |
+| `scarlet-driver-switch-buttons` | GPIO PX7/PX6, active low | Debounced volume down/up on `/dev/buttonsN` |
 
 ## Controls and scope
+
+The body volume buttons emit standard `KEY_VOLUMEDOWN`/`KEY_VOLUMEUP` events.
+The driver validates the ODIN `gpio-keys` wiring and debounce interval,
+samples every 8 ms using a sleeping worker, and leaves repeat to SWS. The
+buttons are a separate input class and do not advertise a typing keyboard.
+SWS reserves these keys for Scarlet Shell in both Console and Desktop;
+the shell adjusts SAS volume by 5%, supports hold-to-repeat, and shows a
+passive OSD for 1.5 seconds after the last adjustment. The OSD preserves app
+focus and passes pointer/touch input through. Power-button handling is not
+included. Both the kernel and rootfs must be updated together.
 
 The Switch configuration selects East (Nintendo A) to confirm, South
 (Nintendo B) to cancel, left stick or directional buttons to navigate, and
@@ -92,6 +103,7 @@ Noble bootstack rather than added to source control.
 - [Hekate attached Joy-Con](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/input/joycon.c)
 - [Hekate touchscreen](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/input/touch.c)
 - [Hekate RTC](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/power/max77620-rtc.c)
+- [Hekate body buttons](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/utils/btn.c)
 - [Hekate shared 5 V rail](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/power/regulator_5v.c)
 - [Linux Tegra bus-clear status/STOP definition](https://github.com/torvalds/linux/blob/2779759c090ea0e78109a0cad0a81d869adfb459/drivers/i2c/busses/i2c-tegra.c)
 
