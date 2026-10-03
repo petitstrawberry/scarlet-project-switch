@@ -186,5 +186,38 @@ to = "/bin/application"
             self.assertEqual(tomllib.loads(encoded)["layers"], layers)
 
 
+    def test_external_bundles_resolve_pins_and_nested_relative_sources(self):
+        spec = importlib.util.spec_from_file_location("console", ROOT / "scripts/prepare-console.py")
+        console = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {"project_sources": sources}):
+            spec.loader.exec_module(console)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            checkout = root / "pinned"
+            for subdir in ("", "platforms/scarlet", "bundles/game"):
+                directory = checkout / subdir
+                directory.mkdir(parents=True, exist_ok=True)
+                (directory / "bundle.toml").write_text(
+                    '[[layers]]\nkind = "copy"\nsource = "fs"\nto = "/"\n')
+            manifest = root / "full.toml"
+            manifest.write_text('''[[layers]]
+kind = "bundle"
+source = { git = "https://example.invalid/app.git", branch = "main" }
+[[layers]]
+kind = "bundle"
+source = { git = "https://example.invalid/app", rev = "old" }
+bundle = "platforms/scarlet/bundle.toml"
+[[layers]]
+kind = "bundle"
+source = { git = "https://example.invalid/app.git", rev = "old" }
+subdir = "bundles/game"
+''')
+            layers = list(console.full_layers(manifest, {"https://example.invalid/app": checkout}))
+            self.assertEqual([layer["source"] for layer in layers], [
+                str(checkout / subdir / "fs")
+                for subdir in ("", "platforms/scarlet", "bundles/game")
+            ])
+
+
 if __name__ == "__main__":
     unittest.main()

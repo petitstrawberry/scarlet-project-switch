@@ -30,7 +30,16 @@ def full_layers(path, sources, local_roots=None):
     for original in tomllib.loads(path.read_text())["layers"]:
         layer = dict(original)
         if layer["kind"] == "bundle":
-            yield from full_layers((path.parent / layer["path"]).resolve(), sources, local_roots)
+            if "path" in layer:
+                nested = path.parent / layer["path"]
+            else:
+                source = layer["source"]
+                if isinstance(source, dict):
+                    checkout = sources[source["git"].removesuffix(".git")]
+                else:
+                    checkout = path.parent / source
+                nested = checkout / layer.get("subdir", "") / layer.get("bundle", "bundle.toml")
+            yield from full_layers(nested.resolve(), sources, local_roots)
             continue
         source = layer.get("source")
         if isinstance(source, str):

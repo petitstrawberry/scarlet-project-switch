@@ -109,7 +109,7 @@
             packages = [
               rust sdk switchvisor pkgs.python3 pkgs.ripgrep pkgs.git pkgs.gh pkgs.curl
               pkgs.llvmPackages.llvm pkgs.dtc pkgs.cpio pkgs.qemu
-              pkgs.cmake pkgs.e2fsprogs pkgs.minicom
+              pkgs.cmake pkgs.ninja pkgs.meson pkgs.pkg-config pkgs.e2fsprogs pkgs.minicom
               pkgs.pkgsCross.aarch64-multiplatform.buildPackages.gcc
             ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ (mkNxboot pkgs) ];
             hardeningDisable = [ "zerocallusedregs" ];
@@ -117,6 +117,8 @@
             shellHook = ''
               export PATH="${rust}/bin:$PWD/scripts:$PATH"
               export SCARLET_RUST_ACTIVE_BIN="${rust}/bin"
+              export SCARLET_RUST_TOOLCHAIN="${rust}"
+              export SCARLET_PROBE_CC=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
               # Match Scarlet's cross-C default. Per-application CC_<target>
               # settings can still choose a Linux sysroot when needed (yt).
               # Plain Clang also supplies the target flag to CMake builds.
