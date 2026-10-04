@@ -73,10 +73,10 @@ def stream_hash(stream, size, label=None):
     return digest.hexdigest()
 
 
-def protected_samples(stream):
+def protected_samples(stream, expected_mbr=MBR_SHA256):
     stream.seek(0)
     mbr = read_exact(stream, 512)
-    if hashlib.sha256(mbr).hexdigest() != MBR_SHA256:
+    if hashlib.sha256(mbr).hexdigest() != expected_mbr:
         raise ValueError("SD MBR fingerprint differs from the inspected card")
     entries = []
     for index in range(4):
@@ -85,7 +85,7 @@ def protected_samples(stream):
         entries.append((entry[4], first, count))
     if entries != PARTITIONS:
         raise ValueError("raw MBR partition layout differs from the handoff")
-    hashes = {"mbr": MBR_SHA256}
+    hashes = {"mbr": expected_mbr}
     for number in (2, 3):
         _, first, count = PARTITIONS[number - 1]
         for name, offset in [("start", first * 512), ("end", (first + count) * 512 - CHUNK)]:
@@ -99,9 +99,12 @@ def main():
     parser.add_argument("--device", required=True)
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--sha256", required=True, help="expected SHA-256 of the prepared image")
+    parser.add_argument("--mbr-sha256", default=MBR_SHA256,
+                        help="expected SHA-256 of the inspected card's raw MBR")
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
-    if not re.fullmatch(r"[0-9a-f]{64}", args.sha256):
+    if not all(re.fullmatch(r"[0-9a-f]{64}", value)
+               for value in (args.sha256, args.mbr_sha256)):
         raise ValueError("expected a lowercase SHA-256 digest")
     validate_disk(args.device)
     image = args.image.resolve(strict=True)
@@ -137,7 +140,7 @@ def main():
                 raise ValueError(f"expected a raw character device: {path}")
         started = time.monotonic()
         with open(raw, "rb", buffering=0) as disk:
-            before = protected_samples(disk)
+            before = protected_samples(disk, args.mbr_sha256)
             with open(target, "r+b", buffering=0) as output:
                 disk.seek(PARTITIONS[3][1] * 512)
                 if read_exact(disk, CHUNK) != read_exact(output, CHUNK):
@@ -160,7 +163,7 @@ def main():
             with open(target, "rb", buffering=0) as check:
                 if stream_hash(check, size, "verify") != args.sha256:
                     raise ValueError("p4 readback SHA-256 mismatch")
-            after = protected_samples(disk)
+            after = protected_samples(disk, args.mbr_sha256)
             if before != after:
                 raise ValueError("protected MBR or neighboring partition samples changed")
         print(json.dumps({"device": target, "bytes": size, "sha256": args.sha256,
