@@ -21,6 +21,19 @@ struct Session {
     poisoned: bool,
 }
 
+// Copy the stable C record fields across independently pinned Rust ABI crates.
+// No pointer is dereferenced and no Rust type identity is assumed here.
+fn core_batch(batch: abi::Batch) -> ir::abi::Batch {
+    ir::abi::Batch {
+        table: batch.table,
+        words: ir::abi::Span {
+            data: batch.words.data,
+            len: batch.words.len,
+        },
+        count: batch.count,
+    }
+}
+
 fn error(e: maxwell::IrSubmitError) -> i32 {
     use maxwell::IrSubmitError as E;
     match e {
@@ -108,6 +121,14 @@ unsafe extern "C" fn open(path: Span<u8>, out: *mut Object, caps: *mut u64) -> i
         } | if c.supports_depth() { abi::DEPTH } else { 0 }
             | if c.supports_programmable_graphics() {
                 abi::PROGRAMMABLE_GRAPHICS
+                    | abi::READ_ONLY_STORAGE_BUFFERS
+                    | abi::TYPED_TEXTURE_VIEWS
+                    | abi::SRGB_TEXTURE_VIEWS
+                    | abi::EXTENDED_VERTEX_FORMATS
+                    | abi::RGBA8_COLOR_ATTACHMENT
+                    | abi::IMAGE_BLITS
+                    | abi::PUSH_CONSTANTS_128
+                    | abi::COLOR_ATTACHMENTS_8
             } else {
                 0
             }
@@ -351,8 +372,8 @@ unsafe extern "C" fn execute(p: Object, batch: *const abi::Batch) -> i32 {
         let table = Rc::clone(&s.table);
         let batch = *unsafe { object_ref(batch) }?;
         validate_span(batch.words.data, batch.words.len)?;
-        let commands =
-            unsafe { ir::CommandBuffer::from_abi(&table, s.source, batch) }.map_err(ir_error)?;
+        let commands = unsafe { ir::CommandBuffer::from_abi(&table, s.source, core_batch(batch)) }
+            .map_err(ir_error)?;
         s.inner.executor().execute(&commands).map_err(error)
     })())
 }
@@ -367,8 +388,8 @@ unsafe extern "C" fn submit(p: Object, batch: *const abi::Batch, out: *mut abi::
         let table = Rc::clone(&s.table);
         let batch = *unsafe { object_ref(batch) }?;
         validate_span(batch.words.data, batch.words.len)?;
-        let commands =
-            unsafe { ir::CommandBuffer::from_abi(&table, s.source, batch) }.map_err(ir_error)?;
+        let commands = unsafe { ir::CommandBuffer::from_abi(&table, s.source, core_batch(batch)) }
+            .map_err(ir_error)?;
         let (disposition, code, receipt) = match s.inner.executor().submit(&commands) {
             Ok(receipt) => (abi::ACCEPTED, abi::OK, receipt),
             Err(SubmitError::Busy) => return Err(abi::BUSY),

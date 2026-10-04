@@ -16,7 +16,7 @@ rev = "ca9fdafe1e633d752cb3a335d795496d5df5d272"
 
 [sgfx]
 git = "https://github.com/petitstrawberry/sgfx"
-rev = "738cb236d5b1e5ea458f66b0d58d6e7f969a9f01"
+rev = "51e1e62516f65cf9425a97ca5f1ae9292ad8ad97"
 
 # Maxwell's driver and code generator use the ABI v2 resource mirror.
 [sgfx-core]
@@ -25,7 +25,7 @@ rev = "040dbb5cf42b75489504e1765183d37f6131f54c"
 
 [scarlet-ui]
 git = "https://github.com/petitstrawberry/scarlet-ui"
-rev = "e6e00f11c95de371057899ec05b7a832d04adc7f"
+rev = "24f468d89f3b8d32888ce7ae07ca7fbb9fa650a8"
 
 [scarlet-project-chromebook]
 git = "https://github.com/petitstrawberry/scarlet-project-chromebook"

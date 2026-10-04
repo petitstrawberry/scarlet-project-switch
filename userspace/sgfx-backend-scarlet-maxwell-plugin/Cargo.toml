@@ -9,7 +9,7 @@ name = "sgfx_scarlet_maxwell"
 crate-type = ["cdylib"]
 
 [dependencies]
-sgfx-backend-abi = { git = "https://github.com/petitstrawberry/sgfx", rev = "040dbb5cf42b75489504e1765183d37f6131f54c" }
+sgfx-backend-abi = { git = "https://github.com/petitstrawberry/sgfx", rev = "51e1e62516f65cf9425a97ca5f1ae9292ad8ad97" }
 sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "040dbb5cf42b75489504e1765183d37f6131f54c", default-features = false, features = ["backend-abi"] }
 
 [target.'cfg(target_os = "scarlet")'.dependencies]

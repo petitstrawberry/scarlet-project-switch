@@ -19,15 +19,16 @@ The full root image uses Scarlet's full distribution catalog.
 
 Published builds use the URLs and full commit IDs in
 [source-pins.toml](../source-pins.toml). Console preparation downloads these
-sources into ignored `.cache/sources/`. Native userspace resolves all SGFX
-packages to the selected public checkout through the generated Cargo config.
-This keeps applications with older SGFX pins on one IR and loader release.
+sources into ignored `.cache/sources/`. Native userspace resolves SGFX and
+ScarletUI packages to their selected public checkouts through the generated
+Cargo config. This keeps applications with older pins on one IR, loader and
+UI release, including the generic external-driver feature selection.
 The Maxwell shared library has its own locked build and exchanges data with
 clients through ABI v2. Cached sources are checked for modifications.
 
 The Nix toolchain and SDK are pinned in `flake.lock`. The SGFX facade must
-enable `backend-scarlet-maxwell` through `backend-dynamic`; preparation checks
-both features. It builds and audits `libsgfx_scarlet_maxwell.so` before linking
+enable generic `backend-dynamic`; preparation checks this default feature.
+The Switch project builds and audits `libsgfx_scarlet_maxwell.so` before linking
 applications. Both images install the library and its manifest under
 `/system/lib/sgfx`; native clients use `/bin/scarlet-ld`.
 Firmware pins remain separate from source revisions.

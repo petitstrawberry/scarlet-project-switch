@@ -79,13 +79,11 @@ def main():
         checkouts["scarlet-distribution"] = local
     sgfx = checkouts["sgfx"]
     sgfx_manifest = tomllib.loads((sgfx / "crates/sgfx/Cargo.toml").read_text())
-    if "backend-scarlet-maxwell" not in sgfx_manifest.get("features", {}).get("default", []):
+    if "backend-dynamic" not in sgfx_manifest.get("features", {}).get("default", []):
         raise SystemExit(
-            f"SGFX checkout {sgfx} does not enable the Maxwell backend; "
+            f"SGFX checkout {sgfx} does not enable generic dynamic driver discovery; "
             "select a compatible upstream revision"
         )
-    if "backend-dynamic" not in sgfx_manifest["features"]["backend-scarlet-maxwell"]:
-        raise SystemExit("SGFX native Maxwell must use the dynamic backend; update its public pin")
     subprocess.run([sys.executable, str(ROOT / "scripts/verify-maxwell-shaders.py")], check=True)
     subprocess.run([sys.executable, str(ROOT / "scripts/prepare-gm20b-firmware.py")], check=True)
     # The client linker needs this audited shared input before the SDK builds
