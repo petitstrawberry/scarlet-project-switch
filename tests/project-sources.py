@@ -263,7 +263,7 @@ subdir = "bundles/game"
             bundles = Path(temporary).resolve()
             desktop = bundles / "desktop"
             desktop.mkdir()
-            programs = ["sws", "sas", "scarlet-desktop", "task-manager",
+            programs = ["sws", "sas", "scarlet-desktop", "desktop-settings", "scarlet-shell", "task-manager",
                         "sgfx-probe", "sgfx-cube", "sgfx-texture"]
             (desktop / "bundle.toml").write_text("\n".join(
                 f'[[layers]]\nkind = "cargo"\nsource = "../../user"\nbin = "{name}"\nto = "/bin/{name}"\n'

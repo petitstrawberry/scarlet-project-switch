@@ -11,7 +11,7 @@ path = "bsp"
 package = "scarlet"
 
 [bsp.kernel]
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "07fefb250020fa72952cca519e554f20c7b5f210" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "388e95b36fc929751220e4aaa2a1f47e0306b00c" }
 features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true }
 
 [modules]

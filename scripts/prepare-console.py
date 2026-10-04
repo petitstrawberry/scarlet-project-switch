@@ -57,7 +57,7 @@ def full_layers(path, sources, local_roots=None):
 def development_layers(bundles, sources, local_roots=None):
     """Add only the compositor and GPU diagnostics to the base/CLI image."""
     programs = {
-        "sws", "sas", "scarlet-desktop", "task-manager",
+        "sws", "sas", "scarlet-desktop", "desktop-settings", "scarlet-shell", "task-manager",
         "sgfx-probe", "sgfx-cube", "sgfx-texture",
     }
     selected = [layer for layer in full_layers(

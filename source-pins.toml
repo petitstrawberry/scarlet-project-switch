@@ -1,7 +1,7 @@
 # Upstream dependency revisions. Local source patches are not supported.
 [scarlet]
 git = "https://github.com/petitstrawberry/Scarlet"
-rev = "07fefb250020fa72952cca519e554f20c7b5f210"
+rev = "388e95b36fc929751220e4aaa2a1f47e0306b00c"
 
 # Native userspace crates retain the revision shared by ScarletUI and the
 # published GPU backends to preserve Cargo crate identity.
@@ -12,7 +12,7 @@ rev = "b3d2a55740a3d2ca49daad0ec7baba233f706f7a"
 # Kernel and published distribution are updated together.
 [scarlet-distribution]
 git = "https://github.com/petitstrawberry/Scarlet"
-rev = "07fefb250020fa72952cca519e554f20c7b5f210"
+rev = "388e95b36fc929751220e4aaa2a1f47e0306b00c"
 
 [sgfx]
 git = "https://github.com/petitstrawberry/sgfx"
