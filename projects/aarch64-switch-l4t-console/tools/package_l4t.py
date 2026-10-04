@@ -97,6 +97,12 @@ def main():
         # payload. Scarlet's initramfs parser needs raw CPIO, unlike Linux.
         (boot / "initramfs").write_bytes(legacy_image(initrd.read_bytes(), 3, "Scarlet initramfs"))
         script = (project / "bootloader/boot.cmd").read_bytes()
+        profile_file = project / ".scarlet/initramfs-profile"
+        initramfs_profile = profile_file.read_text().strip() if profile_file.is_file() else "sd-root"
+        if initramfs_profile not in ("sd-root", "initramfs-dev"):
+            parser.error(f"unknown initramfs profile: {initramfs_profile}")
+        if initramfs_profile == "initramfs-dev":
+            script = b"setenv scarlet_initramfs_dev 1\n" + script
         # Script payload is a big-endian length, zero terminator, then text.
         (boot / "boot.scr").write_bytes(legacy_image(struct.pack(">II", len(script), 0) + script, 6, "Scarlet L4T boot", arch=2))
         for name in pins["files"]:
@@ -120,6 +126,7 @@ def main():
             "boot_directory": args.boot_directory,
             "entry_file": args.entry_file,
             "initramfs_size": initrd.stat().st_size,
+            "initramfs_profile": initramfs_profile,
             "kernel_load": hex(LOAD), "kernel_entry": hex(LOAD),
             "text_offset": "0x200000", "image_runtime_size": image_size,
             "dtb_selection_buffer": "0x8d000000",

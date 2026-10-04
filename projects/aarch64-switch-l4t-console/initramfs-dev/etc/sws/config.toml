@@ -1,0 +1,10 @@
+[output]
+scale = 1.0
+
+[cursor]
+theme = "/share/cursors/default"
+
+[gamepad]
+navigation = true
+confirm_button = "east"
+cancel_button = "south"

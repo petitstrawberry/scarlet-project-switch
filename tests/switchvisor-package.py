@@ -98,6 +98,21 @@ class SwitchvisorPackageTests(unittest.TestCase):
         self.assertEqual(result["switchvisor_source"], self.manifest["source"])
         self.assertEqual(result["switchvisor_checkout_revision"], "a" * 40)
 
+    def test_development_boot_profile_is_explicit_and_defaults_to_sd(self):
+        console_manifest = self.console / "manifest.json"
+        console = json.loads(console_manifest.read_text())
+        console["initramfs_profile"] = "initramfs-dev"
+        console_manifest.write_text(json.dumps(console))
+        result = self.invoke()
+        boot_script = self.output / package.BOOT_DIRECTORY / "boot.scr"
+        self.assertEqual(result["initramfs_profile"], "initramfs-dev")
+        self.assertIn(b"setenv scarlet_initramfs_dev 1\n", boot_script.read_bytes())
+        del console["initramfs_profile"]
+        console_manifest.write_text(json.dumps(console))
+        result = self.invoke()
+        self.assertEqual(result["initramfs_profile"], "sd-root")
+        self.assertIn(b"setenv scarlet_initramfs_dev 0\n", boot_script.read_bytes())
+
     def test_missing_network_overlay_preserves_previous_package(self):
         self.invoke()
         before = self.snapshot()

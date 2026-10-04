@@ -163,6 +163,43 @@ changing the kernel or initramfs. The resulting bundle transfers the new
 images over USB; the SD debug entry does not need rewriting unless its BL33,
 boot script, overlay, or bootstack changed.
 
+## Lightweight initramfs development
+
+For GPU development, build only the kernel and a small RAM root:
+
+```sh
+scripts/build-console.sh --initramfs-dev
+python3 scripts/package-switchvisor.py --usb-net
+```
+
+This uses `cargo scarlet image --image initramfs`. It includes base/CLI tools,
+the external Maxwell driver and firmware, SWS/SAS, the console desktop,
+Task Manager, and `sgfx-probe`, `sgfx-cube`, and `sgfx-texture`. It does not
+build the full SD image or EasyRPG. `veth0` receives `192.168.77.3/24`, gateway
+`192.168.77.2`, and the DNS servers above on every boot. The host still needs
+its USB address and existing NAT setup.
+
+The generated boot script explicitly omits the SD `root=` arguments in this
+mode. Install the development `boot.scr` once in
+`switchroot/scarlet-switchvisor/` on FAT (or install the generated Switchvisor
+SD package once). Uploading `bundle.json` does not replace that SD script.
+The full ext2 root partition is not rewritten. After this one-time setup, each
+iteration is just build, reset to RCM, start Switchvisor, and USB upload:
+
+```sh
+scripts/build-console.sh --initramfs-dev
+python3 scripts/package-switchvisor.py --usb-net
+switchvisorctl reboot-rcm
+nxboot --hekate id SCR-SWV /path/to/hekate.bin
+switchvisorctl deploy \
+  projects/aarch64-switch-l4t-console/.scarlet/switchvisor/bundle.json
+```
+
+Wait for RCM before `nxboot`, and for the USB control port before `deploy`.
+The root is volatile, so guest changes disappear at reset. To return to the
+normal SD distribution, run `scripts/build-console.sh` without the option,
+repackage, and restore its generated SD boot script.
+
 ## Custom Switchvisor builds
 
 To develop Switchvisor locally, override its flake input explicitly:

@@ -254,6 +254,26 @@ subdir = "bundles/game"
                 for subdir in ("", "platforms/scarlet", "bundles/game")
             ])
 
+    def test_development_bundle_keeps_only_gpu_desktop_programs(self):
+        spec = importlib.util.spec_from_file_location("console", ROOT / "scripts/prepare-console.py")
+        console = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {"project_sources": sources}):
+            spec.loader.exec_module(console)
+        with tempfile.TemporaryDirectory() as temporary:
+            bundles = Path(temporary).resolve()
+            desktop = bundles / "desktop"
+            desktop.mkdir()
+            programs = ["sws", "sas", "scarlet-desktop", "task-manager",
+                        "sgfx-probe", "sgfx-cube", "sgfx-texture"]
+            (desktop / "bundle.toml").write_text("\n".join(
+                f'[[layers]]\nkind = "cargo"\nsource = "../../user"\nbin = "{name}"\nto = "/bin/{name}"\n'
+                for name in programs + ["easyrpg-player", "video-player", "mozc-server"]
+            ))
+            layers = list(console.development_layers(bundles, {}))
+            self.assertEqual([layer["bin"] for layer in layers if layer["kind"] == "cargo"], programs)
+            self.assertEqual([layer["to"] for layer in layers if layer["kind"] == "copy"],
+                             ["/share/fonts", "/share/cursors", "/", "/"])
+
 
 if __name__ == "__main__":
     unittest.main()

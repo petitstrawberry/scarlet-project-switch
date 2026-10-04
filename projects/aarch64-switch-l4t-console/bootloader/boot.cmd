@@ -149,7 +149,12 @@ if test "${scarlet_switchvisor_payload}" = 1; then
         reset
     fi
 fi
-setenv bootargs "init=/init maxcpus=4 scarlet.switch=1 root=/dev/mmcblk0p4 rootfstype=ext2 rootwait"
+setenv bootargs "init=/init maxcpus=4 scarlet.switch=1"
+if test "${scarlet_initramfs_dev}" = 1; then
+    echo Scarlet development root stays in initramfs
+else
+    setenv bootargs "${bootargs} root=/dev/mmcblk0p4 rootfstype=ext2 rootwait"
+fi
 # The USB debug entry runs an interactive login on tty0. Keep PID 1 on the
 # same default console as the ordinary Scarlet distribution for this entry.
 # The screen-only entry still suppresses service-manager output on its TTY.

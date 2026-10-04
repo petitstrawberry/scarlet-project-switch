@@ -77,6 +77,7 @@ def main():
 
 def package_distribution(dist):
     console = json.loads((CONSOLE / "manifest.json").read_text())
+    initramfs_dev = console.get("initramfs_profile") == "initramfs-dev"
     pins = json.loads((PROJECT / "bootstack.json").read_text())["files"]
     switchvisor = json.loads((dist / "manifest.json").read_text())
     if (not switchvisor.get("stage2_enabled")
@@ -117,6 +118,7 @@ def package_distribution(dist):
         # The USB bundle supplies these images at their usual U-Boot addresses.
         script = (b"setenv scarlet_switchvisor_payload 1\n"
                   + f"setenv scarlet_switchvisor_net {int(bool(usb_net.get('enabled')))}\n".encode()
+                  + f"setenv scarlet_initramfs_dev {int(initramfs_dev)}\n".encode()
                   + (PROJECT / "bootloader/boot.cmd").read_bytes())
         (boot / "boot.scr").write_bytes(legacy_image(
             struct.pack(">II", len(script), 0) + script,
@@ -148,6 +150,8 @@ def package_distribution(dist):
             "switchvisor_bl33_sha256": switchvisor["sha256"],
             "usb_net": usb_net,
             "console_kernel_elf_sha256": console["kernel_elf_sha256"],
+            "initramfs_profile": console.get("initramfs_profile", "sd-root"),
+            "root_mode": "initramfs" if initramfs_dev else "sd",
             "bundle_input_sha256": {
                 "bl33.bin": pins["bl33.bin"],
                 "uImage": digest(sources["uImage"]),

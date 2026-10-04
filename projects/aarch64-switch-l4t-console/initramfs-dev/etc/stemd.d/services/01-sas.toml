@@ -1,0 +1,4 @@
+[service.sas]
+exec = "/bin/sas"
+order = 1
+depends = ["sbusd"]

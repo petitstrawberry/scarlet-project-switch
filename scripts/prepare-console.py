@@ -54,6 +54,26 @@ def full_layers(path, sources, local_roots=None):
         yield layer
 
 
+def development_layers(bundles, sources, local_roots=None):
+    """Add only the compositor and GPU diagnostics to the base/CLI image."""
+    programs = {
+        "sws", "sas", "scarlet-desktop", "task-manager",
+        "sgfx-probe", "sgfx-cube", "sgfx-texture",
+    }
+    selected = [layer for layer in full_layers(
+        bundles / "desktop/bundle.toml", sources, local_roots
+    ) if layer.get("kind") == "cargo" and layer.get("bin") in programs]
+    missing = programs - {layer["bin"] for layer in selected}
+    if missing:
+        raise ValueError(f"missing development programs: {', '.join(sorted(missing))}")
+    yield from selected
+    for name in ("fonts", "cursors"):
+        yield {"kind": "copy", "source": str(bundles / "desktop/fs/share" / name),
+               "to": f"/share/{name}"}
+    yield {"kind": "copy", "source": str(PROJECT / "rootfs"), "to": "/"}
+    yield {"kind": "copy", "source": str(PROJECT / "initramfs-dev"), "to": "/"}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
@@ -61,6 +81,8 @@ def main():
                       help="select published bundles and clear the saved local selection")
     mode.add_argument("--local-bundles", type=Path, metavar="SCARLET",
                       help="use this Scarlet checkout's bundles; remember the selection locally")
+    parser.add_argument("--initramfs-dev", action="store_true",
+                        help="include the small GPU desktop and USB network config in initramfs")
     args = parser.parse_args()
     if (PROJECT / "scarlet.local.toml").exists():
         parser.error("remove the project's scarlet.local.toml override; use upstream commit pins")
@@ -104,8 +126,12 @@ def main():
         # Canonical paths avoid treating a source symlink and its destination
         # as two separate Cargo packages in the same dependency graph.
         layers = [layer for path in inputs for layer in full_layers(path, sources, local_roots)]
+        if name == "initramfs" and args.initramfs_dev:
+            layers.extend(development_layers(bundles, sources, local_roots))
         text = "\n\n".join("[[layers]]\n" + "\n".join(f"{key} = {value(item)}" for key, item in layer.items()) for layer in layers)
         (PROJECT / f".scarlet/{name}-bundle.toml").write_text(text + "\n")
+    (PROJECT / ".scarlet/initramfs-profile").write_text(
+        "initramfs-dev\n" if args.initramfs_dev else "sd-root\n")
     cache = PROJECT / ".scarlet/cache"
     cargo_home = cache / "cargo-home"
     cargo_home.mkdir(parents=True, exist_ok=True)
@@ -132,7 +158,10 @@ def main():
         selection.write_text(str(local) + "\n")
     elif args.published:
         selection.unlink(missing_ok=True)
-    print(f"Prepared base + CLI initramfs and full SD rootfs from {bundles}")
+    if args.initramfs_dev:
+        print(f"Prepared RAM development bundle (base + CLI + GPU desktop) from {bundles}")
+    else:
+        print(f"Prepared base + CLI initramfs and full SD rootfs from {bundles}")
 
 
 if __name__ == "__main__":
