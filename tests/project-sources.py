@@ -112,8 +112,14 @@ class SourceTests(unittest.TestCase):
             manifest = checkout / "crates" / name / "Cargo.toml"
             manifest.parent.mkdir(parents=True)
             manifest.write_text(f'[package]\nname = "{name}"\nversion = "1.0.0"\n')
+        ui_checkout = Path(self.temp.name) / "ui-release"
+        for name in ("scarlet-ui", "scarlet-ui-platform-sws", "scarlet-ui-renderer-sgfx"):
+            manifest = ui_checkout / "crates" / name / "Cargo.toml"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(f'[package]\nname = "{name}"\nversion = "1.0.0"\n')
         project = self.root / "console"
-        with patch.object(sources, "PROJECT", project), patch.object(sources, "source", return_value=checkout):
+        with patch.object(sources, "PROJECT", project), patch.object(
+                sources, "source", side_effect=lambda name: ui_checkout if name == "scarlet-ui" else checkout):
             sources.prepare()
         general = tomllib.loads((self.root / ".cargo/config.toml").read_text())
         native = tomllib.loads((project / ".scarlet/userspace.toml").read_text())
@@ -122,6 +128,10 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(set(packages), {"sgfx", "sgfx-core", "sgfx-backend-loader", "sgfx-backend-abi"})
         for name, replacement in packages.items():
             self.assertEqual(replacement, {"path": str(checkout / "crates" / name)})
+        ui_packages = native["patch"][sources.UI_URL]
+        self.assertEqual(set(ui_packages), {"scarlet-ui", "scarlet-ui-platform-sws", "scarlet-ui-renderer-sgfx"})
+        for name, replacement in ui_packages.items():
+            self.assertEqual(replacement, {"path": str(ui_checkout / "crates" / name)})
         flags = native["target"]["aarch64-unknown-scarlet"]["rustflags"]
         self.assertIn("link-arg=--dynamic-linker=/bin/scarlet-ld", flags)
         self.assertIn("link-arg=--as-needed", flags)
@@ -149,7 +159,7 @@ class PublishedManifestTests(unittest.TestCase):
         def check(value, manifest, key=None):
             if isinstance(value, dict):
                 if "git" in value and value["git"].removesuffix(".git") in revisions:
-                    expected = (pins["sgfx-core"]["rev"] if value.get("package", key) in ("sgfx-core", "sgfx-backend-abi", "sgfx-codegen-virgl")
+                    expected = (pins["sgfx-core"]["rev"] if value.get("package", key) in ("sgfx-core", "sgfx-codegen-virgl")
                                 else revisions[value["git"].removesuffix(".git")])
                     if (value["git"].removesuffix(".git") == pins["scarlet"]["git"]
                             and manifest.name == "Cargo.toml"

@@ -289,7 +289,8 @@ unsafe extern "C" fn submit(
         let batch = *unsafe { object_ref(batch) }?;
         validate_span(batch.words.data, batch.words.len)?;
         let commands =
-            unsafe { ir::CommandBuffer::from_abi(&r.table, r.source, batch) }.map_err(ir_error)?;
+            unsafe { ir::CommandBuffer::from_abi(&r.table, r.source, core_batch(batch)) }
+                .map_err(ir_error)?;
         let (disposition, code, receipt) =
             match q.inner.submit_ir_async(&q.context, &mut r.inner, &commands) {
                 Ok(receipt) => (abi::ACCEPTED, abi::OK, receipt),

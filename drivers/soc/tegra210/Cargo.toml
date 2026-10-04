@@ -5,5 +5,5 @@ edition = "2024"
 license = "GPL-2.0-only"
 
 [target.'cfg(target_os = "none")'.dependencies]
-scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "ca9fdafe1e633d752cb3a335d795496d5df5d272", default-features = false, features = ["network"] }
+scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "a55b12ec0f90c6871d12be1db189b8af0c94a1af", default-features = false, features = ["network"] }
 fdt = "0.1.5"
