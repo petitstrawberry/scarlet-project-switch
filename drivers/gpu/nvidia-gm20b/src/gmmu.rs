@@ -415,6 +415,25 @@ impl Gmmu {
             )
     }
 
+    pub fn execute_graphics_with_programs(
+        &mut self,
+        operations: &[[u32; 96]],
+        programs: &[crate::programmable_graphics::PublishedDraw],
+    ) -> Result<(), scarlet::device::gpu::GpuBackendSubmitError> {
+        use scarlet::device::gpu::GpuBackendSubmitError;
+        self.graphics
+            .as_mut()
+            .ok_or(GpuBackendSubmitError::DeviceLost("graphics engine missing"))?
+            .execute_with_programs(
+                &self.fifo,
+                self.gr
+                    .as_ref()
+                    .ok_or(GpuBackendSubmitError::DeviceLost("GR missing"))?,
+                operations,
+                programs,
+            )
+    }
+
     pub fn idle(&self) -> Result<(), &'static str> {
         self.fifo.idle()?;
         self.gr.as_ref().ok_or("GR missing")?.idle()

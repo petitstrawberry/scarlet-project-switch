@@ -1,0 +1,40 @@
+Mesa Nouveau NAK and pure Rust compiler utilities
+Upstream: https://gitlab.freedesktop.org/mesa/mesa
+Revision: e881540692daac6532cefec76699f7a025563767
+
+Copyright © 2022–2026 Collabora, Ltd.
+Copyright © 2024 Igalia S.L.
+Copyright © 2024 Collabora Ltd. and Red Hat Inc.
+Additional copyright notices are preserved in individual source files.
+SPDX-License-Identifier: MIT
+
+Vendored sources originate from:
+  src/nouveau/compiler/nak/*.rs
+  src/compiler/rust/*.rs (pure Rust support modules only)
+  src/compiler/rust/proc/*.rs
+  src/nouveau/rust/bitview/lib.rs
+  src/nouveau/headers/struct_parser.py and util.py
+
+Local adaptations:
+  Cargo manifests and public module visibility for a standalone Rust crate.
+    The compiler helper's Rustdoc snippets omit type imports and were not run
+    by upstream Meson; its Cargo manifest disables those three doctests while
+    preserving exact source text. All 46 helper unit tests are enabled.
+  api.rs is replaced by a safe Rust entrypoint with the upstream pass chain
+    and debug flags. C NIR preprocessing and C/DRM bindings are omitted.
+  ir.rs and sph.rs import local safe Rust mirrors of the three C records
+    they reference. ShaderModelInfo dispatch accepts SM50 and SM52 only.
+  lib.rs excludes C NIR, C API, QMD, other generations and hardware tests.
+  Graphics metadata initialization, validation and integration tests are
+    SGFX additions. Upstream algorithms and instruction encoding remain.
+
+NVIDIA Shader Program Header constants:
+  src/nouveau/headers/nvidia/classes/cla097sph.h
+  Copyright (c) 2020 NVIDIA CORPORATION. All rights reserved.
+  MIT license text is preserved in the original header under
+    vendor/nvidia-headers/upstream/cla097sph.h.
+  Generated Rust constants under vendor/nvidia-headers/src/sph.rs derive
+    from that header via the preserved Mesa struct_parser.py.
+
+The full MIT license text appears in LICENSE-MIT. Original source SHA-256
+hashes and upstream revision are recorded in UPSTREAM.json.

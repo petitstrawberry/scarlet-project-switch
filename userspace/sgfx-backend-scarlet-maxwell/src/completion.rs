@@ -30,6 +30,50 @@ impl Submission {
     pub(crate) fn new(signal: Arc<Signal>) -> Self {
         Self { signal }
     }
+
+    /// Transfer the existing signal owner to an opaque driver ABI receipt.
+    /// The creating library retains authority over its allocation and layout.
+    pub fn into_abi_object(self) -> *mut core::ffi::c_void {
+        Arc::into_raw(self.signal).cast_mut().cast()
+    }
+
+    /// Observe a receipt through the library which created it.
+    ///
+    /// # Safety
+    /// `object` must be a live receipt from this library's `into_abi_object`.
+    /// Its strong reference and the creating library must remain live for this call.
+    pub unsafe fn wait_abi_object(
+        object: *mut core::ffi::c_void,
+        timeout: Option<Duration>,
+    ) -> Result<CompletionStatus, IrSubmitError> {
+        // SAFETY: the caller retains the signal and its creating library.
+        let signal = unsafe { &*object.cast::<Signal>() };
+        if timeout == Some(Duration::ZERO) {
+            signal.poll()
+        } else {
+            signal.wait(timeout)
+        }
+    }
+
+    /// Retain an opaque receipt without allocating a wrapper.
+    ///
+    /// # Safety
+    /// `object` must be a live receipt created by this library. The reference
+    /// retained here must later be consumed once by `drop_abi_object`.
+    pub unsafe fn clone_abi_object(object: *mut core::ffi::c_void) {
+        // SAFETY: the caller retains an existing strong reference during cloning.
+        unsafe { Arc::increment_strong_count(object.cast::<Signal>()) };
+    }
+
+    /// Consume one opaque receipt owner without waiting or canceling GPU work.
+    ///
+    /// # Safety
+    /// `object` must represent one unconsumed strong reference from this
+    /// library's `into_abi_object` or `clone_abi_object`.
+    pub unsafe fn drop_abi_object(object: *mut core::ffi::c_void) {
+        // SAFETY: consumes exactly one strong reference created in this library.
+        drop(unsafe { Arc::from_raw(object.cast::<Signal>()) });
+    }
 }
 
 impl fmt::Debug for Submission {

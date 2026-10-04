@@ -1,0 +1,12 @@
+[package]
+name = "nak_ir_proc"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+[lib]
+proc-macro = true
+[dependencies]
+compiler_proc = { path = "../compiler-proc" }
+proc-macro2 = "=1.0.107"
+quote = "=1.0.47"
+syn = { version = "=2.0.119", features = ["full"] }

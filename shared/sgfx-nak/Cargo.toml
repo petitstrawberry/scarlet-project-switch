@@ -1,0 +1,14 @@
+[package]
+name = "sgfx-nak"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+compiler = { path = "vendor/compiler" }
+bitview = { path = "vendor/bitview" }
+nak_ir_proc = { path = "vendor/nak-ir-proc" }
+nvidia_headers = { path = "vendor/nvidia-headers" }
+rustc-hash = "=2.1.3"
+
+[workspace]

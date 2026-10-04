@@ -8,7 +8,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    scarlet-rust-toolchain.url = "github:petitstrawberry/scarlet-rust-nix";
+    scarlet-rust-toolchain.url = "github:petitstrawberry/scarlet-rust-nix/main";
     scarlet-sdk = {
       url = "github:petitstrawberry/scarlet-sdk/116882ab42b48a23613d3d574e2c987aca277786";
       flake = false;

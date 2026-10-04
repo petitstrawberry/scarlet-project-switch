@@ -1,0 +1,20 @@
+Maxwell programmable stage package verifier
+
+Instruction encodings and SPHv3 field positions are audited against Mesa:
+https://gitlab.freedesktop.org/mesa/mesa
+Revision: e881540692daac6532cefec76699f7a025563767
+src/nouveau/compiler/nak/sm50.rs
+src/nouveau/compiler/nak/sph.rs
+src/nouveau/headers/nvidia/classes/cla097sph.h
+
+The computational encoding table derives from the MIT-licensed NAK encoder:
+Copyright © 2023 Collabora, Ltd.
+SPHv3 constants derive from the MIT-licensed NVIDIA header:
+Copyright (c) 2020 NVIDIA CORPORATION. All rights reserved.
+Original sources, complete upstream notices, hashes and license texts are
+preserved in shared/sgfx-nak/UPSTREAM.json, NOTICE and LICENSE-MIT.
+
+The wire parser, explicit authorization checks and CFG stack proof are local
+GPL-2.0-only additions. The opcode table is MIT-licensed.
+Actual shader fixtures derive from the repository's GPL-2.0-only Maxwell shader
+frontend tests, compiled using the above pinned MIT-licensed NAK backend.

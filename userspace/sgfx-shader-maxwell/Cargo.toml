@@ -1,0 +1,14 @@
+[package]
+name = "sgfx-shader-maxwell"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "040dbb5cf42b75489504e1765183d37f6131f54c", default-features = false }
+sgfx-codegen-virgl = { git = "https://github.com/petitstrawberry/sgfx", rev = "040dbb5cf42b75489504e1765183d37f6131f54c", default-features = false, features = ["programmable"] }
+sgfx-nak = { path = "../../shared/sgfx-nak" }
+
+[dev-dependencies]
+naga = { version = "24", features = ["wgsl-in", "spv-out"] }
+maxwell-program-wire = { path = "../../shared/maxwell-program-wire" }

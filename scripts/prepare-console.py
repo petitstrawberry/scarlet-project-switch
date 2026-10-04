@@ -84,16 +84,24 @@ def main():
             f"SGFX checkout {sgfx} does not enable the Maxwell backend; "
             "select a compatible upstream revision"
         )
+    if "backend-dynamic" not in sgfx_manifest["features"]["backend-scarlet-maxwell"]:
+        raise SystemExit("SGFX native Maxwell must use the dynamic backend; update its public pin")
     subprocess.run([sys.executable, str(ROOT / "scripts/verify-maxwell-shaders.py")], check=True)
     subprocess.run([sys.executable, str(ROOT / "scripts/prepare-gm20b-firmware.py")], check=True)
+    # The client linker needs this audited shared input before the SDK builds
+    # application layers. The bundle subsequently installs the same driver.
+    subprocess.run([sys.executable, str(ROOT / "scripts/build-sgfx-maxwell.py"),
+                    "--project", str(PROJECT)], check=True)
     # Native runtime/core pins preserve crate identity in applications.
     # Bundle sources use the distribution pin instead of the native API pin.
     sources = {pin["git"].removesuffix(".git"): checkouts[name] for name, pin in pins().items()
                if name not in ("scarlet", "scarlet-native", "sgfx-core")}
     bundles = checkouts["scarlet-distribution"] / "bundles"
     for name, inputs in {
-        "initramfs": [bundles / "base/bundle.toml", bundles / "cli-utils/bundle.toml"],
-        "full": [bundles / "full/bundle.toml", PROJECT / "bundles/nvdec-player.toml"],
+        "initramfs": [bundles / "base/bundle.toml", bundles / "cli-utils/bundle.toml",
+                      PROJECT / "bundles/sgfx-maxwell.toml"],
+        "full": [bundles / "full/bundle.toml", PROJECT / "bundles/nvdec-player.toml",
+                 PROJECT / "bundles/sgfx-maxwell.toml"],
     }.items():
         # Canonical paths avoid treating a source symlink and its destination
         # as two separate Cargo packages in the same dependency graph.

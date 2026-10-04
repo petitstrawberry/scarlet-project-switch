@@ -1,0 +1,77 @@
+{
+  "mesa_sha": "e881540692daac6532cefec76699f7a025563767",
+  "generator": "userspace/sgfx-shader-maxwell/src/tests.rs::validate_native_package",
+  "format_version": 1,
+  "artifacts": [
+    {
+      "file": "1f3ac132539630e4.mxp",
+      "sha256": "62b21b47882e073d4dda746f82ee45b61d0f9f247c189a9360eb1c944a1fcd9f",
+      "size": 608
+    },
+    {
+      "file": "2731989d690b8b00.mxp",
+      "sha256": "3ba6617cdf137ccd565a25e0ea2839c651f77772f35e74e2df45446c73e7eba5",
+      "size": 832
+    },
+    {
+      "file": "3d273852bb50ab3d.mxp",
+      "sha256": "29d68a2669356dd3bcc20a99e0a4957a1c9ecf961c2479eaf6d9bd6c9405d0c4",
+      "size": 5600
+    },
+    {
+      "file": "424cc1b38b2e5e4a.mxp",
+      "sha256": "35199364b7a4e4120eba8140443f6e9d2e0a8581bf7ed821b9ac09c16c8011b1",
+      "size": 1760
+    },
+    {
+      "file": "48b49c8866f93609.mxp",
+      "sha256": "542bad0de73973ba5563ee59d7c52bc6fb14a51bda32a90963e2d228d7baa934",
+      "size": 832
+    },
+    {
+      "file": "4c282f2dd9cb9b88.mxp",
+      "sha256": "65d587f74c2aaacc6411e6b540fa70bfc546205c37fb2e23ca944bbbd0322408",
+      "size": 1696
+    },
+    {
+      "file": "5260333a84a1c937.mxp",
+      "sha256": "ab44e00b7313fffe1c3d3e39edc207ef7edce69f95274322a61c6ce633d4bdb5",
+      "size": 7232
+    },
+    {
+      "file": "73e693e2073ffee6.mxp",
+      "sha256": "51f7acc0c1668aa18699e57e172efe3d87b992115443d0e4c0ad46d4f83ae32a",
+      "size": 1728
+    },
+    {
+      "file": "aaea911f7f09a3a5.mxp",
+      "sha256": "b09d2bc86c076e7314e292afd079351943a5d6323a475822d5cf3f9d2b2083af",
+      "size": 1792
+    },
+    {
+      "file": "b00ad2d6492af09d.mxp",
+      "sha256": "68aa164f3c5f3a5576d64e130fb5715cc91288e62d8704f216ca7baa0f93c253",
+      "size": 2464
+    },
+    {
+      "file": "cacd7a143188d3d8.mxp",
+      "sha256": "81161da2c060b9bb07974a50cadc0fccc9f47f14c27272530015d52ab3193ae7",
+      "size": 5600
+    },
+    {
+      "file": "da143feb137334f7.mxp",
+      "sha256": "dc7b7238de0902c0770d25999508c1965b649e6998c5a9205796147271551116",
+      "size": 896
+    },
+    {
+      "file": "f28b5a8ab5dd21ed.mxp",
+      "sha256": "f64611062d101a82800dbe6bc37a434e9feb851da7305f74d31c02cd8e9a4815",
+      "size": 1632
+    },
+    {
+      "file": "fec023b589726751.mxp",
+      "sha256": "eb5f2b0fc86a6bed770959c94831a2019f67b606f250132c4508445f9fcacdb2",
+      "size": 928
+    }
+  ]
+}

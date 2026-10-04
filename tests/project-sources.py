@@ -101,6 +101,32 @@ class SourceTests(unittest.TestCase):
         self.assertEqual(generated["env"]["SCARLET_UI_SOURCE"]["value"], str(checkouts["scarlet-ui"]))
         self.assertEqual(config.read_text(), (project / ".scarlet/userspace.toml").read_text())
 
+    def test_native_clients_share_the_pinned_sgfx_source_without_patching_driver_builds(self):
+        for name in ("scarlet-ui", "sgfx"):
+            with (self.root / "source-pins.toml").open("a") as manifest:
+                manifest.write(f'[{name}]\ngit = "{self.upstream.as_posix()}"\nrev = "{self.rev}"\n')
+        checkout = sources.source("sgfx")
+        # This fixture represents the already verified release's package tree.
+        for name in ("sgfx", "sgfx-core", "sgfx-backend-loader", "sgfx-backend-abi",
+                     "sgfx-backend-scarlet-virgl-plugin"):
+            manifest = checkout / "crates" / name / "Cargo.toml"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(f'[package]\nname = "{name}"\nversion = "1.0.0"\n')
+        project = self.root / "console"
+        with patch.object(sources, "PROJECT", project), patch.object(sources, "source", return_value=checkout):
+            sources.prepare()
+        general = tomllib.loads((self.root / ".cargo/config.toml").read_text())
+        native = tomllib.loads((project / ".scarlet/userspace.toml").read_text())
+        self.assertNotIn("patch", general)
+        packages = native["patch"][sources.SGFX_URL]
+        self.assertEqual(set(packages), {"sgfx", "sgfx-core", "sgfx-backend-loader", "sgfx-backend-abi"})
+        for name, replacement in packages.items():
+            self.assertEqual(replacement, {"path": str(checkout / "crates" / name)})
+        flags = native["target"]["aarch64-unknown-scarlet"]["rustflags"]
+        self.assertIn("link-arg=--dynamic-linker=/bin/scarlet-ld", flags)
+        self.assertIn("link-arg=--as-needed", flags)
+        self.assertIn(f"link-arg={project.resolve()}/.scarlet/sgfx-maxwell/libsgfx_scarlet_maxwell.so", flags)
+
 
 class PublishedManifestTests(unittest.TestCase):
     def test_no_local_patch_files_or_declarations_remain(self):
@@ -123,7 +149,7 @@ class PublishedManifestTests(unittest.TestCase):
         def check(value, manifest, key=None):
             if isinstance(value, dict):
                 if "git" in value and value["git"].removesuffix(".git") in revisions:
-                    expected = (pins["sgfx-core"]["rev"] if value.get("package", key) == "sgfx-core"
+                    expected = (pins["sgfx-core"]["rev"] if value.get("package", key) in ("sgfx-core", "sgfx-backend-abi", "sgfx-codegen-virgl")
                                 else revisions[value["git"].removesuffix(".git")])
                     if (value["git"].removesuffix(".git") == pins["scarlet"]["git"]
                             and manifest.name == "Cargo.toml"

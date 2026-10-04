@@ -19,7 +19,7 @@ use std::{
 
 use crate::asynchronous::DispatchOwner;
 use crate::completion::{completion_status, monotonic_time_ns, remaining_timeout_ns};
-use crate::resource::{RawBuffer, RawImage};
+use crate::resource::RawBuffer;
 use crate::scheduler::{AdmissionError, DispatchError, Scheduler, Transport};
 use crate::{Handle, HandleError, HandleResult, IrSubmitError};
 use sgfx_core::backend::CompletionStatus;
@@ -52,11 +52,26 @@ fn try_lock<T>(mutex: &Mutex<T>) -> Option<MutexGuard<'_, T>> {
     }
 }
 
+// An empty job list certifies retirement only while admission and the worker
+// remain excluded. Failed dispatch never certifies that native work is idle.
+fn try_idle<T: Transport>(
+    scheduler: &Mutex<Scheduler<T>>,
+) -> Result<Option<MutexGuard<'_, Scheduler<T>>>, T::Error> {
+    let Some(scheduler) = try_lock(scheduler) else {
+        return Ok(None);
+    };
+    if let Some(error) = scheduler.failure() {
+        return Err(error);
+    }
+    Ok(scheduler.is_empty().then_some(scheduler))
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Failure {
     Backend(HandleError),
     Completion(u32),
     Unavailable,
+    InvalidIr(crate::ir::Error),
 }
 
 impl From<Failure> for IrSubmitError {
@@ -65,6 +80,7 @@ impl From<Failure> for IrSubmitError {
             Failure::Backend(error) => Self::Backend(error),
             Failure::Completion(reason) => Self::CompletionFailed(reason),
             Failure::Unavailable => Self::CompletionUnavailable,
+            Failure::InvalidIr(error) => Self::InvalidIr(error),
         }
     }
 }
@@ -188,17 +204,23 @@ impl Signal {
 }
 
 pub(crate) enum Chunk {
+    ProgrammableDraw(crate::programmable::PreparedDraw),
     Commands(Vec<u8>),
+    ImageCommands(crate::image_subresource::ImageCommands),
+    LegacyImageUpload(crate::image_subresource::LegacyImageUpload),
+    CopyBuffer {
+        source: Arc<RawBuffer>,
+        source_offset: u64,
+        destination: Arc<RawBuffer>,
+        destination_offset: u64,
+        size: u64,
+    },
+    Barrier,
+    NormalizeVertices(crate::normalization::NormalizeVertices),
     WriteBuffer {
         buffer: Arc<RawBuffer>,
         offset: u64,
         data: Vec<u8>,
-    },
-    WriteImage {
-        image: Arc<RawImage>,
-        data: Vec<u8>,
-        bytes_per_row: u32,
-        area: gpu_raw::GpuImageBgraRect,
     },
 }
 
@@ -220,12 +242,17 @@ impl Transport for Native {
     fn size(chunk: &Chunk) -> usize {
         match chunk {
             Chunk::Commands(bytes) => bytes.len(),
-            Chunk::WriteBuffer { data, .. } | Chunk::WriteImage { data, .. } => data.len(),
+            Chunk::ProgrammableDraw(draw) => draw.budget_bytes(),
+            Chunk::ImageCommands(transfer) => transfer.budget_bytes,
+            Chunk::LegacyImageUpload(upload) => upload.budget_bytes(),
+            Chunk::WriteBuffer { data, .. } => data.len(),
+            Chunk::CopyBuffer { .. } | Chunk::Barrier => 0,
+            Chunk::NormalizeVertices(task) => task.budget_bytes().unwrap_or(usize::MAX),
         }
     }
 
     fn requires_idle(chunk: &Chunk) -> bool {
-        !matches!(chunk, Chunk::Commands(_))
+        !matches!(chunk, Chunk::Commands(_) | Chunk::ImageCommands(_))
     }
 
     fn ready(&self, _: &Chunk) -> Result<bool, Failure> {
@@ -237,8 +264,42 @@ impl Transport for Native {
         owner: &Arc<DispatchOwner>,
         chunk: &Chunk,
     ) -> Result<Receipt, DispatchError<Failure>> {
+        let prepared_commands;
         let commands = match chunk {
+            Chunk::ProgrammableDraw(draw) => {
+                prepared_commands = draw.execute().map_err(|error| DispatchError::Failed(Failure::Backend(error)))?;
+                &prepared_commands
+            }
             Chunk::Commands(commands) => commands,
+            Chunk::ImageCommands(transfer) => &transfer.bytes,
+            Chunk::LegacyImageUpload(upload) => {
+                upload.execute().map_err(|error| DispatchError::Failed(Failure::Backend(error)))?;
+                return Ok(Receipt::Uploaded);
+            }
+            Chunk::CopyBuffer {
+                source,
+                source_offset,
+                destination,
+                destination_offset,
+                size,
+            } => {
+                destination
+                    .copy_from(source, *source_offset, *destination_offset, *size)
+                    .map_err(|error| DispatchError::Failed(Failure::Backend(error)))?;
+                return Ok(Receipt::Uploaded);
+            }
+            Chunk::Barrier => return Ok(Receipt::Uploaded),
+            Chunk::NormalizeVertices(task) => {
+                task.execute().map_err(|error| {
+                    DispatchError::Failed(match error {
+                        IrSubmitError::InvalidIr(error) => Failure::InvalidIr(error),
+                        IrSubmitError::Backend(error) => Failure::Backend(error),
+                        IrSubmitError::OutOfMemory => Failure::Backend(HandleError::OutOfResources),
+                        _ => Failure::Unavailable,
+                    })
+                })?;
+                return Ok(Receipt::Uploaded);
+            }
             Chunk::WriteBuffer {
                 buffer,
                 offset,
@@ -249,17 +310,7 @@ impl Transport for Native {
                     .map_err(|error| DispatchError::Failed(Failure::Backend(error)))?;
                 return Ok(Receipt::Uploaded);
             }
-            Chunk::WriteImage {
-                image,
-                data,
-                bytes_per_row,
-                area,
-            } => {
-                image
-                    .upload_bgra(data, *bytes_per_row, *area)
-                    .map_err(|error| DispatchError::Failed(Failure::Backend(error)))?;
-                return Ok(Receipt::Uploaded);
-            }
+
         };
         match owner.queue.submit_async(commands) {
             Ok(completion) => Ok(Receipt::Native(Arc::new(completion))),
@@ -341,6 +392,24 @@ impl NativeScheduler {
         }
         Ok(())
     }
+
+    pub(crate) fn is_idle(&self) -> Result<bool, IrSubmitError> {
+        try_idle(&self.shared.scheduler)
+            .map(|guard| guard.is_some())
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn with_idle<R>(
+        &self,
+        operation: impl FnOnce() -> Result<R, IrSubmitError>,
+    ) -> Result<R, IrSubmitError> {
+        // Retain this guard through detach: another session sharing the
+        // context cannot admit work between the idle check and retirement.
+        let _guard = try_idle(&self.shared.scheduler)
+            .map_err(IrSubmitError::from)?
+            .ok_or(IrSubmitError::ResourceBusy)?;
+        operation()
+    }
 }
 
 impl Drop for NativeScheduler {
@@ -410,4 +479,101 @@ fn run(shared: Arc<Shared>) {
             return;
         }
     }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+    use core::sync::atomic::AtomicUsize;
+
+    struct TestTransport {
+        completed: AtomicBool,
+    }
+
+    struct Owner(Arc<AtomicUsize>);
+
+    impl Drop for Owner {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    impl Transport for TestTransport {
+        type Chunk = ();
+        type Owner = Owner;
+        type Receipt = ();
+        type Signal = ();
+        type Error = u32;
+
+        fn size(_: &()) -> usize {
+            1
+        }
+        fn ready(&self, _: &()) -> Result<bool, u32> {
+            Ok(true)
+        }
+        fn submit(&self, _: &Owner, _: &()) -> Result<(), DispatchError<u32>> {
+            Ok(())
+        }
+        fn poll(&self, _: &()) -> Result<bool, u32> {
+            Ok(self.completed.load(Ordering::Relaxed))
+        }
+        fn complete(&self, _: &(), _: Result<(), u32>) {}
+    }
+
+    #[test]
+    fn idle_requires_native_completion_and_owner_retirement() {
+        let transport = TestTransport {
+            completed: AtomicBool::new(false),
+        };
+        let drops = Arc::new(AtomicUsize::new(0));
+        let scheduler = Mutex::new(Scheduler::<TestTransport>::new());
+        assert!(try_idle(&scheduler).unwrap().is_some());
+        lock(&scheduler)
+            .enqueue(alloc::vec![()], Owner(Arc::clone(&drops)), ())
+            .unwrap();
+        assert!(try_idle(&scheduler).unwrap().is_none());
+        lock(&scheduler).advance(&transport);
+        assert!(try_idle(&scheduler).unwrap().is_none());
+        assert_eq!(drops.load(Ordering::Relaxed), 0);
+        transport.completed.store(true, Ordering::Relaxed);
+        lock(&scheduler).advance(&transport);
+        assert!(try_idle(&scheduler).unwrap().is_some());
+        assert_eq!(drops.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn failed_dispatch_is_never_reported_as_idle() {
+        let transport = TestTransport {
+            completed: AtomicBool::new(false),
+        };
+        let scheduler = Mutex::new(Scheduler::<TestTransport>::new());
+        lock(&scheduler).fail(&transport, 7);
+        assert!(lock(&scheduler).is_empty());
+        assert!(matches!(try_idle(&scheduler), Err(7)));
+    }
+
+    #[test]
+    fn idle_check_returns_immediately_when_guard_is_held() {
+        let scheduler = Mutex::new(Scheduler::<TestTransport>::new());
+        let guard = try_idle(&scheduler).unwrap().unwrap();
+        // The same lock also excludes enqueue and dispatch through detach.
+        assert!(try_lock(&scheduler).is_none());
+        assert!(try_idle(&scheduler).unwrap().is_none());
+        drop(guard);
+        assert!(try_idle(&scheduler).unwrap().is_some());
+    }
+}
+
+/// Execute a fully prepared stream on kernels without tracked admission. Every
+/// native submit retires before the next CPU buffer snapshot or mutation.
+pub(crate) fn execute_synchronously(queue:&gpu_raw::GpuQueue,chunk:&Chunk)->Result<(),IrSubmitError>{
+    match chunk{
+        Chunk::Commands(bytes)=>{queue.submit(bytes)?;},
+        Chunk::ImageCommands(transfer)=>{queue.submit(&transfer.bytes)?;},
+        Chunk::LegacyImageUpload(upload)=>upload.execute()?,
+        Chunk::ProgrammableDraw(draw)=>{let bytes=draw.execute()?;queue.submit(&bytes)?;},
+        Chunk::CopyBuffer{source,source_offset,destination,destination_offset,size}=>destination.copy_from(source,*source_offset,*destination_offset,*size)?,
+        Chunk::Barrier=>{},Chunk::NormalizeVertices(task)=>task.execute()?,
+        Chunk::WriteBuffer{buffer,offset,data}=>buffer.write(*offset,data)?,
+    }Ok(())
 }

@@ -202,3 +202,179 @@ impl<T: Transport> Scheduler<T> {
         progressed
     }
 }
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+    use alloc::rc::Rc;
+    use core::cell::RefCell;
+
+    #[derive(Clone, Copy)]
+    enum Chunk {
+        Native(u8),
+        Write(u32),
+        Copy,
+        Normalize,
+        Barrier,
+    }
+    #[derive(Clone, Copy)]
+    enum Receipt {
+        Native(u8),
+        Cpu,
+    }
+    #[derive(Default)]
+    struct State {
+        complete: [bool; 4],
+        source: u32,
+        destination: u32,
+        staging: u32,
+        observed: Vec<(u8, u32)>,
+        cpu: Vec<&'static str>,
+        signals: Vec<u8>,
+    }
+    struct Fake(Rc<RefCell<State>>);
+    impl Transport for Fake {
+        type Chunk = Chunk;
+        type Owner = ();
+        type Receipt = Receipt;
+        type Signal = u8;
+        type Error = ();
+        fn size(_: &Chunk) -> usize {
+            1
+        }
+        fn requires_idle(chunk: &Chunk) -> bool {
+            !matches!(chunk, Chunk::Native(_))
+        }
+        fn ready(&self, _: &Chunk) -> Result<bool, ()> {
+            Ok(true)
+        }
+        fn submit(&self, _: &(), chunk: &Chunk) -> Result<Receipt, DispatchError<()>> {
+            let mut state = self.0.borrow_mut();
+            match chunk {
+                Chunk::Native(id) => {
+                    let staging = state.staging;
+                    state.observed.push((*id, staging));
+                    return Ok(Receipt::Native(*id));
+                }
+                Chunk::Write(value) => {
+                    state.source = *value;
+                    state.cpu.push("write");
+                }
+                Chunk::Copy => {
+                    state.destination = state.source;
+                    state.cpu.push("copy");
+                }
+                Chunk::Normalize => {
+                    state.staging = state.destination * 2;
+                    state.cpu.push("normalize");
+                }
+                Chunk::Barrier => state.cpu.push("barrier"),
+            }
+            Ok(Receipt::Cpu)
+        }
+        fn poll(&self, receipt: &Receipt) -> Result<bool, ()> {
+            Ok(match receipt {
+                Receipt::Native(id) => self.0.borrow().complete[*id as usize],
+                Receipt::Cpu => true,
+            })
+        }
+        fn complete(&self, signal: &u8, result: Result<(), ()>) {
+            assert!(result.is_ok());
+            self.0.borrow_mut().signals.push(*signal);
+        }
+    }
+
+    #[test]
+    fn copy_normalization_and_barrier_observe_the_whole_earlier_queue_prefix() {
+        let state = Rc::new(RefCell::new(State::default()));
+        let transport = Fake(Rc::clone(&state));
+        let mut scheduler = Scheduler::<Fake>::new();
+        scheduler
+            .enqueue(alloc::vec![Chunk::Native(1), Chunk::Native(2)], (), 1)
+            .unwrap();
+        scheduler
+            .enqueue(
+                alloc::vec![
+                    Chunk::Write(7),
+                    Chunk::Copy,
+                    Chunk::Normalize,
+                    Chunk::Barrier,
+                    Chunk::Native(3)
+                ],
+                (),
+                2,
+            )
+            .unwrap();
+        scheduler.advance(&transport);
+        assert_eq!(state.borrow().observed, [(1, 0), (2, 0)]);
+        assert!(state.borrow().cpu.is_empty());
+        state.borrow_mut().complete[2] = true;
+        scheduler.advance(&transport);
+        assert_eq!(scheduler.receipts().count(), 1);
+        assert!(
+            state.borrow().cpu.is_empty(),
+            "a later fence cannot certify the earlier native prefix"
+        );
+        state.borrow_mut().complete[1] = true;
+        for _ in 0..5 {
+            scheduler.advance(&transport);
+        }
+        assert_eq!(
+            state.borrow().cpu,
+            ["write", "copy", "normalize", "barrier"]
+        );
+        assert_eq!(state.borrow().observed, [(1, 0), (2, 0), (3, 14)]);
+        assert_eq!(state.borrow().signals, [1]);
+        assert!(!scheduler.is_empty());
+        state.borrow_mut().complete[3] = true;
+        scheduler.advance(&transport);
+        assert!(scheduler.is_empty());
+        assert_eq!(state.borrow().signals, [1, 2]);
+    }
+    #[test]
+    fn immutable_image_upload_owners_survive_cross_job_gpu_retirement() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+        struct Allocation(Arc<AtomicUsize>);
+        impl Drop for Allocation {
+            fn drop(&mut self) { self.0.fetch_add(1, Ordering::SeqCst); }
+        }
+        struct GpuChunk {
+            id: usize,
+            // Match ImageCommands ownership: immutable metadata/staging and both images.
+            _allocations: [Arc<Allocation>; 4],
+        }
+        struct GpuTransport(Rc<RefCell<[bool; 2]>>);
+        impl Transport for GpuTransport {
+            type Chunk = GpuChunk;
+            type Owner = ();
+            type Receipt = usize;
+            type Signal = ();
+            type Error = ();
+            fn size(_: &GpuChunk) -> usize { 128 }
+            fn ready(&self, _: &GpuChunk) -> Result<bool, ()> { Ok(true) }
+            fn submit(&self, _: &(), chunk: &GpuChunk) -> Result<usize, DispatchError<()>> { Ok(chunk.id) }
+            fn poll(&self, receipt: &usize) -> Result<bool, ()> { Ok(self.0.borrow()[*receipt]) }
+            fn complete(&self, _: &(), result: Result<(), ()>) { assert!(result.is_ok()); }
+        }
+        let drops = Arc::new(AtomicUsize::new(0));
+        let completion = Rc::new(RefCell::new([false; 2]));
+        let transport = GpuTransport(Rc::clone(&completion));
+        let mut scheduler = Scheduler::<GpuTransport>::new();
+        for id in 0..2 {
+            let chunk = GpuChunk { id, _allocations: core::array::from_fn(|_| Arc::new(Allocation(Arc::clone(&drops)))) };
+            scheduler.enqueue(alloc::vec![chunk], (), ()).unwrap();
+        }
+        scheduler.advance(&transport);
+        assert_eq!(scheduler.receipts().count(), 2);
+        assert_eq!(drops.load(Ordering::SeqCst), 0);
+        completion.borrow_mut()[1] = true;
+        scheduler.advance(&transport);
+        assert_eq!(drops.load(Ordering::SeqCst), 0, "a later GPU fence cannot retire the earlier ordered prefix");
+        completion.borrow_mut()[0] = true;
+        scheduler.advance(&transport);
+        assert!(scheduler.is_empty());
+        assert_eq!(drops.load(Ordering::SeqCst), 8);
+    }
+
+}

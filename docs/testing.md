@@ -3,8 +3,9 @@
 Run commands from the repository root inside `nix develop`.
 Run `python3 scripts/project_sources.py` to prepare the pinned source
 dependencies and target configuration as described in the
-[setup guide](console.md#dependencies). Local source patches and dependency
-overrides are not supported.
+[setup guide](console.md#dependencies). SGFX application dependencies use the
+generated configuration for the selected public release. Local source patches
+and source path overrides are not supported.
 Build the relevant project before running tests that consume its packaged
 Image and initramfs.
 
@@ -86,6 +87,30 @@ or sustained four-core operation.
   host checks; physical execution is a separate device run.
 - `python3 scripts/verify-maxwell-shaders.py`: checked-in shader provenance
   and hash validation.
+
+The dynamic Maxwell and programmable graphics checks are:
+
+```sh
+python3 tests/sgfx-maxwell-build.py
+cargo test --manifest-path shared/sgfx-nak/Cargo.toml --workspace
+cargo test --manifest-path shared/maxwell-program-wire/Cargo.toml
+cargo test --manifest-path shared/maxwell-image-layout/Cargo.toml
+cargo test --manifest-path userspace/sgfx-shader-maxwell/Cargo.toml
+cargo test --manifest-path userspace/sgfx-codegen-maxwell/Cargo.toml
+python3 scripts/build-sgfx-maxwell.py
+python3 tests/sgfx-maxwell-dynamic-smoke.py
+```
+
+The shader tests compile actual WGSL/SPIR-V into SASS and validate the resulting
+packages with the same verifier used by the kernel. They also compare generated
+headers, reject unauthorized instructions and exercise image layout bounds.
+The build writes an ELF audit beside the driver in `.scarlet/sgfx-maxwell/`.
+Check native client dependency trees for the SGFX loader and absence of the
+static Maxwell implementation. The kernel's startup probes perform physical
+draw/readback checks; those require a GM20B hardware run.
+The dynamic smoke test boots a native client on QEMU Cortex-A57, loads the
+actual audited driver through `scarlet-ld`, negotiates its ABI tables and
+checks native std calls and rejection boundaries. It does not emulate GM20B.
 
 For hardware runs, use [Switchvisor](switchvisor-usb-debug.md) to collect
 UART logs and query the ordinary `gpu-info`, `cpufreqctl`, `power-info`,

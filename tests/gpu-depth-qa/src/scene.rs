@@ -28,6 +28,7 @@ pub fn image(id: u32, depth: bool, modifier: ImageModifier, pitch: u32, size: u6
         id: ObjectId::new(id),
         size,
         kind: ResourceKind::Image(ImageMeta {
+            subresources: None,
             format,
             storage_format: format,
             extent: Extent2D::new(WIDTH, HEIGHT).unwrap(),

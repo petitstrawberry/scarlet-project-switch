@@ -1,12 +1,14 @@
 # GM20B graphics and SGFX
 
-The console links `scarlet-driver-nvidia-gm20b`, the Maxwell SGFX backend
-and its code generator. SWS and ScarletUI use the ordinary SGFX facade and
-display APIs.
+The kernel links `scarlet-driver-nvidia-gm20b`. Native 64-bit SGFX clients
+load `libsgfx_scarlet_maxwell.so` from `/system/lib/sgfx` using the
+`scarlet-maxwell.sgfx-driver` manifest and ABI v2. SWS and ScarletUI use the
+ordinary SGFX facade and display APIs.
 
 ```text
-SWS / ScarletUI fixed SGFX IR
-  -> Maxwell backend and canonical operation encoding
+SWS / ScarletUI / SGFX driver IR
+  -> dynamically loaded Maxwell backend
+  -> fixed operations or WGSL/SPIR-V -> NAK -> checked Maxwell programs
   -> kernel validation and trusted B197 / 902D methods
   -> GM20B channel and authenticated graphics context
   -> completed GPU image
@@ -56,24 +58,49 @@ bounded fault rechecks. An interrupt alone never releases backing.
 
 The queue admits up to eight asynchronous requests; a common worker executes
 them in order. Immutable buffer snapshots retain the referenced ranges.
-CPU transfers reserve admission and drain earlier work before changing backing.
+CPU copies and vertex normalization run after the preceding native receipts
+retire. Image uploads retain separate immutable staging buffers through their
+GPU completion.
 Uniform slots and command storage are reused only after their consumers retire.
 
 The kernel validates capabilities, attachment tokens, usage, layout, extents,
 indices, reserved fields and relocations before generating hardware methods.
-Userspace cannot submit physical addresses, arbitrary GPU methods or shader
-binaries. Invalid commands are rejected before DMA; hardware faults isolate
+Programmable submissions contain attachment tokens, bounded resource ranges,
+IO metadata and SM50/52 code. The kernel snapshots and validates these inputs,
+regenerates hardware shader headers and installs code, constants and texture
+descriptors in a private arena. That arena has no public attachment token.
+The verifier permits bounded constant reads and authorized texture operations;
+it rejects global/local/shared memory instructions, surface writes, indirect
+control flow and unknown instructions. Branches also require a checked control
+stack. Hardware methods and GPU addresses are generated inside the kernel.
+Invalid commands are rejected before DMA; hardware faults isolate
 the engine and retain allocations whose ownership is uncertain.
 
 ## Images and supported operations
 
 The fixed pipelines provide clear, indexed and nonindexed triangle draws,
-culling, scissor, replace/source-over blending, image copies and nearest/linear
-sampling. They cover solid/vertex color, RGBA textures and alpha masks used by
-ScarletUI.
+culling, scissor, viewport, vertex layout normalization, signed base vertices,
+image copies and nearest/linear sampling. Blending supports zero/one,
+source/destination alpha and their complements, with add, subtract and reverse
+subtract equations. Samplers
+support independent min/mag filters and clamp/repeat/mirror addressing.
+They cover solid/vertex color, RGBA textures and alpha masks used by ScarletUI.
 
-BGRA color images support linear storage and explicitly described block-linear
-storage. Depth32Float uses a separate noncompressed depth layout and
+The programmable compiler uses VirGL's WGSL/SPIR-V validation and reflection
+frontend, then lowers its supported graphics instructions through the vendored
+Rust NAK compiler. It supports uniforms, 128-byte push constants, read-only
+storage buffers, vertex/instance builtins, multiple vertex streams, triangle
+list/strip/fan, viewport state and multiple color targets. Programs are bounded
+to 64 KiB of code and reject register spills requiring scratch memory.
+
+BGRA/RGBA, R8 and RG8 color images support uploads, readback and rendering.
+Narrow render targets use logical RGBA scratch images so alpha blending keeps
+the same semantics as VirGL. Storage uses checked linear or block-linear mip
+chains and array/cube layers. Subresource uploads and scaled/flipped blits use
+validated 902D commands; cross-format narrow blits use checked shader passes.
+sRGB sampling follows the shared VirGL frontend's conversion rules.
+Depth32Float uses a
+separate noncompressed depth layout and
 capability flag; depth clear, compare and write authority are validated
 independently. Imported immutable NV12 images are sampled with explicit
 color/crop metadata through the [video shared-image path](video.md).
@@ -82,15 +109,19 @@ Compatible block-linear swapchain images are scanned out directly by
 [Tegra DC](display.md). Linear images use the display conversion path.
 Image owners remain retained through render completion and display retirement.
 
-The programmable SGFX driver/Vulkan adapter, arbitrary shaders, compute and
-mipmaps are outside the implemented Maxwell backend. GPU suspend/resume is
-not implemented. Frequency and thermal policy are described in
+Extended graphics use the `maxwell-sgfx-ops-v2` dialect. The kernel keeps the
+fixed v1 path for compatibility and gates readiness on a generated-program
+draw/readback probe. Compute and writable storage operations remain outside
+VirGL's implemented graphics scope. GPU suspend/resume is not implemented.
+Frequency and thermal policy are described in
 [thermal control](thermal.md).
 
 ## Diagnostics
 
 The backend becomes Ready only after its physical command, shader, copy and
-readback checks pass. `gpu-info` queries the normal GPU ABI.
+readback checks pass. The programmable probe executes actual generated VS/FS
+packages and checks a pixel before advertising the extended dialect.
+`gpu-info` queries the normal GPU ABI.
 Use [Switchvisor](switchvisor-usb-debug.md) for boot and runtime logs.
 
 When investigating output, distinguish GPU readiness, SWS backend selection,

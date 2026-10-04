@@ -1,0 +1,5 @@
+# Build and audit the same native Maxwell driver for initramfs and the SD rootfs.
+[[layers]]
+kind = "script"
+source = "../../../scripts/install-sgfx-maxwell.sh"
+to = "/system/lib/sgfx"

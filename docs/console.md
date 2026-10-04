@@ -19,25 +19,30 @@ The full root image uses Scarlet's full distribution catalog.
 
 Published builds use the URLs and full commit IDs in
 [source-pins.toml](../source-pins.toml). Console preparation downloads these
-sources into ignored `.cache/sources/`. Cargo resolves dependencies from
-their upstream manifests and lockfiles. No sibling repository, source patch
-or generated Cargo dependency override is used.
+sources into ignored `.cache/sources/`. Native userspace resolves all SGFX
+packages to the selected public checkout through the generated Cargo config.
+This keeps applications with older SGFX pins on one IR and loader release.
+The Maxwell shared library has its own locked build and exchanges data with
+clients through ABI v2. Cached sources are checked for modifications.
 
 The Nix toolchain and SDK are pinned in `flake.lock`. The SGFX facade must
-enable `backend-scarlet-maxwell`; preparation checks that feature.
+enable `backend-scarlet-maxwell` through `backend-dynamic`; preparation checks
+both features. It builds and audits `libsgfx_scarlet_maxwell.so` before linking
+applications. Both images install the library and its manifest under
+`/system/lib/sgfx`; native clients use `/bin/scarlet-ld`.
 Firmware pins remain separate from source revisions.
 Rootfs preparation retains every layer of Scarlet's `full` bundle and applies
 the application revisions from `source-pins.toml`, including Widget Factory,
 Moonlight, yt and Blitz. Board settings come from the project's `rootfs/` tree.
 `scarlet` and `scarlet-distribution` pin the kernel and full catalog to the same
 upstream revision. `scarlet-native` retains the native userspace API revision
-shared by ScarletUI and the published GPU backends; `sgfx-core` likewise
-preserves their shared IR crate identity. Update these compatibility pins
-when their upstream consumers migrate together.
+shared by ScarletUI and the published GPU backends. `sgfx-core` pins the
+driver's ABI v2 mirror and programmable compiler frontend; the generated
+userspace configuration coordinates application crate identity separately.
 
 Make dependency fixes in the owning repository, push them upstream, and update
-the commit pins here. Preparation rejects local patch declarations, dependency
-overrides and edited cached source files. To prepare the pinned sources, run:
+the commit pins here. Preparation rejects local patch declarations, source
+path overrides and edited cached source files. To prepare the pinned sources, run:
 
 ```sh
 python3 scripts/project_sources.py

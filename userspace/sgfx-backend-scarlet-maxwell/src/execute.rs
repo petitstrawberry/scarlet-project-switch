@@ -1,13 +1,16 @@
 //! Full SGFX command normalization and Maxwell queue submission.
 
-use alloc::{borrow::Cow, vec::Vec};
+use alloc::{sync::Arc, vec::Vec};
 use core::sync::atomic::{AtomicU8, Ordering};
 
-use gpu_raw::GpuImageBgraRect;
 use sgfx_codegen_maxwell as codegen;
 
+use crate::normalization::{
+    NormalizeVertices, VertexSelection, canonical_descriptor, native_layout, vertex_capacity,
+};
 use crate::preparation::split_submission_operations;
 use crate::resource::ContextResources;
+use crate::resource::RawBuffer;
 use crate::wire::BoundObject;
 use crate::{ContextInner, IrSubmitError, UnsupportedIrFeature, ir, wire};
 
@@ -63,22 +66,67 @@ impl ContextResources {
     pub(crate) fn execute<'r, 'data>(
         &mut self,
         context: &ContextInner,
+        queue: &Arc<gpu_raw::GpuQueue>,
+        commands: &ir::CommandBuffer<'r, 'data>,
+    ) -> Result<(), IrSubmitError> {
+        use sgfx_core::backend::{Completion, SubmitError};
+        loop {
+            match self.submit_async(context, queue, commands) {
+                Ok(submission) => {
+                    submission.wait(None)?;
+                    return Ok(());
+                }
+                Err(SubmitError::Busy) => {
+                    self.drain_async()?;
+                    std::thread::yield_now();
+                }
+                Err(SubmitError::Rejected(IrSubmitError::AsyncUnsupported)) => {
+                    self.drain_async()?;
+                    let owner = Arc::clone(&self.context);
+                    return owner
+                        .dispatcher
+                        .with_idle(|| self.execute_native(context, queue, commands));
+                }
+                Err(SubmitError::Rejected(error) | SubmitError::Failed { error, .. }) => {
+                    return Err(error);
+                }
+                Err(_) => return Err(IrSubmitError::CompletionUnavailable),
+            }
+        }
+    }
+
+    fn execute_native<'r, 'data>(
+        &mut self,
+        context: &ContextInner,
         queue: &gpu_raw::GpuQueue,
         commands: &ir::CommandBuffer<'r, 'data>,
     ) -> Result<(), IrSubmitError> {
         validate_fixed_command_subset(commands)?;
-        self.drain_async()?;
+        crate::programmable::validate_negotiated_commands(context, commands)?;
         if context.raw.as_handle().as_raw() != self.context_id() {
             return Err(IrSubmitError::ContextMismatch);
         }
         if !core::ptr::eq(commands.resources(), self.resources.as_ref()) {
             return Err(IrSubmitError::ResourceTableMismatch);
         }
+        if commands.commands().iter().any(|command| matches!(command,
+            ir::Command::SetProgrammablePipeline(_) | ir::Command::DrawInstanced { .. }
+            | ir::Command::DrawIndexedInstanced { .. } | ir::Command::SetVertexBufferSlot{..})
+            || matches!(command,ir::Command::BeginRenderPass(pass) if commands.resources().texture(pass.target()).is_ok_and(|texture|matches!(texture.format(),ir::TextureFormat::R8Unorm|ir::TextureFormat::Rg8Unorm)))) {
+            let chunks = self.prepare_async(context, commands, maxwell_submit_wire::MAX_SUBMIT_SIZE)?;
+            for chunk in &chunks { crate::dispatch::execute_synchronously(queue, chunk)?; }
+            return Ok(());
+        }
 
         let mut resources = Vec::new();
         let mut pipelines = Vec::new();
         let mut operations = Vec::new();
         let mut external_bindings = Vec::new();
+        let mut source_pipeline = None;
+        let mut source_vertex = None;
+        let mut source_index = None;
+        let mut normalizations: Vec<NormalizeVertices> = Vec::new();
+        let mut retained_staging = Vec::new();
         resources
             .try_reserve(commands.commands().len())
             .map_err(|_| IrSubmitError::OutOfMemory)?;
@@ -115,7 +163,6 @@ impl ContextResources {
                 ir::Command::WriteTexture { texture, write } => {
                     let descriptor = self.resources.texture(*texture)?;
                     require_texture_upload_format(descriptor.format())?;
-                    self.ensure_image(*texture, &mut resources, &mut external_bindings)?;
 
                     // Image uploads can be much larger than the bounded opaque
                     // submit wire. Flush earlier GPU work to preserve IR
@@ -130,7 +177,38 @@ impl ContextResources {
                         &mut operations,
                         &external_bindings,
                     )?;
-                    self.upload_texture_bgra(context, *texture, *write)?;
+                    self.upload_texture_bgra(queue, *texture, *write)?;
+                }
+                ir::Command::CopyBufferToBuffer {
+                    source,
+                    source_offset,
+                    destination,
+                    destination_offset,
+                    size,
+                } => {
+                    self.submit_operations(
+                        context,
+                        queue,
+                        &resources,
+                        &pipelines,
+                        &mut operations,
+                        &external_bindings,
+                    )?;
+                    let source = Arc::clone(self.buffer(*source)?);
+                    let destination = Arc::clone(self.buffer(*destination)?);
+                    destination.copy_from(&source, *source_offset, *destination_offset, *size)?;
+                }
+                ir::Command::ResourceBarrier(_) => {
+                    // The legacy native submit retires synchronously. Completing
+                    // the earlier batch establishes the requested memory dependency.
+                    self.submit_operations(
+                        context,
+                        queue,
+                        &resources,
+                        &pipelines,
+                        &mut operations,
+                        &external_bindings,
+                    )?;
                 }
                 ir::Command::CopyTextureToTexture {
                     source,
@@ -138,18 +216,36 @@ impl ContextResources {
                     destination,
                     destination_rect,
                 } => {
-                    let source =
-                        self.ensure_image(*source, &mut resources, &mut external_bindings)?;
-                    let destination =
-                        self.ensure_image(*destination, &mut resources, &mut external_bindings)?;
-                    operations.push(codegen::Operation::CopyTextureToTexture {
-                        source,
-                        source_rect: *source_rect,
-                        destination,
-                        destination_rect: *destination_rect,
-                    });
+                    self.submit_operations(context, queue, &resources, &pipelines, &mut operations, &external_bindings)?;
+                    let source = self.texture(*source)?;
+                    let destination = self.texture(*destination)?;
+                    let transfer = self.prepare_image_blit(
+                        source, destination, 0, 0,
+                        *source_rect, *destination_rect, ir::FilterMode::Nearest, [false; 2])?;
+                    transfer.submit(queue)?;
+                }
+                ir::Command::BlitTexture { source, source_mip, destination, destination_mip,
+                    source_rect, destination_rect, filter, flips } => {
+                    self.submit_operations(context, queue, &resources, &pipelines, &mut operations, &external_bindings)?;
+                    let source = self.texture(*source)?;
+                    let destination = self.texture(*destination)?;
+                    let transfer = self.prepare_image_blit(
+                        source, destination, *source_mip, *destination_mip,
+                        *source_rect, *destination_rect, *filter, *flips)?;
+                    transfer.submit(queue)?;
                 }
                 ir::Command::BeginRenderPass(pass) => {
+                    self.submit_operations(
+                        context,
+                        queue,
+                        &resources,
+                        &pipelines,
+                        &mut operations,
+                        &external_bindings,
+                    )?;
+                    source_pipeline = None;
+                    source_vertex = None;
+                    source_index = None;
                     let target =
                         self.ensure_image(pass.target(), &mut resources, &mut external_bindings)?;
                     let depth = if let Some(depth) = pass.depth_attachment() {
@@ -173,12 +269,29 @@ impl ContextResources {
                         depth,
                     }));
                 }
-                ir::Command::EndRenderPass => operations.push(codegen::Operation::EndRenderPass),
+                ir::Command::EndRenderPass => {
+                    operations.push(codegen::Operation::EndRenderPass);
+                    for task in normalizations.drain(..) {
+                        task.execute()?;
+                        retained_staging.push(task);
+                    }
+                    self.submit_operations(
+                        context,
+                        queue,
+                        &resources,
+                        &pipelines,
+                        &mut operations,
+                        &external_bindings,
+                    )?;
+                }
                 ir::Command::SetPipeline(pipeline) => {
+                    source_pipeline = Some(*pipeline);
                     let pipeline = self.ensure_pipeline(*pipeline, &mut pipelines)?;
                     operations.push(codegen::Operation::SetPipeline(pipeline));
                 }
-                ir::Command::SetVertexBuffer { buffer, offset } => {
+                ir::Command::SetVertexBuffer { buffer, offset }
+                | ir::Command::SetVertexBufferSlot{slot:0,buffer,offset} => {
+                    source_vertex = Some((*buffer, *offset));
                     let buffer =
                         self.ensure_buffer(*buffer, &mut resources, &mut external_bindings)?;
                     operations.push(codegen::Operation::SetVertexBuffer {
@@ -191,6 +304,7 @@ impl ContextResources {
                     offset,
                     format,
                 } => {
+                    source_index = Some((*buffer, *offset, *format));
                     let buffer =
                         self.ensure_buffer(*buffer, &mut resources, &mut external_bindings)?;
                     operations.push(codegen::Operation::SetIndexBuffer {
@@ -214,22 +328,61 @@ impl ContextResources {
                 ir::Command::SetScissor(scissor) => {
                     operations.push(codegen::Operation::SetScissor(*scissor));
                 }
+                ir::Command::SetViewport(viewport) => {
+                    operations.push(codegen::Operation::SetViewport(*viewport));
+                }
                 ir::Command::Draw {
                     vertex_count,
                     first_vertex,
-                } => operations.push(codegen::Operation::Draw {
-                    vertex_count: *vertex_count,
-                    first_vertex: *first_vertex,
-                }),
+                } => {
+                    let selection = VertexSelection::Vertices {
+                        first: *first_vertex,
+                        count: *vertex_count,
+                    };
+                    let (buffer, offset) = self.prepare_vertex_buffer(
+                        source_pipeline,
+                        source_vertex,
+                        selection,
+                        &mut normalizations,
+                        &mut resources,
+                        &mut external_bindings,
+                    )?;
+                    operations.push(codegen::Operation::SetVertexBuffer { buffer, offset });
+                    operations.push(codegen::Operation::Draw {
+                        vertex_count: *vertex_count,
+                        first_vertex: *first_vertex,
+                    });
+                }
                 ir::Command::DrawIndexed {
                     index_count,
                     first_index,
                     base_vertex,
-                } => operations.push(codegen::Operation::DrawIndexed {
-                    index_count: *index_count,
-                    first_index: *first_index,
-                    base_vertex: *base_vertex,
-                }),
+                } => {
+                    let (index, offset, format) =
+                        source_index.ok_or(ir::Error::IndexBufferNotSet)?;
+                    let selection = VertexSelection::Indexed {
+                        buffer: Arc::clone(self.buffer(index)?),
+                        offset,
+                        format,
+                        first: *first_index,
+                        count: *index_count,
+                        base: *base_vertex,
+                    };
+                    let (buffer, offset) = self.prepare_vertex_buffer(
+                        source_pipeline,
+                        source_vertex,
+                        selection,
+                        &mut normalizations,
+                        &mut resources,
+                        &mut external_bindings,
+                    )?;
+                    operations.push(codegen::Operation::SetVertexBuffer { buffer, offset });
+                    operations.push(codegen::Operation::DrawIndexed {
+                        index_count: *index_count,
+                        first_index: *first_index,
+                        base_vertex: *base_vertex,
+                    });
+                }
                 // Keep the published fixed-only 1.0 core and development
                 // programmable IR compatible with the same explicit rejection.
                 #[allow(unreachable_patterns)]
@@ -263,7 +416,7 @@ impl ContextResources {
         if operations.is_empty() {
             return Ok(());
         }
-        let chunks = split_submission_operations(operations, MAX_DRAWS_PER_SUBMIT)?;
+        let chunks = split_submission_operations(operations, MAX_DRAWS_PER_SUBMIT, pipelines)?;
         let mut pending = Vec::new();
         pending
             .try_reserve_exact(chunks.len())
@@ -280,7 +433,8 @@ impl ContextResources {
             );
             match result {
                 Ok(()) => {}
-                Err(error @ IrSubmitError::SubmitWire(maxwell_submit_wire::Error::InvalidSize)) => {
+                Err(error @ (IrSubmitError::SubmitWire(maxwell_submit_wire::Error::InvalidSize)
+                    | IrSubmitError::Codegen(codegen::CompileError::CommandBudgetExceeded))) => {
                     let draw_count = chunk
                         .iter()
                         .filter(|operation| {
@@ -295,7 +449,7 @@ impl ContextResources {
                         return Err(error);
                     }
                     let retry_limit = (draw_count / 2).max(1);
-                    let retry = split_submission_operations(&chunk, retry_limit)?;
+                    let retry = split_submission_operations(&chunk, retry_limit, pipelines)?;
                     if retry.len() <= 1 {
                         return Err(error);
                     }
@@ -322,12 +476,13 @@ impl ContextResources {
     ) -> Result<(), IrSubmitError> {
         let trace = submit_trace_enabled();
         let started = if trace { monotonic_time_ns() } else { 0 };
-        let compiled = codegen::compile(codegen::CompileInput {
+        let mut compiled = codegen::compile(codegen::CompileInput {
             capabilities: context.device.codegen_capabilities,
             resources,
             pipelines,
             operations,
         })?;
+        if !context.device.capabilities.extended { wire::normalize_legacy_fixed_commands(&mut compiled.words)?; }
         let compiled_at = if trace { monotonic_time_ns() } else { 0 };
         let mut bindings = Vec::new();
         bindings
@@ -376,35 +531,12 @@ impl ContextResources {
     }
 
     fn upload_texture_bgra(
-        &mut self,
-        context: &ContextInner,
-        reference: ir::TextureRef<'_>,
+        &mut self, queue: &gpu_raw::GpuQueue, reference: ir::TextureRef<'_>,
         write: ir::TextureWrite<'_>,
     ) -> Result<(), IrSubmitError> {
-        let descriptor = self.resources.texture(reference)?;
         let image = self.texture(reference)?;
-        let upload = prepare_bgra_upload(descriptor.format(), write)?;
-        let area = write.destination();
-        context.raw.upload_image_bgra(
-            &image.raw,
-            upload.pixels.as_ref(),
-            upload.bytes_per_row,
-            GpuImageBgraRect::new(area.x(), area.y(), area.width(), area.height()),
-        ).map_err(|error| {
-            std::println!(
-                "[gm20b-userspace] upload image {}x{} rect=({},{}) {}x{} stride={} bytes={}: {:?}",
-                descriptor.extent().width(),
-                descriptor.extent().height(),
-                area.x(),
-                area.y(),
-                area.width(),
-                area.height(),
-                upload.bytes_per_row,
-                upload.pixels.len(),
-                error
-            );
-            error
-        })?;
+        let transfer = crate::image_subresource::prepare_upload(&self.context, image, write)?;
+        transfer.submit(queue)?;
         Ok(())
     }
 
@@ -488,8 +620,106 @@ impl ContextResources {
         metadata
             .try_reserve(1)
             .map_err(|_| IrSubmitError::OutOfMemory)?;
-        metadata.push(codegen::PipelineMeta { id, descriptor });
+        let mut native=canonical_descriptor(&descriptor)?;
+        if matches!(native.target_format(),ir::TextureFormat::R8Unorm|ir::TextureFormat::Rg8Unorm){
+            let mut scratch=ir::RenderPipelineDesc::new(ir::TextureFormat::Bgra8Unorm,native.topology(),native.vertex_buffer().clone(),native.fragment(),native.blend(),native.raster())?;
+            if let Some(depth)=native.depth_state(){scratch=scratch.with_depth_state(depth)?;}
+            native=scratch;
+        }
+        metadata.push(codegen::PipelineMeta {
+            id,
+            descriptor: native,
+        });
         Ok(id)
+    }
+
+    pub(crate) fn prepare_vertex_buffer<'r>(
+        &mut self,
+        pipeline: Option<ir::RenderPipelineRef<'r>>,
+        vertex: Option<(ir::BufferRef<'r>, u64)>,
+        selection: VertexSelection,
+        tasks: &mut Vec<NormalizeVertices>,
+        metadata: &mut Vec<codegen::ResourceMeta>,
+        bindings: &mut Vec<BoundObject>,
+    ) -> Result<(codegen::ObjectId, u64), IrSubmitError> {
+        let descriptor = self
+            .resources
+            .render_pipeline(pipeline.ok_or(ir::Error::PipelineNotSet)?)?;
+        let (reference, offset) = vertex.ok_or(ir::Error::VertexBufferNotSet)?;
+        if native_layout(&descriptor) {
+            return Ok((self.ensure_buffer(reference, metadata, bindings)?, offset));
+        }
+        let source = Arc::clone(self.buffer(reference)?);
+        if let Some(task) = tasks.iter_mut().find(|task| {
+            Arc::ptr_eq(&task.source, &source)
+                && task.source_offset == offset
+                && task.descriptor == descriptor
+        }) {
+            task.selections
+                .try_reserve(1)
+                .map_err(|_| IrSubmitError::OutOfMemory)?;
+            task.selections.push(selection);
+            return Ok((task.object, 0));
+        }
+        let count = vertex_capacity(
+            source.logical_size,
+            offset,
+            descriptor.vertex_buffer().stride(),
+        )?;
+        let canonical = canonical_descriptor(&descriptor)?;
+        let size = count
+            .checked_mul(u64::from(canonical.vertex_buffer().stride()))
+            .filter(|size| *size != 0 && *size <= 64 * 1024 * 1024)
+            .ok_or(IrSubmitError::SubmissionTooLarge)?;
+        let retained_size = metadata
+            .iter()
+            .filter(|resource| resource.id.raw() >= (1 << 28))
+            .try_fold(size, |total, resource| total.checked_add(resource.size))
+            .filter(|total| *total <= 64 * 1024 * 1024)
+            .ok_or(IrSubmitError::SubmissionTooLarge)?;
+        let _ = retained_size;
+        let id = codegen::ObjectId::new(
+            (1u32 << 28)
+                .checked_add(u32::try_from(metadata.len()).map_err(|_| IrSubmitError::OutOfMemory)?)
+                .ok_or(ir::Error::Overflow)?,
+        );
+        let destination = Arc::new(RawBuffer::create(&self.context, size)?);
+        metadata
+            .try_reserve(1)
+            .map_err(|_| IrSubmitError::OutOfMemory)?;
+        bindings
+            .try_reserve(1)
+            .map_err(|_| IrSubmitError::OutOfMemory)?;
+        tasks
+            .try_reserve(1)
+            .map_err(|_| IrSubmitError::OutOfMemory)?;
+        let mut selections = Vec::new();
+        selections
+            .try_reserve(1)
+            .map_err(|_| IrSubmitError::OutOfMemory)?;
+        selections.push(selection);
+        metadata.push(codegen::ResourceMeta {
+            id,
+            size,
+            kind: codegen::ResourceKind::Buffer {
+                usage: ir::BufferUsage::VERTEX,
+            },
+        });
+        bindings.push(BoundObject {
+            object: codegen::ObjectRef::External(id),
+            attachment_token: destination.attachment_token,
+            allocation_offset: 0,
+            size,
+        });
+        tasks.push(NormalizeVertices {
+            source,
+            destination,
+            source_offset: offset,
+            descriptor,
+            object: id,
+            selections,
+        });
+        Ok((id, 0))
     }
 
     fn materialize_generated(
@@ -569,6 +799,9 @@ pub(crate) fn validate_fixed_command_subset(
             ir::Command::WriteBuffer { .. }
                 | ir::Command::WriteTexture { .. }
                 | ir::Command::CopyTextureToTexture { .. }
+                | ir::Command::BlitTexture { .. }
+                | ir::Command::CopyBufferToBuffer { .. }
+                | ir::Command::ResourceBarrier(_)
                 | ir::Command::BeginRenderPass(_)
                 | ir::Command::EndRenderPass
                 | ir::Command::SetPipeline(_)
@@ -578,6 +811,13 @@ pub(crate) fn validate_fixed_command_subset(
                 | ir::Command::SetSampler(_)
                 | ir::Command::SetUniforms(_)
                 | ir::Command::SetScissor(_)
+                | ir::Command::SetProgrammablePipeline(_)
+                | ir::Command::SetBindGroup { .. }
+                | ir::Command::SetPushConstants { .. }
+                | ir::Command::SetVertexBufferSlot { .. }
+                | ir::Command::SetViewport(_)
+                | ir::Command::DrawInstanced { .. }
+                | ir::Command::DrawIndexedInstanced { .. }
                 | ir::Command::Draw { .. }
                 | ir::Command::DrawIndexed { .. }
         ) {
@@ -589,93 +829,8 @@ pub(crate) fn validate_fixed_command_subset(
     Ok(())
 }
 
-pub(crate) struct PreparedBgraUpload<'data> {
-    pub(crate) pixels: Cow<'data, [u8]>,
-    pub(crate) bytes_per_row: u32,
-}
-
-pub(crate) fn prepare_bgra_upload<'data>(
-    format: ir::TextureFormat,
-    write: ir::TextureWrite<'data>,
-) -> Result<PreparedBgraUpload<'data>, IrSubmitError> {
-    if format == ir::TextureFormat::Bgra8Unorm {
-        return Ok(PreparedBgraUpload {
-            pixels: Cow::Borrowed(write.data()),
-            bytes_per_row: write.bytes_per_row(),
-        });
-    }
-    if !matches!(
-        format,
-        ir::TextureFormat::Rgba8Unorm | ir::TextureFormat::R8Unorm
-    ) {
-        return Err(IrSubmitError::Unsupported(
-            UnsupportedIrFeature::TextureUpload,
-        ));
-    }
-
-    let area = write.destination();
-    let destination_stride = area
-        .width()
-        .checked_mul(ir::TextureFormat::Bgra8Unorm.bytes_per_pixel().unwrap())
-        .ok_or(IrSubmitError::InvalidIr(ir::Error::Overflow))?;
-    let destination_len = usize::try_from(
-        u64::from(destination_stride)
-            .checked_mul(u64::from(area.height()))
-            .ok_or(IrSubmitError::InvalidIr(ir::Error::Overflow))?,
-    )
-    .map_err(|_| IrSubmitError::OutOfMemory)?;
-    let logical_row_bytes = area
-        .width()
-        .checked_mul(format.bytes_per_pixel().ok_or(IrSubmitError::Unsupported(
-            UnsupportedIrFeature::ImageLayout,
-        ))?)
-        .ok_or(IrSubmitError::InvalidIr(ir::Error::Overflow))?;
-    let mut pixels = Vec::new();
-    pixels
-        .try_reserve_exact(destination_len)
-        .map_err(|_| IrSubmitError::OutOfMemory)?;
-    pixels.resize(destination_len, 0);
-
-    for row in 0..area.height() {
-        let source_start = usize::try_from(
-            u64::from(row)
-                .checked_mul(u64::from(write.bytes_per_row()))
-                .ok_or(IrSubmitError::InvalidIr(ir::Error::Overflow))?,
-        )
-        .map_err(|_| IrSubmitError::InvalidIr(ir::Error::Overflow))?;
-        let source_end = source_start
-            .checked_add(logical_row_bytes as usize)
-            .ok_or(IrSubmitError::InvalidIr(ir::Error::Overflow))?;
-        let source = write
-            .data()
-            .get(source_start..source_end)
-            .ok_or(IrSubmitError::InvalidIr(ir::Error::OutOfBounds))?;
-        let destination_start = usize::try_from(u64::from(row) * u64::from(destination_stride))
-            .map_err(|_| IrSubmitError::InvalidIr(ir::Error::Overflow))?;
-        let destination =
-            &mut pixels[destination_start..destination_start + destination_stride as usize];
-        match format {
-            ir::TextureFormat::Rgba8Unorm => {
-                for (source, destination) in
-                    source.chunks_exact(4).zip(destination.chunks_exact_mut(4))
-                {
-                    destination.copy_from_slice(&[source[2], source[1], source[0], source[3]]);
-                }
-            }
-            ir::TextureFormat::R8Unorm => {
-                for (&alpha, destination) in source.iter().zip(destination.chunks_exact_mut(4)) {
-                    destination.copy_from_slice(&[0, 0, 0, alpha]);
-                }
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    Ok(PreparedBgraUpload {
-        pixels: Cow::Owned(pixels),
-        bytes_per_row: destination_stride,
-    })
-}
+#[cfg(test)]
+pub(crate) use crate::image_subresource::prepare_bgra_upload;
 
 fn image_object_id(slot: usize) -> Result<codegen::ObjectId, IrSubmitError> {
     let slot = u32::try_from(slot).map_err(|_| IrSubmitError::OutOfMemory)?;
@@ -695,7 +850,7 @@ fn buffer_object_id(slot: usize) -> Result<codegen::ObjectId, IrSubmitError> {
     ))
 }
 
-fn append_image_resource(
+pub(crate) fn append_image_resource(
     id: codegen::ObjectId,
     image: &crate::resource::RawImage,
     descriptor: ir::TextureDesc,
@@ -729,8 +884,18 @@ fn append_image_resource(
     metadata
         .try_reserve(1)
         .map_err(|_| IrSubmitError::OutOfMemory)?;
+    let chain = image.subresources.is_some_and(|l| l.descriptor.mip_levels > 1 || l.descriptor.array_layers > 1);
     let modifier = match image.layout.modifier {
         gpu_raw::GPU_IMAGE_MODIFIER_LINEAR => codegen::ImageModifier::Linear,
+        value if descriptor.format() != ir::TextureFormat::Nv12
+            && maxwell_image_layout::modifier_tile_y(value).is_some()
+            && (chain || (value != gpu_raw::GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4
+                && value != gpu_raw::GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4)) => {
+            let tile_y_log2 = maxwell_image_layout::modifier_tile_y(value).unwrap();
+            if value & !0xf == maxwell_image_layout::NVIDIA_DEPTH_MODIFIER_BASE {
+                codegen::ImageModifier::NvidiaZf32BlockLinear { tile_y_log2 }
+            } else { codegen::ImageModifier::NvidiaBlockLinear { tile_y_log2 } }
+        },
         0x0300_0000_000f_e011 => codegen::ImageModifier::NvidiaBlockLinear16Bx2H1,
         gpu_raw::GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 => {
             codegen::ImageModifier::NvidiaBlockLinear16Bx2H4
@@ -754,19 +919,16 @@ fn append_image_resource(
                 ir::TextureFormat::Depth32Float => ir::TextureFormat::Depth32Float,
                 ir::TextureFormat::Bgra8Unorm
                 | ir::TextureFormat::Rgba8Unorm
-                | ir::TextureFormat::R8Unorm => ir::TextureFormat::Bgra8Unorm,
-                ir::TextureFormat::Rg8Unorm
+                | ir::TextureFormat::R8Unorm
+                | ir::TextureFormat::Rg8Unorm
                 | ir::TextureFormat::Bgra8UnormSrgb
-                | ir::TextureFormat::Rgba8UnormSrgb => {
-                    return Err(IrSubmitError::Unsupported(
-                        UnsupportedIrFeature::ResourceState,
-                    ));
-                }
+                | ir::TextureFormat::Rgba8UnormSrgb => ir::TextureFormat::Bgra8Unorm,
             },
             extent: descriptor.extent(),
             usage,
             modifier,
             planes,
+            subresources: image.subresources,
         }),
     });
     bindings
@@ -801,11 +963,11 @@ fn require_texture_upload_format(format: ir::TextureFormat) -> Result<(), IrSubm
     match format {
         ir::TextureFormat::Bgra8Unorm
         | ir::TextureFormat::Rgba8Unorm
-        | ir::TextureFormat::R8Unorm => Ok(()),
-        ir::TextureFormat::Rg8Unorm
-        | ir::TextureFormat::Nv12
+        | ir::TextureFormat::R8Unorm
+        | ir::TextureFormat::Rg8Unorm
         | ir::TextureFormat::Bgra8UnormSrgb
-        | ir::TextureFormat::Rgba8UnormSrgb
+        | ir::TextureFormat::Rgba8UnormSrgb => Ok(()),
+        ir::TextureFormat::Nv12
         | ir::TextureFormat::Depth32Float => Err(IrSubmitError::Unsupported(
             UnsupportedIrFeature::TextureUpload,
         )),

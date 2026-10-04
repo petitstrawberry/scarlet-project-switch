@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "maxwell-image-layout"
+version = "0.1.0"
+
+[[package]]
 name = "maxwell-shader-pack"
 version = "0.1.0"
 
@@ -17,6 +21,7 @@ dependencies = [
 name = "sgfx-codegen-maxwell"
 version = "0.1.0"
 dependencies = [
+ "maxwell-image-layout",
  "maxwell-shader-pack",
  "maxwell-submit-wire",
  "sgfx-core",

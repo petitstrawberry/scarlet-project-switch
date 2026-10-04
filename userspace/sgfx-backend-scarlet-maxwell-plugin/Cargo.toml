@@ -1,0 +1,21 @@
+[package]
+name = "sgfx-backend-scarlet-maxwell-plugin"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-only"
+
+[lib]
+name = "sgfx_scarlet_maxwell"
+crate-type = ["cdylib"]
+
+[dependencies]
+sgfx-backend-abi = { git = "https://github.com/petitstrawberry/sgfx", rev = "040dbb5cf42b75489504e1765183d37f6131f54c" }
+sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "040dbb5cf42b75489504e1765183d37f6131f54c", default-features = false, features = ["backend-abi"] }
+
+[target.'cfg(target_os = "scarlet")'.dependencies]
+sgfx-backend-scarlet-maxwell = { path = "../sgfx-backend-scarlet-maxwell", default-features = false, features = ["std"] }
+sgfx-codegen-maxwell = { path = "../sgfx-codegen-maxwell" }
+maxwell-submit-wire = { path = "../../shared/maxwell-submit-wire" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("scarlet"))'] }

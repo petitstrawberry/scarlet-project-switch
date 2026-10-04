@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 license = "GPL-2.0-only"
 
+[dependencies]
+maxwell-image-layout = { path = "../../../shared/maxwell-image-layout" }
+maxwell-program-wire = { path = "../../../shared/maxwell-program-wire" }
+
 [target.'cfg(target_os = "none")'.dependencies]
 scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "ca9fdafe1e633d752cb3a335d795496d5df5d272", default-features = false, features = ["network"] }
 scarlet-driver-tegra210 = { path = "../../soc/tegra210" }

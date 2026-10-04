@@ -14,6 +14,7 @@ fn draw_native_then_overlay(
     let extent = Extent2D::new(32, 32).unwrap();
     let rgb = |usage| {
         ResourceKind::Image(ImageMeta {
+            subresources: None,
             format: TextureFormat::Bgra8Unorm,
             storage_format: TextureFormat::Bgra8Unorm,
             extent,
@@ -36,6 +37,7 @@ fn draw_native_then_overlay(
             id: video,
             size: 8192,
             kind: ResourceKind::Image(ImageMeta {
+            subresources: None,
                 format: TextureFormat::Nv12,
                 storage_format: TextureFormat::Nv12,
                 extent,

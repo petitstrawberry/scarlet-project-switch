@@ -153,6 +153,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "maxwell-image-layout"
+version = "0.1.0"
+
+[[package]]
+name = "maxwell-program-wire"
+version = "0.1.0"
+
+[[package]]
 name = "maxwell-shader-pack"
 version = "0.1.0"
 
@@ -205,6 +213,8 @@ name = "scarlet-driver-nvidia-gm20b"
 version = "0.1.0"
 dependencies = [
  "fdt",
+ "maxwell-image-layout",
+ "maxwell-program-wire",
  "maxwell-shader-pack",
  "maxwell-submit-wire",
  "scarlet",

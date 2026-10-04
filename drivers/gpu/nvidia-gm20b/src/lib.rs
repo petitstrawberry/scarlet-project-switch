@@ -16,6 +16,8 @@ extern crate alloc;
 mod asynchronous;
 #[cfg(any(target_os = "none", test))]
 mod block_linear;
+#[cfg(any(target_os = "none", test))]
+mod image_commands;
 #[cfg(target_os = "none")]
 mod clock;
 #[cfg(target_os = "none")]
@@ -36,8 +38,12 @@ mod gr;
 mod graphics;
 #[cfg(target_os = "none")]
 mod hardware;
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", test))]
 mod method;
+#[cfg(any(target_os = "none", test))]
+mod program;
+#[cfg(any(target_os = "none", test))]
+mod programmable_graphics;
 #[cfg(target_os = "none")]
 mod runtime;
 #[cfg(target_os = "none")]

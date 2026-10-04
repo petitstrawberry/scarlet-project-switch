@@ -30,6 +30,11 @@ retain their own licenses; this repository does not include their binaries.
   The pinned SHA256 is
   `dbdbaccc464367abeff6ecd3792b90442b0cf17b08e1690bbfa9090b4d59560e`.
 - Rust crates `fdt` (MPL-2.0) and `font8x8` (MIT), resolved in the BSP Cargo lockfile.
+- Mesa's Rust NAK Maxwell compiler and helper crates (MIT), vendored at
+  `e881540692daac6532cefec76699f7a025563767`. Source hashes, adaptations and
+  notices are recorded in [shared/sgfx-nak/NOTICE](shared/sgfx-nak/NOTICE) and
+  [UPSTREAM.json](shared/sgfx-nak/UPSTREAM.json). Maxwell opcode and image-layout
+  definitions retain their corresponding pinned Mesa notices.
 - Switchroot's GPL-2.0 RT5639 codec, Icosa speaker EQ/limiter, Tegra ADMA,
   I2S and clock sequencing references are pinned in [speaker audio](docs/audio.md).
   Original codec/EQ authors: Realtek Semiconductor, NVIDIA and CTCaer.

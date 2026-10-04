@@ -8,6 +8,7 @@ license = "GPL-2.0-only"
 path = "src/lib.rs"
 
 [dependencies]
+maxwell-image-layout = { path = "../../shared/maxwell-image-layout" }
 maxwell-shader-pack = { path = "../../shared/maxwell-shader-pack" }
 maxwell-submit-wire = { path = "../../shared/maxwell-submit-wire" }
 sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "040dbb5cf42b75489504e1765183d37f6131f54c", default-features = false }

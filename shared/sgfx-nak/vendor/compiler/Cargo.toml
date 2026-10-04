@@ -1,0 +1,10 @@
+[package]
+name = "compiler"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+# Mesa's Meson test harness runs unit tests, not Rustdoc. Its three documentation
+# snippets omit the required imports; preserve the exact upstream source text.
+doctest = false

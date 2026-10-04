@@ -26,6 +26,8 @@ use scarlet::{
 const COOKIE: u64 = 0x474d323042535031;
 const DIALECT_TOKEN: u64 = 0x474d325347465801;
 const DIALECT: &[u8] = b"maxwell-sgfx-ops-v1";
+const PROGRAMMABLE_DIALECT_TOKEN: u64 = 0x474d325347465802;
+const PROGRAMMABLE_DIALECT: &[u8] = b"maxwell-sgfx-ops-v2";
 const SUPPORT: u32 = GPU_EXECUTION_SUPPORT_ADDRESS_SPACE
     | GPU_EXECUTION_SUPPORT_MEMORY
     | GPU_EXECUTION_SUPPORT_QUEUE
@@ -33,6 +35,8 @@ const SUPPORT: u32 = GPU_EXECUTION_SUPPORT_ADDRESS_SPACE
     | GPU_EXECUTION_SUPPORT_PRESENTATION
     | GPU_EXECUTION_SUPPORT_IMAGE_UPLOAD
     | GPU_EXECUTION_SUPPORT_IMAGE_READBACK
+    | GPU_EXECUTION_SUPPORT_IMAGE_MIPS
+    | GPU_EXECUTION_SUPPORT_TEXTURE_ARRAYS
     | GPU_EXECUTION_SUPPORT_DEPTH;
 
 #[derive(Clone)]
@@ -198,12 +202,16 @@ impl State {
             .ok_or("GPU object identity exhausted")?;
         let page_kind = match &kind {
             Kind::Image { layout, .. }
-                if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4 =>
+                if maxwell_image_layout::modifier_tile_y(layout.modifier).is_some()
+                    && layout.modifier & !0xf
+                        == maxwell_image_layout::NVIDIA_DEPTH_MODIFIER_BASE =>
             {
                 0x7b
             }
             Kind::Image { layout, .. }
-                if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 =>
+                if maxwell_image_layout::modifier_tile_y(layout.modifier).is_some()
+                    && layout.modifier & !0xf
+                        == maxwell_image_layout::NVIDIA_COLOR_MODIFIER_BASE =>
             {
                 0xfe
             }
@@ -406,6 +414,22 @@ impl State {
         }
         reason
     }
+    fn retire_private(&mut self, memory: &[Arc<Memory>]) -> Result<(), GpuBackendSubmitError> {
+        if self.lost {
+            return Err(GpuBackendSubmitError::DeviceLost("GM20B device lost"));
+        }
+        for arena in memory {
+            if let Err(reason) = self
+                .dma()
+                .unmap(arena.va, (arena.size as usize).div_ceil(4096))
+            {
+                self.fault();
+                return Err(GpuBackendSubmitError::DeviceLost(reason));
+            }
+            self.power.dma.as_mut().unwrap().retained.remove(&arena.va);
+        }
+        Ok(())
+    }
     fn fault(&mut self) {
         self.lost = true;
         self.dma().disable_completion_irq();
@@ -517,6 +541,50 @@ impl GpuBackendImage for Image {
         }
     }
 }
+
+/// Rebuild the same immutable physical chain used for image allocation.
+/// Staging uses linear rows inside each padded level; private GPU bytes use
+/// its GOB swizzle. Both sides share identical level and layer offsets.
+pub(super) fn image_subresources(
+    create: GpuImageCreateInfo,
+    layout: GpuBackendImageLayout,
+) -> Result<maxwell_image_layout::Layout, &'static str> {
+    let kind = if layout.modifier == GPU_IMAGE_MODIFIER_LINEAR {
+        maxwell_image_layout::LayoutKind::Linear
+    } else {
+        let y = maxwell_image_layout::modifier_tile_y(layout.modifier)
+            .ok_or("unsupported GM20B image modifier")?;
+        maxwell_image_layout::LayoutKind::BlockLinear {
+            base_y_log2: y,
+            clamp_mips: create.mip_levels > 1 || create.array_layers > 1 || create.cube,
+        }
+    };
+    let planned = maxwell_image_layout::plan(
+        maxwell_image_layout::Descriptor {
+            width: create.width,
+            height: create.height,
+            mip_levels: create.mip_levels,
+            array_layers: create.array_layers,
+            bytes_per_pixel: 4,
+        },
+        kind,
+    )
+    .map_err(|_| "invalid GM20B image subresources")?;
+    let p = layout.planes[0];
+    if layout.plane_count != 1
+        || p.offset != 0
+        || p.size != planned.total_size
+        || layout.total_size != planned.total_size
+        || p.row_pitch != planned.levels[0].row_pitch
+        || p.array_pitch != planned.array_pitch
+        || p.block_width != 1
+        || p.block_height != 1
+        || p.bytes_per_block != 4
+    {
+        return Err("GM20B image subresources/layout mismatch");
+    }
+    Ok(planned)
+}
 // A context carries real attachment authority; shader IDs and object IDs never
 // grant access. IDs are indexed separately to support repeated attachments.
 pub(super) struct Attachment {
@@ -527,6 +595,8 @@ pub(super) struct Attachment {
 pub(super) struct Context {
     pub(super) shared: Arc<Shared>,
     pub(super) attachments: Arc<Mutex<BTreeMap<u64, Attachment>>>,
+    pub(super) dialect_index: u32,
+    dialect_token: u64,
 }
 impl Context {
     fn attach(&self, object: u64, cookie: u64) -> Result<u64, &'static str> {
@@ -594,25 +664,23 @@ impl Context {
         else {
             return Err("resource is not an image");
         };
-        let pitch = layout.planes[0].row_pitch;
-        if rect.width == 0
-            || rect.height == 0
-            || rect.backing_stride != pitch
-            || rect.backing_layer_stride != layout.planes[0].array_pitch
-            || rect
-                .dst_x
-                .checked_add(rect.width)
-                .is_none_or(|n| n > create.width)
-            || rect
-                .dst_y
-                .checked_add(rect.height)
-                .is_none_or(|n| n > create.height)
-            || rect.backing_offset
-                != u64::from(rect.dst_y) * u64::from(pitch) + u64::from(rect.dst_x) * 4
-        {
-            return Err("image transfer layout mismatch");
+        if create.format != GPU_IMAGE_FORMAT_BGRA8_UNORM {
+            return Err("CPU transfer requires a color image");
         }
-        if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4 {
+        let planned = image_subresources(*create, *layout)?;
+        let sub = planned
+            .resolve_transfer(maxwell_image_layout::Transfer {
+                offset: rect.backing_offset,
+                row_pitch: rect.backing_stride,
+                array_pitch: rect.backing_layer_stride,
+                x: rect.dst_x,
+                y: rect.dst_y,
+                width: rect.width,
+                height: rect.height,
+            })
+            .map_err(|_| "image transfer layout mismatch")?;
+        let pitch = sub.level.row_pitch;
+        if layout.modifier != GPU_IMAGE_MODIFIER_LINEAR {
             // Generic backing is linear CPU staging. The independent private
             // DMA allocation follows the block-linear modifier. Preserve all
             // pixels outside a partial update when acquiring cache lines.
@@ -624,10 +692,14 @@ impl Context {
                 while x < end {
                     let n = (16 - x % 16).min(end - x);
                     let generic = scarlet::vm::phys_to_virt(
-                        backing.paddr + y as u64 * pitch as u64 + x as u64,
+                        backing.paddr + sub.offset + y as u64 * pitch as u64 + x as u64,
                     );
-                    let gpu =
-                        gpu_base + crate::block_linear::byte_offset(x, y as usize, pitch as usize);
+                    let offset = planned
+                        .byte_offset(sub, x as u32, y)
+                        .map_err(|_| "image transfer GPU offset overflow")?;
+                    let gpu = gpu_base
+                        + usize::try_from(offset)
+                            .map_err(|_| "image transfer offset exceeds address space")?;
                     unsafe {
                         if readback {
                             core::ptr::copy_nonoverlapping(gpu as *const u8, generic as *mut u8, n);
@@ -642,9 +714,6 @@ impl Context {
                 arch::clean_dcache_to_poc_range(gpu_base, mem.size as usize);
             }
             return Ok(());
-        }
-        if layout.modifier != GPU_IMAGE_MODIFIER_LINEAR {
-            return Err("unsupported CPU image transfer modifier");
         }
         for y in 0..rect.height {
             let offset = rect.backing_offset as usize + y as usize * pitch as usize;
@@ -683,7 +752,7 @@ impl GpuBackendContext for Context {
         )?)))
     }
     fn query_info(&self) -> GpuBackendContextInfo {
-        GpuBackendContextInfo::new(0, DIALECT_TOKEN)
+        GpuBackendContextInfo::new(self.dialect_index, self.dialect_token)
     }
     fn create_queue(&self) -> Result<Arc<dyn GpuBackendQueue>, &'static str> {
         Ok(Arc::new(Queue {
@@ -765,6 +834,7 @@ struct BufferSnapshot {
 }
 pub(super) struct Prepared {
     operations: Vec<[u32; 96]>,
+    programmable: Vec<crate::programmable_graphics::PreparedDraw>,
     buffers: Vec<BufferSnapshot>,
     writes: Vec<BufferSpan>,
     _images: Vec<Arc<Memory>>,
@@ -773,12 +843,18 @@ impl Prepared {
     pub(super) fn new(
         bytes: &[u8],
         attached: &BTreeMap<u64, Attachment>,
+        programmable: bool,
     ) -> Result<Self, GpuBackendSubmitError> {
-        Self::prepare(bytes, attached).map_err(GpuBackendSubmitError::Rejected)
+        Self::prepare(bytes, attached, programmable).map_err(GpuBackendSubmitError::Rejected)
     }
-    fn prepare(bytes: &[u8], attached: &BTreeMap<u64, Attachment>) -> Result<Self, &'static str> {
+    fn prepare(
+        bytes: &[u8],
+        attached: &BTreeMap<u64, Attachment>,
+        programmable: bool,
+    ) -> Result<Self, &'static str> {
         let mut prepared = Self {
             operations: Vec::new(),
+            programmable: Vec::new(),
             buffers: Vec::new(),
             writes: Vec::new(),
             _images: Vec::new(),
@@ -876,7 +952,13 @@ impl Prepared {
             }
             prepared.buffers.push(BufferSnapshot { span, bytes: data });
         }
-        prepared.operations = validate(&decoded, attached, &prepared.buffers)?;
+        prepared.operations = validate(
+            &decoded,
+            attached,
+            &prepared.buffers,
+            &mut prepared.programmable,
+            programmable,
+        )?;
         Ok(prepared)
     }
 }
@@ -910,18 +992,62 @@ impl Shared {
             arch::clean_dcache_to_poc_range(destination, buffer.bytes.len());
         }
         let uploaded = time::current_time_ns();
-        if let Err(error) = s
+        let mut arenas = Vec::new();
+        let mut programs = Vec::new();
+        arenas
+            .try_reserve_exact(prepared.programmable.len())
+            .map_err(|_| {
+                GpuBackendSubmitError::Rejected("private program arena allocation failed")
+            })?;
+        programs
+            .try_reserve_exact(prepared.programmable.len())
+            .map_err(|_| {
+                GpuBackendSubmitError::Rejected("private program method allocation failed")
+            })?;
+        let publication = (|| -> Result<(), &'static str> {
+            for program in &prepared.programmable {
+                // This mapping is deliberately absent from dma.objects. It
+                // has no public object identity and cannot become an attachment.
+                let (_, memory) =
+                    s.allocate(program.arena.len() as u64, Kind::Buffer { paddr: 0 })?;
+                let destination = memory.pages.as_ref().unwrap().as_vaddr();
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        program.arena.as_ptr(),
+                        destination as *mut u8,
+                        program.arena.len(),
+                    );
+                }
+                arch::clean_dcache_to_poc_range(destination, program.arena.len());
+                let published = program.publish(memory.va as u64);
+                arenas.push(memory);
+                programs.push(published?);
+            }
+            Ok(())
+        })();
+        if let Err(reason) = publication {
+            if s.lost {
+                return Err(GpuBackendSubmitError::DeviceLost(reason));
+            }
+            s.retire_private(&arenas)?;
+            return Err(GpuBackendSubmitError::Rejected(reason));
+        }
+        let result = s
             .power
             .dma
             .as_mut()
             .unwrap()
-            .execute_graphics(&prepared.operations)
-        {
-            if matches!(error, GpuBackendSubmitError::DeviceLost(_)) {
-                s.fault();
-            }
-            return Err(error);
+            .execute_graphics_with_programs(&prepared.operations, &programs);
+        if matches!(result, Err(GpuBackendSubmitError::DeviceLost(_))) {
+            // Completion was not proven. Keep all executable, index and
+            // descriptor mappings pinned while the platform isolates DMA.
+            s.fault();
+            return result;
         }
+        // execute_graphics has proved the PGRAPH fence and GR idle, or rejected
+        // before submission. Only either of those permits mapping retirement.
+        s.retire_private(&arenas)?;
+        result?;
         // Reflect only declared writable ranges, after actual GPU retirement.
         for span in &prepared.writes {
             let Kind::Buffer { paddr } = span.memory.kind else {
@@ -976,16 +1102,24 @@ impl GpuBackend for Backend {
         )
     }
     fn query_dialect(&self, index: u32) -> Result<GpuBackendDialectInfo, &'static str> {
-        if index != 0 {
-            return Err("unknown GM20B dialect");
+        match index {
+            0 => Ok(GpuBackendDialectInfo::new(0, DIALECT_TOKEN, DIALECT)),
+            1 => Ok(GpuBackendDialectInfo::new(
+                1,
+                PROGRAMMABLE_DIALECT_TOKEN,
+                PROGRAMMABLE_DIALECT,
+            )),
+            _ => Err("unknown GM20B dialect"),
         }
-        Ok(GpuBackendDialectInfo::new(0, DIALECT_TOKEN, DIALECT))
     }
     fn create_context(
         &self,
         dialect: GpuBackendDialectDescriptor,
     ) -> Result<Arc<dyn GpuBackendContext>, &'static str> {
-        if dialect.index != 0 || dialect.token != DIALECT_TOKEN {
+        if !matches!(
+            (dialect.index, dialect.token),
+            (0, DIALECT_TOKEN) | (1, PROGRAMMABLE_DIALECT_TOKEN)
+        ) {
             return Err("invalid GM20B dialect token");
         }
         if self.shared.state.lock().lost {
@@ -994,6 +1128,8 @@ impl GpuBackend for Backend {
         Ok(Arc::new(Context {
             shared: self.shared.clone(),
             attachments: Arc::new(Mutex::new(BTreeMap::new())),
+            dialect_index: dialect.index,
+            dialect_token: dialect.token,
         }))
     }
     fn plan_image(
@@ -1002,59 +1138,76 @@ impl GpuBackend for Backend {
     ) -> Result<GpuBackendImageLayout, &'static str> {
         let depth = create.format == GPU_IMAGE_FORMAT_DEPTH32_FLOAT;
         if (!depth && create.format != GPU_IMAGE_FORMAT_BGRA8_UNORM)
-            || (depth && create.usage != GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT)
-            || create.width == 0
-            || create.height == 0
-            || create.width > 16384
-            || create.height > 16384
-            || create.mip_levels != 1
-            || create.array_layers != 1
-            || create.cube
+            || create.usage == 0
+            || (depth
+                && create.usage
+                    & !(GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT | GPU_IMAGE_USAGE_SAMPLED)
+                    != 0)
+            || (create.cube && (create.array_layers != 6 || create.width != create.height))
+            || (create.usage & GPU_IMAGE_USAGE_PRESENTABLE != 0
+                && (create.mip_levels != 1 || create.array_layers != 1 || create.cube))
         {
-            return Err("GM20B requires single-level BGRA8 or ZF32 2D images");
+            return Err("unsupported GM20B image descriptor");
         }
-        // Old clients keep their original layouts. Depth-capable clients opt
-        // in to block-linear color targets; Maxwell disables ZETA for linear RTs.
-        if depth
+        let chain = create.mip_levels > 1 || create.array_layers > 1 || create.cube;
+        // Old clients keep their original layouts. Mip/array descriptors use
+        // the actual tile height at every LOD, as the texture unit does.
+        let tiled = chain
+            || depth
             || create.usage & GPU_IMAGE_USAGE_DEPTH_COMPATIBLE != 0
             || (create.width == 1280
                 && create.height == 720
                 && create.usage & (GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_RENDER_TARGET)
-                    == GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_RENDER_TARGET)
-        {
-            let pitch = (create.width * 4 + 63) & !63;
-            let size = pitch * ((create.height + 127) & !127);
-            let mut planes = [GpuBackendImagePlaneLayout::EMPTY; GPU_IMAGE_MAX_PLANES];
-            planes[0] = GpuBackendImagePlaneLayout {
-                offset: 0,
-                size: size as u64,
-                row_pitch: pitch,
-                array_pitch: size,
-                block_width: 1,
-                block_height: 1,
-                bytes_per_block: 4,
-            };
-            return Ok(GpuBackendImageLayout {
-                modifier: if depth {
-                    GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4
+                    == GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_RENDER_TARGET);
+        let planned = maxwell_image_layout::plan(
+            maxwell_image_layout::Descriptor {
+                width: create.width,
+                height: create.height,
+                mip_levels: create.mip_levels,
+                array_layers: create.array_layers,
+                bytes_per_pixel: 4,
+            },
+            if tiled {
+                maxwell_image_layout::LayoutKind::BlockLinear {
+                    base_y_log2: if chain || create.usage & GPU_IMAGE_USAGE_SAMPLED != 0 {
+                        maxwell_image_layout::tile_y_log2(create.height, 4)
+                    } else {
+                        4
+                    },
+                    clamp_mips: chain,
+                }
+            } else {
+                maxwell_image_layout::LayoutKind::Linear
+            },
+        )
+        .map_err(|_| "GM20B image layout exceeds checked bounds")?;
+        let mut planes = [GpuBackendImagePlaneLayout::EMPTY; GPU_IMAGE_MAX_PLANES];
+        planes[0] = GpuBackendImagePlaneLayout {
+            offset: 0,
+            size: planned.total_size,
+            row_pitch: planned.levels[0].row_pitch,
+            array_pitch: planned.array_pitch,
+            block_width: 1,
+            block_height: 1,
+            bytes_per_block: 4,
+        };
+        Ok(GpuBackendImageLayout {
+            modifier: if tiled {
+                (if depth {
+                    maxwell_image_layout::NVIDIA_DEPTH_MODIFIER_BASE
                 } else {
-                    GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4
-                },
-                total_size: size as u64,
-                // Generic backing is CPU staging; private DMA pages and VA
-                // are independently aligned to 8192 in State::allocate.
-                alignment: 4096,
-                plane_count: 1,
-                planes,
-            });
-        }
-        let pitch = create
-            .width
-            .checked_mul(4)
-            .and_then(|v| v.checked_add(255))
-            .ok_or("image pitch overflow")?
-            & !255;
-        GpuBackendImageLayout::linear_32bpp(create, pitch, 4096)
+                    maxwell_image_layout::NVIDIA_COLOR_MODIFIER_BASE
+                }) | u64::from(planned.levels[0].tile_y_log2)
+            } else {
+                GPU_IMAGE_MODIFIER_LINEAR
+            },
+            total_size: planned.total_size,
+            // Generic backing is linear CPU staging; the private GPU pages
+            // and VA retain their independent 8192-byte alignment.
+            alignment: 4096,
+            plane_count: 1,
+            planes,
+        })
     }
     fn create_image_with_layout(
         &self,
@@ -1136,6 +1289,8 @@ fn validate(
     decoded: &wire::DecodedSubmit<'_>,
     attached: &BTreeMap<u64, Attachment>,
     buffers: &[BufferSnapshot],
+    programmable: &mut Vec<crate::programmable_graphics::PreparedDraw>,
+    allow_programmable: bool,
 ) -> Result<Vec<[u32; 96]>, &'static str> {
     if decoded.commands_len() % wire::OPERATION_WORDS != 0
         || decoded.commands_len() > wire::MAX_COMMAND_WORDS
@@ -1147,14 +1302,86 @@ fn validate(
         .try_reserve_exact(decoded.commands_len() / 64)
         .map_err(|_| "operation allocation failed")?;
     let mut relocation = 0;
+    let mut viewport = crate::method::FixedViewportState::new();
     for base in (0..decoded.commands_len()).step_by(64) {
         let mut w = [0; 96];
         for (i, word) in w[..64].iter_mut().enumerate() {
             *word = decoded.commands_word(base + i).unwrap();
         }
+        viewport.validate_operation(&w[..64], allow_programmable)?;
+        if matches!(w[0], 5 | 6 | 7 | 8) && !allow_programmable {
+            return Err("extended operations require GM20B v2 dialect");
+        }
+        if w[0] == 5 {
+            if w[1] != 0 || w[2..4].iter().any(|&v| v != 0) || w[6..64].iter().any(|&v| v != 0) {
+                return Err("programmable draw envelope reserved words nonzero");
+            }
+            let size = u64::from(w[4]) | u64::from(w[5]) << 32;
+            let r = decoded
+                .relocation(relocation)
+                .ok_or("programmable metadata reference missing")?;
+            if r.commands_word_offset as usize != base + 2
+                || r.access != wire::ACCESS_READ
+                || r.encoding != wire::AddressEncoding::GpuVa64
+                || r.required_size != size
+                || size < maxwell_program_wire::draw::HEADER_SIZE as u64
+                || size > 4 * 1024 * 1024
+            {
+                return Err("programmable metadata reference invalid");
+            }
+            let wire::RelocationSource::Attachment(index) = r.source else {
+                return Err("programmable metadata requires attached buffer");
+            };
+            let resource = decoded
+                .resource(index as usize)
+                .ok_or("programmable metadata resource missing")?;
+            let offset = resource
+                .range_offset
+                .checked_add(r.resource_offset)
+                .ok_or("programmable metadata offset overflow")?;
+            let authority = ProgrammableAuthority {
+                decoded,
+                attached,
+                buffers,
+            };
+            let metadata = authority.buffer_snapshot(maxwell_program_wire::draw::Range {
+                token: resource.attachment_token,
+                offset,
+                size,
+            })?;
+            let draw = crate::programmable_graphics::prepare(metadata, &authority)?;
+            programmable
+                .try_reserve(1)
+                .map_err(|_| "programmable draw allocation failed")?;
+            let mut operation = [0u32; 96];
+            operation[0] = 5;
+            operation[2] = programmable.len() as u32;
+            programmable.push(draw);
+            operations.push(operation);
+            relocation += 1;
+            continue;
+        }
+        if w[0] == 6 {
+            if w[1..64].iter().any(|&v| v != 0) {
+                return Err("image command envelope reserved words nonzero");
+            }
+            operations.push(prepare_image_command(
+                decoded,
+                attached,
+                buffers,
+                base,
+                &mut relocation,
+            )?);
+            continue;
+        }
+        if matches!(w[0], 7 | 8) {
+            operations.push(w);
+            continue;
+        }
         let has_depth = w[0] == 2 && w[60] != 0;
-        if w[1] != 0
-            || w[62..64].iter().any(|&v| v != 0)
+        let has_sample = w[0] == 2 && w[29] != 0;
+        if (!has_sample && w[1] != 0)
+            || (!has_sample && w[62..64].iter().any(|&v| v != 0))
             || (!has_depth && w[54..62].iter().any(|&v| v != 0))
             || (matches!(w[0], 1 | 4) && w[53] != 0)
             || w[60] > 8
@@ -1279,7 +1506,7 @@ fn validate(
             }
             2 => {
                 if let Some(depth) = roles[4] {
-                    if w[52] != 0x40
+                    if w[52] != 0x40 && w[52] & 0x100 == 0
                         || w[56] != w[10]
                         || w[57] != w[11]
                         || depth.0.va == target.0.va
@@ -1307,8 +1534,7 @@ fn validate(
                 );
                 if texture != (roles[2].is_some())
                     || w[23] != variant.stride()
-                    || w[22] & !0x3f != 0
-                    || (w[22] >> 2) & 3 == 3
+                    || !crate::method::draw_state_valid(w[22])
                     || w[25] == 0
                     || w[25] % 3 != 0
                     || w[26] > 2
@@ -1333,6 +1559,31 @@ fn validate(
                     return Err("vertex binding invalid");
                 }
                 if let Some(t) = roles[2] {
+                    let (create, shared) = match &t.0.kind {
+                        Kind::Image { create, .. } => (create, false),
+                        Kind::SharedImage { create, .. } => (create, true),
+                        _ => return Err("sampled binding is not an image"),
+                    };
+                    let format = w[62] & 0xf;
+                    let min_lod = f32::from_bits(w[1]);
+                    let max_lod = f32::from_bits(w[63]);
+                    if w[62] & !0xf0f != 0
+                        || format > 7
+                        || ((w[62] >> 8) & 0xf) + 1 != create.mip_levels
+                        || create.array_layers != 1
+                        || create.cube
+                        || !min_lod.is_finite()
+                        || !max_lod.is_finite()
+                        || min_lod < 0.0
+                        || max_lod < min_lod
+                        || (shared && !matches!(format, 0 | 7))
+                        || (!shared
+                            && ((format == 6) != (create.format == GPU_IMAGE_FORMAT_DEPTH32_FLOAT)
+                                || format == 7))
+                        || (w[22] & (1 << 5) != 0 && !matches!(format, 0 | 2))
+                    {
+                        return Err("sampled image metadata invalid");
+                    }
                     surface(t, w[29], w[30], w[31], w[53], GPU_IMAGE_USAGE_SAMPLED)?;
                     if let Kind::SharedImage {
                         image,
@@ -1377,7 +1628,10 @@ fn validate(
                     if t.0.va == target.0.va {
                         return Err("sampled/render target alias forbidden");
                     }
-                } else if w[29..32].iter().any(|&v| v != 0) || w[53] != 0 || w[22] & 0x22 != 0 {
+                } else if w[29..32].iter().any(|&v| v != 0)
+                    || w[53] != 0
+                    || w[22] & (crate::method::DRAW_SAMPLER_MASK | (1 << 5)) != 0
+                {
                     return Err("unused texture state nonzero");
                 }
                 if w[26] == 0 {
@@ -1417,12 +1671,12 @@ fn validate(
                         } else {
                             unsafe { core::ptr::read_unaligned((p + i as usize * 4) as *const u32) }
                         };
-                        if u64::from(value)
-                            .checked_add(u64::from(w[27]))
-                            .and_then(|n| n.checked_add(1))
-                            .and_then(|n| n.checked_mul(u64::from(w[23])))
-                            .is_none_or(|bytes| bytes > vertex.2)
-                        {
+                        if !crate::method::indexed_vertex_in_bounds(
+                            value,
+                            w[27] as i32,
+                            w[23],
+                            vertex.2,
+                        ) {
                             return Err("index references vertex outside authorized buffer");
                         }
                     }
@@ -1455,11 +1709,296 @@ fn validate(
         }
         operations.push(w);
     }
+    viewport.finish()?;
     if relocation != decoded.relocation_len() {
         return Err("extra object references rejected");
     }
     Ok(operations)
 }
+struct ProgrammableAuthority<'a, 'b> {
+    decoded: &'a wire::DecodedSubmit<'b>,
+    attached: &'a BTreeMap<u64, Attachment>,
+    buffers: &'a [BufferSnapshot],
+}
+impl ProgrammableAuthority<'_, '_> {
+    fn authorize(
+        &self,
+        token: u64,
+        offset: u64,
+        size: u64,
+        access: u32,
+    ) -> Result<&Arc<Memory>, &'static str> {
+        let end = offset
+            .checked_add(size)
+            .ok_or("programmable resource range overflow")?;
+        let memory = &self
+            .attached
+            .get(&token)
+            .ok_or("programmable attachment unavailable")?
+            .memory;
+        if size == 0 || end > memory.size {
+            return Err("programmable resource exceeds attachment");
+        }
+        if !(0..self.decoded.resource_len())
+            .filter_map(|i| self.decoded.resource(i))
+            .any(|r| {
+                r.attachment_token == token
+                    && r.access & access == access
+                    && r.range_offset <= offset
+                    && r.range_offset
+                        .checked_add(r.range_size)
+                        .is_some_and(|limit| end <= limit)
+            })
+        {
+            return Err("programmable resource view access not declared");
+        }
+        Ok(memory)
+    }
+    fn buffer_snapshot(
+        &self,
+        range: maxwell_program_wire::draw::Range,
+    ) -> Result<&[u8], &'static str> {
+        let memory = self.authorize(range.token, range.offset, range.size, wire::ACCESS_READ)?;
+        if !matches!(memory.kind, Kind::Buffer { .. }) {
+            return Err("programmable range is not a buffer");
+        }
+        let end = range
+            .offset
+            .checked_add(range.size)
+            .ok_or("programmable snapshot range overflow")?;
+        let snapshot = self
+            .buffers
+            .iter()
+            .find(|s| {
+                Arc::ptr_eq(&s.span.memory, memory)
+                    && s.span.start as u64 <= range.offset
+                    && end <= s.span.end as u64
+            })
+            .ok_or("programmable buffer immutable snapshot missing")?;
+        let start = (range.offset - snapshot.span.start as u64) as usize;
+        Ok(&snapshot.bytes[start..start + range.size as usize])
+    }
+}
+impl crate::programmable_graphics::Authority for ProgrammableAuthority<'_, '_> {
+    fn buffer_bytes(
+        &self,
+        range: maxwell_program_wire::draw::Range,
+    ) -> Result<&[u8], &'static str> {
+        self.buffer_snapshot(range)
+    }
+    fn buffer_address(
+        &self,
+        range: maxwell_program_wire::draw::Range,
+    ) -> Result<u64, &'static str> {
+        let memory = self.authorize(range.token, range.offset, range.size, wire::ACCESS_READ)?;
+        if !matches!(memory.kind, Kind::Buffer { .. }) {
+            return Err("programmable range is not a buffer");
+        }
+        (memory.va as u64)
+            .checked_add(range.offset)
+            .ok_or("programmable buffer address overflow")
+    }
+    fn image(
+        &self,
+        token: u64,
+        level: u32,
+        level_count: u32,
+        layer: u32,
+        layer_count: u32,
+        access: crate::programmable_graphics::ImageAccess,
+    ) -> Result<crate::programmable_graphics::ImageView, &'static str> {
+        use crate::programmable_graphics::{ImageAccess, ImageView};
+        let memory = &self
+            .attached
+            .get(&token)
+            .ok_or("programmable image attachment missing")?
+            .memory;
+        let Kind::Image { create, layout, .. } = memory.kind else {
+            return Err("programmable attachment is not a native image");
+        };
+        let (usage, rights) = match access {
+            ImageAccess::Sample => (GPU_IMAGE_USAGE_SAMPLED, wire::ACCESS_READ),
+            ImageAccess::ColorTarget => (
+                GPU_IMAGE_USAGE_RENDER_TARGET,
+                wire::ACCESS_READ | wire::ACCESS_WRITE,
+            ),
+            ImageAccess::Depth { write } => (
+                GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT,
+                wire::ACCESS_READ | if write { wire::ACCESS_WRITE } else { 0 },
+            ),
+        };
+        if create.usage & usage == 0
+            || level_count == 0
+            || layer_count == 0
+            || level
+                .checked_add(level_count)
+                .is_none_or(|n| n > create.mip_levels)
+            || layer
+                .checked_add(layer_count)
+                .is_none_or(|n| n > create.array_layers)
+        {
+            return Err("programmable image view/usage invalid");
+        }
+        let chain = image_subresources(create, layout)?;
+        let first = chain
+            .subresource(level, layer)
+            .map_err(|_| "programmable image first subresource invalid")?;
+        let last = chain
+            .subresource(level + level_count - 1, layer + layer_count - 1)
+            .map_err(|_| "programmable image last subresource invalid")?;
+        let end = last
+            .offset
+            .checked_add(last.level.size)
+            .ok_or("programmable image range overflow")?;
+        self.authorize(token, first.offset, end - first.offset, rights)?;
+        let address = (memory.va as u64)
+            .checked_add(first.offset)
+            .ok_or("programmable image address overflow")?;
+        let physical = if matches!(access, ImageAccess::Sample) {
+            chain
+                .subresource(0, layer)
+                .map_err(|_| "programmable sampled LOD0 invalid")?
+        } else {
+            first
+        };
+        let physical_address = (memory.va as u64)
+            .checked_add(physical.offset)
+            .ok_or("programmable sampled base address overflow")?;
+        Ok(ImageView {
+            address: physical_address,
+            range_address: address,
+            span_size: end - first.offset,
+            width: physical.level.width,
+            height: physical.level.height,
+            pitch: physical.level.row_pitch,
+            tiled: layout.modifier != GPU_IMAGE_MODIFIER_LINEAR,
+            tile_y: physical.level.tile_y_log2,
+            array_pitch: chain.array_pitch,
+            mip_levels: create.mip_levels,
+            layers: layer_count,
+            cube: create.cube,
+            depth: create.format == GPU_IMAGE_FORMAT_DEPTH32_FLOAT,
+        })
+    }
+}
+
+fn prepare_image_command(
+    decoded: &wire::DecodedSubmit<'_>,
+    attached: &BTreeMap<u64, Attachment>,
+    buffers: &[BufferSnapshot],
+    base: usize,
+    relocation: &mut usize,
+) -> Result<[u32; 96], &'static str> {
+    use crate::image_commands::{BufferAuthority, ImageAuthority, SourceAuthority};
+    use maxwell_image_layout::wire::{Command, Opcode, RECORD_SIZE};
+    let r = decoded
+        .relocation(*relocation)
+        .ok_or("image command metadata reference missing")?;
+    if r.commands_word_offset as usize != base + 2
+        || r.access != wire::ACCESS_READ
+        || r.encoding != wire::AddressEncoding::GpuVa64
+        || r.required_size != RECORD_SIZE as u64
+    {
+        return Err("image command metadata reference invalid");
+    }
+    let wire::RelocationSource::Attachment(index) = r.source else {
+        return Err("image command metadata requires an attached buffer");
+    };
+    let record = decoded
+        .resource(index as usize)
+        .ok_or("image command metadata resource missing")?;
+    if record.access & wire::ACCESS_READ == 0 {
+        return Err("image command metadata is not readable");
+    }
+    let meta = &attached
+        .get(&record.attachment_token)
+        .ok_or("image command metadata attachment missing")?
+        .memory;
+    if !matches!(meta.kind, Kind::Buffer { .. }) {
+        return Err("image command metadata is not a buffer");
+    }
+    let offset = record
+        .range_offset
+        .checked_add(r.resource_offset)
+        .ok_or("image command metadata offset overflow")?;
+    let end = offset
+        .checked_add(RECORD_SIZE as u64)
+        .ok_or("image command metadata end overflow")?;
+    if end > meta.size {
+        return Err("image command metadata outside backing");
+    }
+    let snapshot = buffers
+        .iter()
+        .find(|s| {
+            Arc::ptr_eq(&s.span.memory, meta)
+                && s.span.start as u64 <= offset
+                && end <= s.span.end as u64
+        })
+        .ok_or("image command metadata snapshot missing")?;
+    let begin = usize::try_from(offset - snapshot.span.start as u64)
+        .map_err(|_| "image command metadata offset too large")?;
+    let command = Command::decode(&snapshot.bytes[begin..begin + RECORD_SIZE])
+        .map_err(|_| "invalid image command metadata")?;
+    let declared = |token, access| -> Result<(&Arc<Memory>, u64, u64), &'static str> {
+        let (offset, size) = crate::image_commands::declared_range(
+            (0..decoded.resource_len())
+                .filter_map(|i| decoded.resource(i))
+                .map(|r| (r.attachment_token, r.access, r.range_offset, r.range_size)),
+            token,
+            access,
+        )?;
+        let memory = &attached
+            .get(&token)
+            .ok_or("image command attachment missing")?
+            .memory;
+        if offset + size > memory.size {
+            return Err("image command authority exceeds backing");
+        }
+        Ok((memory, offset, size))
+    };
+    let (memory, range_offset, range_size) =
+        declared(command.destination_attachment, wire::ACCESS_WRITE)?;
+    let Kind::Image { create, layout, .. } = memory.kind else {
+        return Err("image command destination is not an image");
+    };
+    let destination = ImageAuthority {
+        create,
+        layout,
+        va: memory.va as u64,
+        range_offset,
+        range_size,
+    };
+    let (memory, range_offset, range_size) =
+        declared(command.source_attachment, wire::ACCESS_READ)?;
+    let source = match command.opcode {
+        Opcode::Upload => {
+            if !matches!(memory.kind, Kind::Buffer { .. }) {
+                return Err("image upload source is not a buffer");
+            }
+            SourceAuthority::Buffer(BufferAuthority {
+                va: memory.va as u64,
+                range_offset,
+                range_size,
+            })
+        }
+        Opcode::Blit => {
+            let Kind::Image { create, layout, .. } = memory.kind else {
+                return Err("image blit source is not an image");
+            };
+            SourceAuthority::Image(ImageAuthority {
+                create,
+                layout,
+                va: memory.va as u64,
+                range_offset,
+                range_size,
+            })
+        }
+    };
+    let operation = crate::image_commands::lower(command, destination, source)?;
+    *relocation += 1;
+    Ok(operation)
+}
+
 fn surface(
     binding: (&Arc<Memory>, u64, u64),
     width: u32,
@@ -1484,22 +2023,31 @@ fn surface(
     let Kind::Image { create, layout, .. } = &binding.0.kind else {
         return Err("surface requires image");
     };
-    let depth = usage == GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT;
+    let depth = usage == GPU_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT
+        || (usage == GPU_IMAGE_USAGE_SAMPLED && create.format == GPU_IMAGE_FORMAT_DEPTH32_FLOAT);
     if create.format
         != if depth {
             GPU_IMAGE_FORMAT_DEPTH32_FLOAT
         } else {
             GPU_IMAGE_FORMAT_BGRA8_UNORM
         }
-        || (depth && layout.modifier != GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4)
+        || (depth && layout.modifier & !0xf != maxwell_image_layout::NVIDIA_DEPTH_MODIFIER_BASE)
         || create.width != width
         || create.height != height
         || layout.planes[0].row_pitch != pitch
         || tile_mode
-            != if layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4
-                || layout.modifier == GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4
-            {
-                0x40
+            != if let Some(y) = maxwell_image_layout::modifier_tile_y(layout.modifier) {
+                (u32::from(y) << 4)
+                    | if create.mip_levels > 1
+                        || create.array_layers > 1
+                        || (layout.modifier != GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4
+                            && layout.modifier
+                                != GPU_IMAGE_MODIFIER_NVIDIA_ZF32_BLOCK_LINEAR_16BX2_H4)
+                    {
+                        0x100
+                    } else {
+                        0
+                    }
             } else if layout.modifier == GPU_IMAGE_MODIFIER_LINEAR {
                 0
             } else {

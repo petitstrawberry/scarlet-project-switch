@@ -15,6 +15,35 @@ pub(crate) struct BoundObject {
     pub(crate) size: u64,
 }
 
+/// Preserve the original dialect's reserved words and fixed texture semantics.
+/// V2-only sampling state must be rejected before a legacy kernel sees it.
+pub(crate) fn normalize_legacy_fixed_commands(words: &mut [u32]) -> Result<(), IrSubmitError> {
+    let unsupported = || IrSubmitError::Unsupported(UnsupportedIrFeature::ImageLayout);
+    if words.len() % submit_wire::OPERATION_WORDS != 0 {
+        return Err(unsupported());
+    }
+    for command in words.chunks_exact_mut(submit_wire::OPERATION_WORDS) {
+        if !matches!(command[0], 1..=4) {
+            return Err(unsupported());
+        }
+        if command[0] == 2 {
+            let format = command[62] & 15;
+            if command[62] & !15 != 0
+                || command[22] & !0x3f != 0
+                || f32::from_bits(command[1]) != 0.0
+                || f32::from_bits(command[63]) != 0.0
+                || !(matches!(format, 0 | 1 | 7) || format == 2 && command[22] & (1 << 5) != 0)
+            {
+                return Err(unsupported());
+            }
+            command[1] = 0;
+            command[62] = 0;
+            command[63] = 0;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn encode(
     compiled: &RelocatableCommands,
     bindings: &[BoundObject],
@@ -153,5 +182,44 @@ fn wire_access(access: Access) -> Result<u32, IrSubmitError> {
         ))
     } else {
         Ok(result)
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+    #[test]
+    fn legacy_sampling_records_preserve_reserved_words_and_alpha_mask_semantics() {
+        for (format, flags) in [(0, 0), (1, 0), (7, 0), (2, 1 << 5)] {
+            let mut words = [0; 64];
+            words[0] = 2;
+            words[22] = flags;
+            words[62] = format;
+            normalize_legacy_fixed_commands(&mut words).unwrap();
+            assert_eq!((words[1], words[62], words[63]), (0, 0, 0));
+            assert_eq!(words[22], flags);
+        }
+        for (format, flags) in [
+            (2, 0),
+            (3, 0),
+            (4, 0),
+            (5, 0),
+            (6, 0),
+            (1 << 8, 0),
+            (0, 1 << 6),
+        ] {
+            let mut words = [0; 64];
+            words[0] = 2;
+            words[22] = flags;
+            words[62] = format;
+            assert!(normalize_legacy_fixed_commands(&mut words).is_err());
+        }
+        let mut words = [0; 64];
+        words[0] = 2;
+        words[63] = 1.0_f32.to_bits();
+        assert!(normalize_legacy_fixed_commands(&mut words).is_err());
+        words[0] = 6;
+        words[63] = 0;
+        assert!(normalize_legacy_fixed_commands(&mut words).is_err());
     }
 }

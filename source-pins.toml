@@ -16,12 +16,12 @@ rev = "ca9fdafe1e633d752cb3a335d795496d5df5d272"
 
 [sgfx]
 git = "https://github.com/petitstrawberry/sgfx"
-rev = "49fa00da35a6ea416c99207b49ba7aee480d6985"
+rev = "738cb236d5b1e5ea458f66b0d58d6e7f969a9f01"
 
-# SGFX backends share this IR crate identity with the pinned facade.
+# Maxwell's driver and code generator use the ABI v2 resource mirror.
 [sgfx-core]
 git = "https://github.com/petitstrawberry/sgfx"
-rev = "5ea41a0dfd6992bb1c0fce06c8e65425dc978140"
+rev = "040dbb5cf42b75489504e1765183d37f6131f54c"
 
 [scarlet-ui]
 git = "https://github.com/petitstrawberry/scarlet-ui"

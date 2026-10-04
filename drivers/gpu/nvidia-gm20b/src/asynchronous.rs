@@ -96,7 +96,11 @@ pub fn enqueue(context: &Context, submission: GpuSubmission) -> Result<(), GpuBa
     let Some(attachments) = context.attachments.try_lock() else {
         return Err(GpuBackendEnqueueError::Busy(submission));
     };
-    let prepared = match Prepared::new(submission.commands(), &attachments) {
+    let prepared = match Prepared::new(
+        submission.commands(),
+        &attachments,
+        context.dialect_index == 1,
+    ) {
         Ok(prepared) => prepared,
         Err(error) => return Err(GpuBackendEnqueueError::Rejected(error, submission)),
     };
@@ -112,7 +116,11 @@ pub fn enqueue(context: &Context, submission: GpuSubmission) -> Result<(), GpuBa
 }
 
 pub fn submit(context: &Context, bytes: &[u8]) -> Result<(), GpuBackendSubmitError> {
-    let prepared = Prepared::new(bytes, &context.attachments.lock())?;
+    let prepared = Prepared::new(
+        bytes,
+        &context.attachments.lock(),
+        context.dialect_index == 1,
+    )?;
     let result = Arc::new(SyncResult {
         result: IrqSpinLock::new(None),
         waker: Waker::new_uninterruptible("gm20b-submit"),

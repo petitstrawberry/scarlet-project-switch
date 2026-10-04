@@ -5,7 +5,7 @@ use maxwell_shader_pack::ShaderVariant;
 
 use sgfx_core::ir::{
     BufferUsage, DepthLoadOp, DrawUniforms, Extent2D, IndexFormat, LoadOp, PixelRect,
-    RenderPipelineDesc, SamplerDesc, StoreOp, TextureFormat, TextureUsage,
+    RenderPipelineDesc, SamplerDesc, StoreOp, TextureFormat, TextureUsage, Viewport,
 };
 
 /// Identity of an externally materialized object within one compilation.
@@ -103,6 +103,10 @@ pub enum ImageModifier {
     NvidiaBlockLinear16Bx2H4,
     /// Tegra X1 GOB64x8, uncompressed ZF32 kind 0x7b, 16-GOB block height.
     NvidiaZf32BlockLinear16Bx2H4,
+    /// A mip/array chain whose base block height is clamped to its extent.
+    NvidiaBlockLinear { tile_y_log2: u8 },
+    /// Layered ZF32 storage with the actual base block-height field.
+    NvidiaZf32BlockLinear { tile_y_log2: u8 },
 }
 
 /// Immutable layout of one image plane in an external allocation.
@@ -135,6 +139,9 @@ pub struct ImageMeta {
     pub modifier: ImageModifier,
     /// Plane layouts in format order.
     pub planes: Vec<PlaneLayout>,
+    /// Complete checked storage for mip/array resources; imported NV12 and
+    /// legacy external fixtures may leave this absent.
+    pub subresources: Option<maxwell_image_layout::Layout>,
 }
 
 /// Kind and portable authority of one external object.
@@ -263,6 +270,10 @@ pub enum Operation<'data> {
     SetUniforms(DrawUniforms),
     /// Set or reset the draw scissor.
     SetScissor(Option<PixelRect>),
+    /// Set the native viewport, including signed height and depth range.
+    SetViewport(Viewport),
+    /// Set the logical RGBA write mask for subsequent fixed draws (bits 0..3).
+    SetColorWriteMask(u32),
     /// Draw non-indexed vertices.
     Draw {
         /// Vertex count.

@@ -5,7 +5,28 @@
 use crate::model::*;
 use alloc::vec::Vec;
 use maxwell_shader_pack::PipelineVariant;
-use sgfx_core::ir::{Color, CompareFunction, IndexFormat, PixelRect};
+use sgfx_core::ir::{
+    BlendFactor, BlendOp, BlendState, Color, CompareFunction, IndexFormat, PixelRect, Viewport,
+};
+
+fn blend_factor(factor: BlendFactor) -> u32 {
+    match factor {
+        BlendFactor::Zero => 0,
+        BlendFactor::One => 1,
+        BlendFactor::SourceAlpha => 2,
+        BlendFactor::OneMinusSourceAlpha => 3,
+        BlendFactor::DestinationAlpha => 4,
+        BlendFactor::OneMinusDestinationAlpha => 5,
+    }
+}
+
+fn blend_operation(operation: BlendOp) -> u32 {
+    match operation {
+        BlendOp::Add => 0,
+        BlendOp::Subtract => 1,
+        BlendOp::ReverseSubtract => 2,
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct Surface {
@@ -17,6 +38,8 @@ pub(crate) struct Surface {
     pub stride: u32,
     pub tile_mode: u32,
     pub alpha_mask: bool,
+    pub sample_format: u32,
+    pub mip_levels: u32,
 }
 #[derive(Clone, Copy)]
 pub(crate) struct DepthDrawState {
@@ -32,7 +55,7 @@ pub(crate) struct IndexedDraw {
     pub format: IndexFormat,
     pub index_count: u32,
     pub first_index: u32,
-    pub base_vertex: u32,
+    pub base_vertex: i32,
     pub max_indices: u32,
     pub vertex_size: u64,
 }
@@ -50,6 +73,9 @@ pub(crate) struct DrawState {
     pub target: Surface,
     pub area: PixelRect,
     pub scissor: PixelRect,
+    pub viewport: Option<Viewport>,
+    pub blend: BlendState,
+    pub color_write_mask: u32,
     pub vertex: ObjectId,
     pub vertex_offset: u64,
     pub vertex_size: u64,
@@ -57,7 +83,9 @@ pub(crate) struct DrawState {
     pub attributes: &'static [(u32, u32)],
     pub uniforms: [u32; 20],
     pub texture: Option<Surface>,
-    pub linear_sampler: bool,
+    pub sampler_flags: u32,
+    pub min_lod: f32,
+    pub max_lod: f32,
     pub source_over: bool,
     pub cull: u32,
     pub depth: Option<DepthDrawState>,
@@ -141,7 +169,10 @@ impl Emitter {
         Ok(())
     }
     fn surface(&mut self, word: u32, s: Surface, access: Access) -> Result<(), CompileError> {
-        if !matches!(s.tile_mode, 0 | 0x10 | 0x40) {
+        if !matches!(
+            s.tile_mode,
+            0 | 0x10 | 0x40 | 0x100 | 0x110 | 0x120 | 0x130 | 0x140
+        ) {
             return Err(CompileError::UnsupportedFeature);
         }
         self.address(
@@ -208,23 +239,61 @@ impl Emitter {
         if s.stride != s.variant.stride() || s.attributes.is_empty() {
             return Err(CompileError::InvalidResource);
         }
+        if s.color_write_mask != 15
+            || !matches!(
+                s.blend,
+                BlendState::REPLACE | BlendState::SOURCE_OVER_STRAIGHT_ALPHA
+            )
+        {
+            // Portable typed state, scoped to this draw. Native blend enums
+            // and component-mask packing remain kernel responsibilities.
+            let mut blend_words = [0; 64];
+            blend_words[0] = 8;
+            blend_words[21] = s.color_write_mask;
+            blend_words[22] = u32::from(s.blend != BlendState::REPLACE);
+            let color = s.blend.color();
+            let alpha = s.blend.alpha();
+            blend_words[23..29].copy_from_slice(&[
+                blend_factor(color.source_factor()),
+                blend_factor(color.destination_factor()),
+                blend_operation(color.operation()),
+                blend_factor(alpha.source_factor()),
+                blend_factor(alpha.destination_factor()),
+                blend_operation(alpha.operation()),
+            ]);
+            self.record(blend_words)?;
+        }
+        if let Some(viewport) = s.viewport {
+            // This v2 record applies to the immediately following fixed draw.
+            // Emit it per draw so command chunks and programmable draws never
+            // carry an implicit viewport dependency across submissions.
+            let mut viewport_words = [0; 64];
+            viewport_words[0] = 7;
+            for (word, value) in viewport_words[32..38].iter_mut().zip(viewport.components()) {
+                *word = value.to_bits();
+            }
+            self.record(viewport_words)?;
+        }
         let mut w = [0; 64];
         w[0] = 2;
         layout(&mut w, 10, s.target);
         rectangle(&mut w, 13, s.area);
         rectangle(&mut w, 17, s.scissor);
         w[21] = s.variant as u32;
-        w[22] = u32::from(s.source_over) | (u32::from(s.linear_sampler) << 1) | (s.cull << 2);
+        w[22] = u32::from(s.source_over) | s.sampler_flags | (s.cull << 2);
         w[23] = s.stride;
         w[28] = u32::try_from(s.vertex_size).map_err(|_| CompileError::Overflow)?;
         if let Some(t) = s.texture {
             layout(&mut w, 29, t);
             w[22] |= u32::from(t.alpha_mask) << 5;
+            w[1] = s.min_lod.to_bits();
+            w[62] = t.sample_format | ((t.mip_levels - 1) << 8);
+            w[63] = s.max_lod.to_bits();
         }
         w[32..52].copy_from_slice(&s.uniforms);
         if let Some(depth) = s.depth {
-            if s.target.tile_mode != 0x40
-                || depth.target.tile_mode != 0x40
+            if (s.target.tile_mode != 0x40 && s.target.tile_mode & 0x100 == 0)
+                || (depth.target.tile_mode != 0x40 && depth.target.tile_mode & 0x100 == 0)
                 || depth.target.width != s.target.width
                 || depth.target.height != s.target.height
             {
@@ -266,7 +335,7 @@ impl Emitter {
                     IndexFormat::Uint16 => 1,
                     IndexFormat::Uint32 => 2,
                 };
-                w[27] = i.base_vertex;
+                w[27] = i.base_vertex as u32;
             }
         }
         let base = self.record(w)?;
@@ -318,7 +387,10 @@ impl Emitter {
         rect: PixelRect,
         value: f32,
     ) -> Result<(), CompileError> {
-        if !value.is_finite() || !(0.0..=1.0).contains(&value) || target.tile_mode != 0x40 {
+        if !value.is_finite()
+            || !(0.0..=1.0).contains(&value)
+            || (target.tile_mode != 0x40 && target.tile_mode & 0x100 == 0)
+        {
             return Err(CompileError::InvalidResource);
         }
         let mut w = [0; 64];

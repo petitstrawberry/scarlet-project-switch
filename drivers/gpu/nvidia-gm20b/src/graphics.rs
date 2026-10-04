@@ -141,6 +141,15 @@ impl Graphics {
         gr: &Gr,
         operations: &[[u32; 96]],
     ) -> Result<(), GpuBackendSubmitError> {
+        self.execute_with_programs(fifo, gr, operations, &[])
+    }
+    pub fn execute_with_programs(
+        &mut self,
+        fifo: &Fifo,
+        gr: &Gr,
+        operations: &[[u32; 96]],
+        programs: &[crate::programmable_graphics::PublishedDraw],
+    ) -> Result<(), GpuBackendSubmitError> {
         let started = time::current_time_ns();
         let push = &mut self.encoder;
         push.reset();
@@ -154,8 +163,38 @@ impl Graphics {
         // payload or exhausted staging budget must not poison a healthy queue.
         (|| -> Result<(), &'static str> {
             push.initialize()?;
+            let mut previous_programmable = false;
             for op in operations {
-                push.operation(op)?;
+                if op[0] == 5 {
+                    let program = programs
+                        .get(op[2] as usize)
+                        .ok_or("programmable draw index invalid")?;
+                    if push
+                        .words
+                        .len()
+                        .checked_add(program.words.len())
+                        .is_none_or(|n| n > PUSH_SIZE / 4)
+                    {
+                        return Err("programmable graphics push budget exceeded");
+                    }
+                    push.words
+                        .try_reserve(program.words.len())
+                        .map_err(|_| "programmable graphics push allocation failed")?;
+                    push.words.extend_from_slice(&program.words);
+                    previous_programmable = true;
+                } else {
+                    if previous_programmable {
+                        // Restore the fixed program's descriptor, CB and code
+                        // namespaces after a programmable draw in this batch.
+                        push.initialize()?;
+                        push.uniforms = None;
+                        push.tic = None;
+                        push.tsc = None;
+                        push.texture_handle_initialized = false;
+                        previous_programmable = false;
+                    }
+                    push.operation(op)?;
+                }
             }
             // Mesa QUERY_GET FENCE|SHORT|UNIT_ALL proves PGRAPH completion.
             push.method(
@@ -210,7 +249,11 @@ impl Graphics {
         gr.idle().map_err(GpuBackendSubmitError::DeviceLost)?;
         gr.check_execution()
             .map_err(GpuBackendSubmitError::DeviceLost)?;
-        if operations.iter().any(|operation| operation[52] == 0x40) {
+        if !programs.is_empty()
+            || operations
+                .iter()
+                .any(|operation| operation[52] == 0x40 || operation[52] & 0x100 != 0)
+        {
             crate::gmmu::flush_ltc_at(self.gpu_base).map_err(GpuBackendSubmitError::DeviceLost)?;
         }
         Ok(())
@@ -218,6 +261,7 @@ impl Graphics {
     /// Exercise every canonical shader pair, texture descriptor, indexed draw,
     /// source-over blending, scissor and 902D copy before exposing execution.
     pub fn verify(&mut self, fifo: &Fifo, gr: &Gr) -> Result<u32, &'static str> {
+        self.verify_programmable(fifo, gr)?;
         for i in 0..4096 / 4 {
             store(&self.texture, i, 0xff0000ff);
         }
@@ -386,6 +430,43 @@ impl Graphics {
         }
         scarlet::println!("gm20b: SGFX indexed-u32 draw passed");
 
+        // A signed base must resolve [1,2,3] to vertices [0,1,2]. Ignoring it
+        // instead reads [1,2,3], where the duplicated final vertex produces a
+        // degenerate triangle, so the readback checks the actual GPU behavior.
+        for (i, p) in [[-0.75f32, -0.75], [0.75, -0.75], [0., 0.75], [0., 0.75]]
+            .into_iter()
+            .enumerate()
+        {
+            store(&self.vertex, i * 4, p[0].to_bits());
+            store(&self.vertex, i * 4 + 1, p[1].to_bits());
+        }
+        let negative_indices = [u16::MAX, u16::MAX, 1, 2, 3];
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                negative_indices.as_ptr(),
+                (self.vertex.as_vaddr() + 0x800) as *mut u16,
+                negative_indices.len(),
+            );
+        }
+        for (i, value) in [u32::MAX, u32::MAX, 1, 2, 3].into_iter().enumerate() {
+            store(&self.vertex, 0x900 / 4 + i, value);
+        }
+        clean(&self.vertex);
+        draw[27] = (-1_i32) as u32;
+        for (format, offset) in [(1, 0x800), (2, 0x900)] {
+            draw[8] = (VERTEX_VA + offset) as u32;
+            draw[26] = format;
+            self.execute(fifo, gr, &[clear, draw])
+                .map_err(proof_error)?;
+            arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+            if self.pixel(8, 8) != 0xff00ff00 || self.pixel(0, 0) != 0xffff0000 {
+                return Err("SGFX signed indexed base readback mismatch");
+            }
+        }
+        scarlet::println!("gm20b: SGFX negative-base u16/u32 draws passed");
+
+        self.verify_fixed_raster_states(fifo, gr)?;
+
         // Exercise immutable CB0 slots and their bounded reuse on the GPU.
         // 256 independently colored pixels cross the 240-slot arena boundary;
         // a seven-color period also makes overwritten old slots differ.
@@ -446,6 +527,7 @@ impl Graphics {
             return Err("SGFX linear sampler readback mismatch");
         }
         scarlet::println!("gm20b: SGFX linear sampler draw passed");
+        self.verify_sampler_states(fifo, gr, clear, linear)?;
         // The same 16-GOB, kind-0xfe storage selected for the display
         // swapchain must survive PGRAPH writes, 902D reads/writes and TIC
         // sampling before the backend advertises Ready.
@@ -707,8 +789,319 @@ impl Graphics {
         Ok(())
     }
 
+    fn verify_fixed_raster_states(&mut self, fifo: &Fifo, gr: &Gr) -> Result<(), &'static str> {
+        // The preceding signed-index proof leaves the first three vertices as
+        // a nondegenerate triangle. Check native viewport clipping and signed
+        // height with points whose inside/outside results swap under inversion.
+        let green = probe_draw(PipelineVariant::Stride16Solid);
+        for (values, inside, outside) in [
+            ([0_f32, 0., 8., 16., 0.25, 0.75], (2, 12), (2, 4)),
+            ([0_f32, 16., 8., -16., 0.75, 0.25], (2, 4), (2, 12)),
+        ] {
+            let mut viewport = [0; 96];
+            viewport[0] = 7;
+            for (word, value) in viewport[32..38].iter_mut().zip(values) {
+                *word = value.to_bits();
+            }
+            self.execute(fifo, gr, &[probe_clear(), viewport, green])
+                .map_err(proof_error)?;
+            arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+            if self.pixel(inside.0, inside.1) != 0xff00ff00
+                || self.pixel(outside.0, outside.1) != 0xffff0000
+                || self.pixel(8, 8) != 0xffff0000
+            {
+                return Err("SGFX native fixed viewport clipping/inversion mismatch");
+            }
+        }
+        let mut viewport = [0; 96];
+        viewport[0] = 7;
+        viewport[32..38].copy_from_slice(&[0_f32, 0., 8., 16., 0., 1.].map(f32::to_bits));
+        let mut blue = green;
+        blue[17..21].copy_from_slice(&[8, 0, 8, 16]);
+        blue[48..52].copy_from_slice(&[0_f32, 0., 1., 1.].map(f32::to_bits));
+        self.execute(fifo, gr, &[probe_clear(), viewport, green, blue])
+            .map_err(proof_error)?;
+        arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+        if self.pixel(2, 12) != 0xff00ff00 || self.pixel(8, 8) != 0xff0000ff {
+            return Err("SGFX fixed viewport leaked to a default draw");
+        }
+        scarlet::println!("gm20b: SGFX native signed viewport and default-state readbacks passed");
+
+        let destination = [0.25_f32, 0.5, 0.75, 0.5];
+        let source = [0.75_f32, 0.25, 0.5, 0.25];
+        let mut clear = probe_clear();
+        clear[32..36].copy_from_slice(&destination.map(f32::to_bits));
+        let mut draw = green;
+        draw[48..52].copy_from_slice(&source.map(f32::to_bits));
+        let destination_bytes = destination.map(|v| (v * 255.0 + 0.5) as u8);
+        let destination = destination_bytes.map(|v| f32::from(v) / 255.0);
+        let factor = |kind| match kind {
+            0 => 0.0,
+            1 => 1.0,
+            2 => source[3],
+            3 => 1.0 - source[3],
+            4 => destination[3],
+            _ => 1.0 - destination[3],
+        };
+        let equation = |kind, s, d| match kind {
+            0 => s + d,
+            1 => s - d,
+            _ => d - s,
+        };
+        // Every public factor appears in both source and destination positions,
+        // with all three equations and independent RGB/alpha state.
+        for src in 0..6 {
+            for op in 0..3 {
+                let dst = (src + 1) % 6;
+                let asrc = (src + 2) % 6;
+                let adst = (src + 3) % 6;
+                let aop = (op + 1) % 3;
+                let mut blend = [0; 96];
+                blend[0] = 8;
+                blend[21] = 15;
+                blend[22] = 1;
+                blend[23..29].copy_from_slice(&[src, dst, op, asrc, adst, aop]);
+                self.execute(fifo, gr, &[clear, blend, draw])
+                    .map_err(proof_error)?;
+                arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+                let pixel = self.pixel(8, 8);
+                let actual = [
+                    (pixel >> 16) as u8,
+                    (pixel >> 8) as u8,
+                    pixel as u8,
+                    (pixel >> 24) as u8,
+                ];
+                for c in 0..4 {
+                    let (s, d, eq) = if c == 3 {
+                        (asrc, adst, aop)
+                    } else {
+                        (src, dst, op)
+                    };
+                    let expected = (equation(eq, source[c] * factor(s), destination[c] * factor(d))
+                        .clamp(0.0, 1.0)
+                        * 255.0
+                        + 0.5) as u8;
+                    if actual[c].abs_diff(expected) > 2 {
+                        scarlet::println!(
+                            "gm20b: fixed blend proof src={} dst={} equation={} channel={} actual={} expected={}",
+                            src,
+                            dst,
+                            op,
+                            c,
+                            actual[c],
+                            expected
+                        );
+                        return Err("SGFX fixed blend factor/equation readback mismatch");
+                    }
+                }
+            }
+        }
+        let source_bytes = source.map(|v| (v * 255.0 + 0.5) as u8);
+        for mask in 0..16 {
+            let mut blend = [0; 96];
+            blend[0] = 8;
+            blend[21] = mask;
+            blend[23..29].copy_from_slice(&[1, 0, 0, 1, 0, 0]);
+            self.execute(fifo, gr, &[clear, blend, draw])
+                .map_err(proof_error)?;
+            arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+            let pixel = self.pixel(8, 8);
+            let actual = [
+                (pixel >> 16) as u8,
+                (pixel >> 8) as u8,
+                pixel as u8,
+                (pixel >> 24) as u8,
+            ];
+            for c in 0..4 {
+                let expected = if mask & (1 << c) == 0 {
+                    destination_bytes[c]
+                } else {
+                    source_bytes[c]
+                };
+                if actual[c].abs_diff(expected) > 1 {
+                    return Err("SGFX fixed color-write mask readback mismatch");
+                }
+            }
+        }
+        let mut mask = [0; 96];
+        mask[0] = 8;
+        mask[21] = 1;
+        mask[23..29].copy_from_slice(&[1, 0, 0, 1, 0, 0]);
+        self.execute(fifo, gr, &[probe_clear(), mask, green, blue])
+            .map_err(proof_error)?;
+        arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+        if self.pixel(8, 8) != 0xff0000ff {
+            return Err("SGFX fixed blend/mask leaked to a default draw");
+        }
+        scarlet::println!(
+            "gm20b: SGFX fixed six-factor/three-equation and RGBA mask readbacks passed"
+        );
+        Ok(())
+    }
+
+    fn verify_sampler_states(
+        &mut self,
+        fifo: &Fifo,
+        gr: &Gr,
+        clear: [u32; 96],
+        mut draw: [u32; 96],
+    ) -> Result<(), &'static str> {
+        let positions = [[-0.75f32, -0.75], [0.75, -0.75], [0., 0.75]];
+        // Coordinates 1.1875 select texel 15 with ClampToEdge, texel 3
+        // with Repeat and texel 13 with MirrorRepeat. Independent color bands
+        // in X/Y distinguish all nine addressing combinations without relying
+        // on interpolation at a boundary.
+        let band = |p| {
+            if p < 8 {
+                0
+            } else if p < 15 {
+                128
+            } else {
+                255
+            }
+        };
+        for y in 0..16 {
+            for x in 0..16 {
+                store(
+                    &self.texture,
+                    y * 64 + x,
+                    0xff000021 | (band(x) << 16) | (band(y) << 8),
+                );
+            }
+        }
+        clean(&self.texture);
+        for (i, p) in positions.into_iter().enumerate() {
+            for (j, value) in [p[0], p[1], 1.1875, 1.1875].into_iter().enumerate() {
+                store(&self.vertex, i * 4 + j, value.to_bits());
+            }
+        }
+        clean(&self.vertex);
+        let channels = [255, 0, 128];
+        for u in 0..3 {
+            for v in 0..3 {
+                draw[22] = (u << 7) | (v << 9);
+                self.execute(fifo, gr, &[clear, draw])
+                    .map_err(proof_error)?;
+                arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+                let expected =
+                    0xff000021 | (channels[u as usize] << 16) | (channels[v as usize] << 8);
+                if self.pixel(8, 8) != expected {
+                    return Err("SGFX sampler addressing readback mismatch");
+                }
+            }
+        }
+
+        // Alternating red/blue columns distinguish nearest from linear.
+        // Constant UVs exercise magnification in all four min/mag descriptor
+        // configurations at the portable sampler's fixed LOD zero. The checked
+        // pixel lies halfway between two texel centers, so linear must produce
+        // equal red and blue channels.
+        for y in 0..16 {
+            for x in 0..16 {
+                store(
+                    &self.texture,
+                    y * 64 + x,
+                    if x % 2 == 0 { 0xffff0000 } else { 0xff0000ff },
+                );
+            }
+        }
+        clean(&self.texture);
+        for min in 0..2 {
+            for mag in 0..2 {
+                {
+                    for (i, p) in positions.into_iter().enumerate() {
+                        let u = 0.5;
+                        for (j, value) in [p[0], p[1], u, 0.5].into_iter().enumerate() {
+                            store(&self.vertex, i * 4 + j, value.to_bits());
+                        }
+                    }
+                    clean(&self.vertex);
+                    draw[22] = (min << 1) | (u32::from(min != mag) << 6);
+                    self.execute(fifo, gr, &[clear, draw])
+                        .map_err(proof_error)?;
+                    arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+                    let pixel = self.pixel(8, 8);
+                    let linear = mag != 0;
+                    let matches = if linear {
+                        pixel & 0xff00ff00 == 0xff000000
+                            && matches!(pixel & 0xff, 127 | 128)
+                            && matches!((pixel >> 16) & 0xff, 127 | 128)
+                    } else {
+                        pixel == 0xffff0000
+                    };
+                    if !matches {
+                        return Err("SGFX independent sampler filter readback mismatch");
+                    }
+                }
+            }
+        }
+        // Restore the uniform blue texture and central UVs used by the
+        // remaining legacy tiled render/copy/sample admission checks.
+        for i in 0..4096 / 4 {
+            store(&self.texture, i, 0xff0000ff);
+        }
+        clean(&self.texture);
+        for (i, p) in positions.into_iter().enumerate() {
+            for (j, value) in [p[0], p[1], 0.5, 0.5].into_iter().enumerate() {
+                store(&self.vertex, i * 4 + j, value.to_bits());
+            }
+        }
+        clean(&self.vertex);
+        scarlet::println!("gm20b: SGFX sampler nine address/four min-mag states passed");
+        Ok(())
+    }
+
     fn pixel(&self, x: usize, y: usize) -> u32 {
         unsafe { core::ptr::read_volatile((self.image.as_vaddr() + y * 256 + x * 4) as *const u32) }
+    }
+
+    fn verify_programmable(&mut self, fifo: &Fifo, gr: &Gr) -> Result<(), &'static str> {
+        use crate::programmable_graphics::{ProofAuthority, prepare, proof_metadata};
+        for (i, p) in [[-0.75f32, -0.75], [0.75, -0.75], [0., 0.75]]
+            .into_iter()
+            .enumerate()
+        {
+            for (j, v) in p.into_iter().enumerate() {
+                store(&self.vertex, i * 2 + j, v.to_bits());
+            }
+        }
+        clean(&self.vertex);
+        let authority = ProofAuthority {
+            vertex_address: VERTEX_VA as u64,
+            target_address: IMAGE_VA as u64,
+        };
+        let draw = prepare(&proof_metadata()?, &authority)?;
+        if draw.arena.len() > PACK_SIZE {
+            return Err("programmable startup arena exceeds private shader allocation");
+        }
+        // The startup context is exclusive and owns this allocation. Restore
+        // the fixed shader pack only after the programmable PGRAPH fence.
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                draw.arena.as_ptr(),
+                self.programs.as_vaddr() as *mut u8,
+                draw.arena.len(),
+            );
+        }
+        clean(&self.programs);
+        let program = draw.publish(PROGRAM_VA as u64)?;
+        let mut operation = [0u32; 96];
+        operation[0] = 5;
+        self.execute_with_programs(fifo, gr, &[probe_clear(), operation], &[program])
+            .map_err(proof_error)?;
+        arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
+        if self.pixel(8, 8) != 0xff00ff00 || self.pixel(0, 0) != 0xffff0000 {
+            return Err("programmable WGSL green triangle/readback mismatch");
+        }
+        let bytes = unsafe {
+            core::slice::from_raw_parts_mut(self.programs.as_vaddr() as *mut u8, PACK_SIZE)
+        };
+        copy_pack(bytes)?;
+        clean(&self.programs);
+        scarlet::println!(
+            "gm20b: programmable WGSL/NAK private-stage green triangle/readback passed"
+        );
+        Ok(())
     }
 
     fn tile_pixel(&self, x: usize, y: usize) -> u32 {
@@ -770,6 +1163,8 @@ struct Push {
     tic: Option<[u32; 16]>,
     tsc: Option<[u32; 8]>,
     texture_handle_initialized: bool,
+    viewport: Option<[f32; 6]>,
+    blend: Option<NativeBlend>,
 }
 impl Push {
     fn new() -> Self {
@@ -780,6 +1175,8 @@ impl Push {
             tic: None,
             tsc: None,
             texture_handle_initialized: false,
+            viewport: None,
+            blend: None,
         }
     }
     fn reset(&mut self) {
@@ -791,6 +1188,8 @@ impl Push {
         self.tic = None;
         self.tsc = None;
         self.texture_handle_initialized = false;
+        self.viewport = None;
+        self.blend = None;
     }
     fn packet_header(
         &mut self,
@@ -948,7 +1347,7 @@ impl Push {
     }
     fn target(&mut self, w: &[u32; 96]) -> Result<(), &'static str> {
         self.one(RT_CONTROL, 1)?;
-        let tiled = w[52] == 0x40;
+        let tiled = w[52] == 0x40 || w[52] & 0x100 != 0;
         self.method(
             0,
             RT_ADDRESS_HIGH,
@@ -958,7 +1357,11 @@ impl Push {
                 if tiled { w[10] } else { w[12] },
                 w[11],
                 BGRA8,
-                if tiled { 0x40 } else { RT_TILE_MODE_LINEAR },
+                if tiled {
+                    w[52] & 0x70
+                } else {
+                    RT_TILE_MODE_LINEAR
+                },
                 1,
                 0, // Mesa sets layer_stride only for array_size > 1.
                 0,
@@ -980,10 +1383,18 @@ impl Push {
                 self.one(CLEAR_BUFFERS, 0x3c)
             }
             2 => self.draw(w),
-            3 => self.copy(w),
+            7 => {
+                self.viewport = Some(fixed_viewport_record(&w[..64], true)?);
+                Ok(())
+            }
+            8 => {
+                self.blend = Some(fixed_blend_record(&w[..64], true)?);
+                Ok(())
+            }
+            3 | 6 => self.copy(w),
             4 => {
                 self.one(RT_CONTROL, 0)?;
-                self.depth_target(&w[2..4], w[10], w[11], w[12])?;
+                self.depth_target(&w[2..4], w[10], w[11], w[12], w[52])?;
                 self.one(SCISSOR_ENABLE, 0)?;
                 self.method(
                     0,
@@ -1007,6 +1418,7 @@ impl Push {
         width: u32,
         height: u32,
         pitch: u32,
+        tile_mode: u32,
     ) -> Result<(), &'static str> {
         // Mesa nvc0_validate_fb / nvc0_clear_depth_stencil, uncompressed ZF32.
         self.method(
@@ -1016,8 +1428,11 @@ impl Push {
                 address[1],
                 address[0],
                 0x0a,
-                0x40,
-                pitch * ((height + 127) & !127) / 4,
+                tile_mode & 0x70,
+                pitch
+                    * ((height + (8 << ((tile_mode >> 4) & 7)) - 1)
+                        & !((8 << ((tile_mode >> 4) & 7)) - 1))
+                    / 4,
             ],
         )?;
         self.method(0, ZETA_HORIZ, &[width, height, 0x10001])?;
@@ -1036,7 +1451,7 @@ impl Push {
         }
         self.target(w)?;
         if w[60] != 0 {
-            self.depth_target(&w[54..56], w[56], w[57], w[58])?;
+            self.depth_target(&w[54..56], w[56], w[57], w[58], w[59])?;
             self.one(DEPTH_TEST_FUNC, 0x200 + w[60] - 1)?;
             self.one(DEPTH_TEST_ENABLE, 1)?;
             self.one(DEPTH_WRITE_ENABLE, w[61])?;
@@ -1064,22 +1479,19 @@ impl Push {
             self.uniform_next += UNIFORM_SIZE;
             self.uniforms = Some(uniforms);
         }
-        let sx = w[10] as f32 * 0.5;
-        let sy = w[11] as f32 * 0.5;
-        // SGFX upper-left viewport, depth -1..1 -> 0..1.
-        self.method(
-            0,
-            VIEWPORT_TRANSLATE_X,
-            &[sx.to_bits(), sy.to_bits(), 0.5f32.to_bits()],
-        )?;
-        self.method(
-            0,
-            VIEWPORT_SCALE_X,
-            &[sx.to_bits(), (-sy).to_bits(), 0.5f32.to_bits()],
-        )?;
-        self.method(0, VIEWPORT_HORIZ, &[w[10] << 16, w[11] << 16])?;
+        // Consume explicit state per draw and rewrite the default per draw.
+        // Neither another fixed draw nor a programmable batch can inherit it.
+        let viewport =
+            self.viewport
+                .take()
+                .unwrap_or([0.0, 0.0, w[10] as f32, w[11] as f32, 0.0, 1.0]);
+        let native_viewport = fixed_viewport_native(viewport, w[10], w[11])
+            .ok_or("fixed viewport exceeds draw target")?;
+        self.method(0, VIEWPORT_TRANSLATE_X, &native_viewport.translate)?;
+        self.method(0, VIEWPORT_SCALE_X, &native_viewport.scale)?;
+        self.method(0, VIEWPORT_HORIZ, &native_viewport.clip)?;
         self.one(VIEWPORT_SWIZZLE, 0x6420)?;
-        self.method(0, DEPTH_RANGE_NEAR, &[0, 1f32.to_bits()])?;
+        self.method(0, DEPTH_RANGE_NEAR, &native_viewport.depth)?;
         self.method(
             0,
             SCISSOR_ENABLE,
@@ -1093,15 +1505,24 @@ impl Push {
         self.one(CULL_FACE_ENABLE, u32::from(cull & 3 != 0))?;
         self.one(CULL_FACE, if cull & 3 == 1 { 0x404 } else { 0x405 })?;
         self.one(FRONT_FACE, if cull & 4 != 0 { 0x900 } else { 0x901 })?;
-        self.one(BLEND_ENABLE, u32::from(w[22] & 1 != 0))?;
-        // nvc0_blend_fac uses NV50_BLEND_FACTOR enums (0x4xxx), not the
-        // similarly named OpenGL factor values. Preserve straight alpha.
+        let blend = self
+            .blend
+            .take()
+            .unwrap_or(fixed_legacy_blend(w[22] & 1 != 0));
+        self.one(BLEND_ENABLE, blend.enabled)?;
+        self.one(COLOR_MASK, blend.color_mask)?;
         self.method(
             0,
             BLEND_EQUATION_RGB,
-            &[0x8006, 0x4302, 0x4303, 0x8006, 0x4001],
+            &[
+                blend.color[0],
+                blend.color[1],
+                blend.color[2],
+                blend.alpha[0],
+                blend.alpha[1],
+            ],
         )?;
-        self.one(BLEND_FUNC_DST_ALPHA, 0x4303)?;
+        self.one(BLEND_FUNC_DST_ALPHA, blend.alpha[2])?;
         for (stage, shader) in [(1, vs), (5, fs)] {
             self.method(
                 0,
@@ -1156,31 +1577,34 @@ impl Push {
             }
         }
         if w[29] != 0 {
-            let channels = if w[22] & (1 << 5) != 0 {
-                [7, 7, 7, 5]
+            let tiled = w[53] == 0x40 || w[53] & 0x100 != 0;
+            let alpha_mask = w[22] & (1 << 5) != 0;
+            let encoded_format = w[62] & 0xf;
+            let format = if encoded_format == 7 {
+                0
+            } else if alpha_mask && encoded_format == 0 {
+                2
             } else {
-                [4, 3, 2, 5]
+                encoded_format
             };
-            let tic0 = 8
-                | (2 << 7)
-                | (2 << 10)
-                | (2 << 13)
-                | (2 << 16)
-                | (channels[0] << 19)
-                | (channels[1] << 22)
-                | (channels[2] << 25)
-                | (channels[3] << 28);
-            let tiled = w[53] == 0x40;
-            let rgb_tic = [
-                tic0,
-                w[6],
-                w[7] | if tiled { 0x00600000 } else { 0x00400000 },
-                0x10000 | if tiled { 0x20 } else { w[31] >> 5 },
-                (if tiled { 0xe0800000 } else { 0xe3800000 }) | (w[29] - 1),
-                0x80000000 | (w[30] - 1),
-                0,
-                0,
-            ];
+            let mip_levels = ((w[62] >> 8) & 0xf) + 1;
+            let rgb_tic = maxwell_image_layout::descriptor::texture(
+                maxwell_image_layout::descriptor::Texture {
+                    address: u64::from(w[6]) | (u64::from(w[7]) << 32),
+                    width: w[29],
+                    height: w[30],
+                    row_pitch: w[31],
+                    tile_y_log2: tiled.then_some(((w[53] >> 4) & 7) as u8),
+                    format,
+                    alpha_mask,
+                    mip_levels,
+                    first_mip: 0,
+                    last_mip: mip_levels - 1,
+                    layers: 1,
+                    dimension: maxwell_image_layout::descriptor::Dimension::D2,
+                },
+            )
+            .map_err(|_| "sampled image TIC invalid")?;
             let mut tic = [0u32; 16];
             tic[..8].copy_from_slice(&rgb_tic);
             if w[64] != 0 {
@@ -1206,16 +1630,15 @@ impl Push {
                     w[53],
                 ));
             }
-            let tsc = [
-                0x26000 | 2 | (2 << 3) | (2 << 6),
-                if w[22] & 2 != 0 { 0x62 } else { 0x51 },
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-            ];
+            let mut tsc = draw_sampler_descriptor(w[22]).ok_or("draw sampler state invalid")?;
+            maxwell_image_layout::descriptor::sampler_lod(
+                &mut tsc,
+                mip_levels,
+                w[22] & (1 << 11) != 0,
+                f32::from_bits(w[1]),
+                f32::from_bits(w[63]),
+            )
+            .map_err(|_| "draw sampler LOD invalid")?;
             let tic_changed = self.tic != Some(tic);
             let tsc_changed = self.tsc != Some(tsc);
             // Descriptor slots remain shared; an actual overwrite still
@@ -1276,19 +1699,40 @@ impl Push {
             (0x200, [w[3], w[2]], w[10], w[11], w[12], w[52]),
             (0x230, [w[5], w[4]], w[29], w[30], w[31], w[53]),
         ] {
-            if tile_mode == 0x40 {
-                self.method(3, m, &[BGRA8, 0, tile_mode, 1, 0])?;
+            if tile_mode == 0x40 || tile_mode & 0x100 != 0 {
+                self.method(3, m, &[BGRA8, 0, tile_mode & 0x70, 1, 0])?;
                 self.method(3, m + 0x18, &[width, height, addr[0], addr[1]])?;
             } else {
                 self.method(3, m, &[BGRA8, 1])?;
                 self.method(3, m + 0x14, &[stride, width, height, addr[0], addr[1]])?;
             }
         }
-        self.method(3, 0x88c, &[0])?;
+        self.method(
+            3,
+            0x88c,
+            &[if w[0] == 6 && w[21] & 1 != 0 { 0x10 } else { 0 }],
+        )?;
         let dst = [w[13], w[14], w[15], w[16]];
         self.method(3, 0x8b0, &dst)?;
-        self.method(3, 0x8c0, &[0, 1, 0, 1])?;
-        let src = [0, w[17], 0, w[18]];
+        let custom = w[0] == 6;
+        let flip_x = custom && w[21] & 4 != 0;
+        let flip_y = custom && w[21] & 8 != 0;
+        let du = ((i64::from(w[19]) << 32) / i64::from(w[15])) * if flip_x { -1 } else { 1 };
+        let dv = ((i64::from(w[20]) << 32) / i64::from(w[16])) * if flip_y { -1 } else { 1 };
+        self.method(
+            3,
+            0x8c0,
+            &[du as u32, (du >> 32) as u32, dv as u32, (dv >> 32) as u32],
+        )?;
+        // Mesa nvc0_blit_eng2d uses CENTER origin, integer source starts and
+        // negative 32.32 derivatives for flips. The first flipped pixel is
+        // the final texel in the checked source rectangle.
+        let src = [
+            0,
+            w[17] + if flip_x { w[19] - 1 } else { 0 },
+            0,
+            w[18] + if flip_y { w[20] - 1 } else { 0 },
+        ];
         self.method(3, 0x8d0, &src)?;
         self.one(SERIALIZE, 0)?;
         self.one(INVALIDATE_SHADER_CACHES, INVALIDATE_SHADER_CACHE_READS)?;

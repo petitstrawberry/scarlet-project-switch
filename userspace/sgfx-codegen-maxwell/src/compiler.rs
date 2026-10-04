@@ -6,7 +6,7 @@ use maxwell_shader_pack::PipelineVariant;
 use sgfx_core::ir::{
     AddressMode, BlendState, BufferUsage, CullMode, DepthLoadOp, DrawUniforms, FilterMode,
     FragmentProgram, IndexFormat, LoadOp, PixelRect, SamplerDesc, TextureFormat, TextureSampleMode,
-    TextureUsage,
+    TextureUsage, Viewport,
 };
 
 use crate::emit::{DrawCall, DrawState, Emitter, IndexedDraw, Surface};
@@ -47,6 +47,8 @@ struct State<'a> {
     sampler: Option<SamplerDesc>,
     uniforms: Option<DrawUniforms>,
     scissor: Option<PixelRect>,
+    viewport: Option<Viewport>,
+    color_write_mask: u32,
 }
 
 impl State<'_> {
@@ -61,6 +63,8 @@ impl State<'_> {
             sampler: None,
             uniforms: None,
             scissor: None,
+            viewport: None,
+            color_write_mask: 15,
         }
     }
 }
@@ -149,7 +153,9 @@ pub fn compile(input: CompileInput<'_>) -> Result<RelocatableCommands, CompileEr
                 validate_rect(pass.area, target)?;
                 let depth = if let Some(depth) = pass.depth {
                     // Maxwell cannot enable ZETA alongside a pitch-linear RT.
-                    if target.tile_mode != 0x40 || depth.target == pass.target {
+                    if (target.tile_mode != 0x40 && target.tile_mode & 0x100 == 0)
+                        || depth.target == pass.target
+                    {
                         return Err(CompileError::InvalidResource);
                     }
                     let depth_resource = find_resource(input.resources, depth.target)?;
@@ -167,7 +173,26 @@ pub fn compile(input: CompileInput<'_>) -> Result<RelocatableCommands, CompileEr
                     None
                 };
                 if let LoadOp::Clear(color) = pass.load {
-                    emitter.clear(target, pass.area, color)?;
+                    let ResourceKind::Image(image) = &target_resource.kind else {
+                        return Err(CompileError::InvalidResource);
+                    };
+                    let c = color.components();
+                    let physical = match image.format {
+                        TextureFormat::R8Unorm => [0.0, 0.0, 0.0, c[0]],
+                        TextureFormat::Rg8Unorm => [c[0], c[1], 0.0, 1.0],
+                        _ => c,
+                    };
+                    emitter.clear(
+                        target,
+                        pass.area,
+                        sgfx_core::ir::Color::rgba(
+                            physical[0],
+                            physical[1],
+                            physical[2],
+                            physical[3],
+                        )
+                        .map_err(|_| CompileError::InvalidResource)?,
+                    )?;
                 }
                 state.pass = Some(PassState {
                     target: pass.target,
@@ -182,6 +207,8 @@ pub fn compile(input: CompileInput<'_>) -> Result<RelocatableCommands, CompileEr
                 state.sampler = None;
                 state.uniforms = None;
                 state.scissor = None;
+                state.viewport = None;
+                state.color_write_mask = 15;
             }
             Operation::EndRenderPass => {
                 if state.pass.take().is_none() {
@@ -198,6 +225,8 @@ pub fn compile(input: CompileInput<'_>) -> Result<RelocatableCommands, CompileEr
                 state.sampler = None;
                 state.uniforms = None;
                 state.scissor = None;
+                state.viewport = None;
+                state.color_write_mask = 15;
             }
             Operation::SetPipeline(id) => {
                 require_inside_pass(&state)?;
@@ -256,6 +285,24 @@ pub fn compile(input: CompileInput<'_>) -> Result<RelocatableCommands, CompileEr
                     return Err(CompileError::OutOfBounds);
                 }
                 state.scissor = *scissor;
+            }
+            Operation::SetViewport(viewport) => {
+                let pass = require_inside_pass(&state)?;
+                let ResourceKind::Image(image) = &find_resource(input.resources, pass.target)?.kind
+                else {
+                    return Err(CompileError::InvalidResource);
+                };
+                if !viewport.is_within(image.extent) {
+                    return Err(CompileError::OutOfBounds);
+                }
+                state.viewport = Some(*viewport);
+            }
+            Operation::SetColorWriteMask(mask) => {
+                require_inside_pass(&state)?;
+                if *mask > 15 {
+                    return Err(CompileError::InvalidResource);
+                }
+                state.color_write_mask = *mask;
             }
             Operation::Draw {
                 vertex_count,
@@ -418,6 +465,56 @@ fn validate_image_layout(
     if image.planes.len() != 1 {
         return Err(CompileError::UnsupportedFeature);
     }
+    if let Some(layout) = image.subresources {
+        let d = layout.descriptor;
+        let plane = image.planes[0];
+        let checked = maxwell_image_layout::plan(d, layout.kind)
+            .map_err(|_| CompileError::InvalidResource)?;
+        if (image.storage_format == TextureFormat::Depth32Float)
+            != matches!(
+                image.modifier,
+                ImageModifier::NvidiaZf32BlockLinear16Bx2H4
+                    | ImageModifier::NvidiaZf32BlockLinear { .. }
+            )
+            || checked != layout
+            || d.width != image.extent.width()
+            || d.height != image.extent.height()
+            || d.bytes_per_pixel
+                != image
+                    .storage_format
+                    .bytes_per_pixel()
+                    .ok_or(CompileError::UnsupportedFeature)?
+            || plane.offset != 0
+            || plane.size != layout.total_size
+            || allocation_size < layout.total_size
+            || plane.stride != layout.levels[0].row_pitch
+            || plane.stride > max_pitch
+        {
+            return Err(CompileError::InvalidResource);
+        }
+        let expected_kind = match image.modifier {
+            ImageModifier::Linear => maxwell_image_layout::LayoutKind::Linear,
+            ImageModifier::NvidiaBlockLinear16Bx2H4
+            | ImageModifier::NvidiaZf32BlockLinear16Bx2H4 => {
+                maxwell_image_layout::LayoutKind::BlockLinear {
+                    base_y_log2: 4,
+                    clamp_mips: false,
+                }
+            }
+            ImageModifier::NvidiaBlockLinear { tile_y_log2 }
+            | ImageModifier::NvidiaZf32BlockLinear { tile_y_log2 } => {
+                maxwell_image_layout::LayoutKind::BlockLinear {
+                    base_y_log2: tile_y_log2,
+                    clamp_mips: d.mip_levels > 1 || d.array_layers > 1,
+                }
+            }
+            ImageModifier::NvidiaBlockLinear16Bx2H1 => return Err(CompileError::InvalidResource),
+        };
+        if expected_kind != layout.kind {
+            return Err(CompileError::InvalidResource);
+        }
+        return Ok(());
+    }
     let plane = image.planes[0];
     let row_bytes = image
         .extent
@@ -430,6 +527,9 @@ fn validate_image_layout(
         )
         .ok_or(CompileError::Overflow)?;
     let required = match image.modifier {
+        ImageModifier::NvidiaBlockLinear { .. } | ImageModifier::NvidiaZf32BlockLinear { .. } => {
+            return Err(CompileError::InvalidResource);
+        }
         ImageModifier::NvidiaBlockLinear16Bx2H1 => return Err(CompileError::UnsupportedFeature),
         ImageModifier::Linear => {
             if image.storage_format == TextureFormat::Depth32Float {
@@ -487,7 +587,9 @@ fn require_image_surface(
     };
     if !image.usage.contains(required)
         || (image.storage_format != TextureFormat::Bgra8Unorm
-            && !(image.storage_format == TextureFormat::Nv12 && required == TextureUsage::SAMPLED))
+            && !((image.storage_format == TextureFormat::Nv12
+                || image.storage_format == TextureFormat::Depth32Float)
+                && required == TextureUsage::SAMPLED))
     {
         return Err(CompileError::InvalidResource);
     }
@@ -512,11 +614,36 @@ fn require_image_surface(
             ImageModifier::Linear => 0,
             ImageModifier::NvidiaBlockLinear16Bx2H1 => 0x10,
             ImageModifier::NvidiaBlockLinear16Bx2H4 => 0x40,
-            ImageModifier::NvidiaZf32BlockLinear16Bx2H4 => {
+            ImageModifier::NvidiaBlockLinear { tile_y_log2 } => {
+                0x100 | (u32::from(tile_y_log2) << 4)
+            }
+            ImageModifier::NvidiaZf32BlockLinear { tile_y_log2 }
+                if required == TextureUsage::SAMPLED =>
+            {
+                0x100 | (u32::from(tile_y_log2) << 4)
+            }
+            ImageModifier::NvidiaZf32BlockLinear { .. } => {
                 return Err(CompileError::InvalidResource);
+            }
+            ImageModifier::NvidiaZf32BlockLinear16Bx2H4 => {
+                if required != TextureUsage::SAMPLED {
+                    return Err(CompileError::InvalidResource);
+                }
+                0x40
             }
         },
         alpha_mask: image.format == TextureFormat::R8Unorm,
+        sample_format: match image.format {
+            TextureFormat::Bgra8Unorm => 0,
+            TextureFormat::Rgba8Unorm => 1,
+            TextureFormat::R8Unorm => 2,
+            TextureFormat::Rg8Unorm => 3,
+            TextureFormat::Bgra8UnormSrgb => 4,
+            TextureFormat::Rgba8UnormSrgb => 5,
+            TextureFormat::Depth32Float => 6,
+            TextureFormat::Nv12 => 7,
+        },
+        mip_levels: image.subresources.map_or(1, |l| l.descriptor.mip_levels),
     })
 }
 
@@ -528,7 +655,15 @@ fn require_target_surface(
     let ResourceKind::Image(image) = &resource.kind else {
         return Err(CompileError::InvalidResource);
     };
-    if image.format != TextureFormat::Bgra8Unorm {
+    if !matches!(
+        image.format,
+        TextureFormat::Bgra8Unorm | TextureFormat::Rgba8Unorm
+    ) && !(required == TextureUsage::RENDER_ATTACHMENT
+        && matches!(
+            image.format,
+            TextureFormat::R8Unorm | TextureFormat::Rg8Unorm
+        ))
+    {
         return Err(CompileError::InvalidResource);
     }
     require_image_surface(resource, required, max_pitch)
@@ -545,7 +680,11 @@ fn require_depth_surface(
     };
     if image.format != TextureFormat::Depth32Float
         || image.storage_format != TextureFormat::Depth32Float
-        || image.modifier != ImageModifier::NvidiaZf32BlockLinear16Bx2H4
+        || !matches!(
+            image.modifier,
+            ImageModifier::NvidiaZf32BlockLinear16Bx2H4
+                | ImageModifier::NvidiaZf32BlockLinear { .. }
+        )
         || !image.usage.contains(TextureUsage::RENDER_ATTACHMENT)
         || image.extent.width() != width
         || image.extent.height() != height
@@ -561,8 +700,15 @@ fn require_depth_surface(
         width,
         height,
         stride: plane.stride,
-        tile_mode: 0x40,
+        tile_mode: match image.modifier {
+            ImageModifier::NvidiaZf32BlockLinear { tile_y_log2 } => {
+                0x100 | (u32::from(tile_y_log2) << 4)
+            }
+            _ => 0x40,
+        },
         alpha_mask: false,
+        sample_format: 6,
+        mip_levels: 1,
     })
 }
 
@@ -649,10 +795,15 @@ fn emit_draw(
         TextureUsage::RENDER_ATTACHMENT,
         input.capabilities.max_linear_pitch,
     )?;
-    if pipeline.descriptor.target_format() != TextureFormat::Bgra8Unorm {
+    let target_format = match pipeline.descriptor.target_format() {
+        TextureFormat::Bgra8Unorm => 0,
+        TextureFormat::Rgba8Unorm => 1,
+        _ => return Err(CompileError::InvalidResource),
+    };
+    if target.sample_format != target_format {
         return Err(CompileError::InvalidResource);
     }
-    let linear_sampler = validate_sample_state(input.resources, state, pipeline)?;
+    let sampler_flags = validate_sample_state(input.resources, state, pipeline)?;
     let vertex_resource = find_resource(input.resources, vertex.object)?;
     require_buffer_usage(vertex_resource, BufferUsage::VERTEX)?;
     let stride = pipeline.descriptor.vertex_buffer().stride();
@@ -667,14 +818,16 @@ fn emit_draw(
     let variant = pipeline_variant(&pipeline.descriptor)?;
     let (attributes, source_over) = draw_fixed_state(&pipeline.descriptor)?;
     let texture = match pipeline.descriptor.fragment() {
-        FragmentProgram::Texture(_) | FragmentProgram::TextureVertexColor(_) => {
+        FragmentProgram::Texture(mode) | FragmentProgram::TextureVertexColor(mode) => {
             let id = state.texture.ok_or(CompileError::InvalidState)?;
             let resource = find_resource(input.resources, id)?;
-            Some(require_image_surface(
+            let mut surface = require_image_surface(
                 resource,
                 TextureUsage::SAMPLED,
                 input.capabilities.max_linear_pitch,
-            )?)
+            )?;
+            surface.alpha_mask = mode == TextureSampleMode::AlphaMask;
+            Some(surface)
         }
         FragmentProgram::Solid | FragmentProgram::VertexColor => None,
     };
@@ -726,6 +879,9 @@ fn emit_draw(
         target,
         area: pass.area,
         scissor: state.scissor.unwrap_or(pass.area),
+        viewport: state.viewport,
+        blend: pipeline.descriptor.blend(),
+        color_write_mask: state.color_write_mask,
         vertex: vertex.object,
         vertex_offset: vertex.offset,
         vertex_size,
@@ -733,7 +889,11 @@ fn emit_draw(
         attributes,
         uniforms: uniform_words,
         texture,
-        linear_sampler,
+        sampler_flags,
+        // Mesa nv50_sampler_state_create clamps both limits to nonnegative
+        // hardware LOD. Validate their original order before canonicalizing.
+        min_lod: state.sampler.map_or(0.0, |s| s.min_lod().max(0.0)),
+        max_lod: state.sampler.map_or(0.0, |s| s.max_lod().max(0.0)),
         source_over,
         cull,
         depth,
@@ -751,12 +911,6 @@ fn emit_draw_indexed(
 ) -> Result<(), CompileError> {
     let (_, pipeline, vertex, _) = require_draw_state(state)?;
     let index = state.index.ok_or(CompileError::InvalidState)?;
-    if base_vertex < 0 {
-        // Without inspecting untrusted index contents, a negative base could
-        // address bytes before the authorized VFD buffer base.  Keep the
-        // initial GM20B dialect safely bounded to non-negative base vertices.
-        return Err(CompileError::UnsupportedFeature);
-    }
     let index_resource = find_resource(input.resources, index.object)?;
     require_buffer_usage(index_resource, BufferUsage::INDEX)?;
     let index_element_size = index.format.byte_size();
@@ -783,8 +937,18 @@ fn emit_draw_indexed(
         .checked_sub(vertex.offset)
         .ok_or(CompileError::OutOfBounds)?;
     let stride = u64::from(pipeline.descriptor.vertex_buffer().stride());
-    let base_vertex = u32::try_from(base_vertex).map_err(|_| CompileError::UnsupportedFeature)?;
-    let minimum_vertex_bytes = u64::from(base_vertex)
+    // The kernel resolves every index against an immutable snapshot before
+    // emitting VB_ELEMENT_BASE. A negative base therefore remains signed and
+    // cannot authorize a fetch before the vertex relocation's visible range.
+    let maximum_index = match index.format {
+        IndexFormat::Uint16 => u32::from(u16::MAX),
+        IndexFormat::Uint32 => u32::MAX,
+    };
+    if i64::from(maximum_index) + i64::from(base_vertex) < 0 {
+        return Err(CompileError::OutOfBounds);
+    }
+    let minimum_vertex_bytes = u64::try_from(base_vertex.max(0))
+        .map_err(|_| CompileError::Overflow)?
         .checked_add(1)
         .and_then(|count| count.checked_mul(stride))
         .ok_or(CompileError::Overflow)?;
@@ -873,40 +1037,72 @@ fn validate_sample_state(
     resources: &[ResourceMeta],
     state: &State<'_>,
     pipeline: &PipelineMeta,
-) -> Result<bool, CompileError> {
+) -> Result<u32, CompileError> {
     let fragment = pipeline.descriptor.fragment();
     let sample_mode = match fragment {
-        FragmentProgram::Solid | FragmentProgram::VertexColor => return Ok(false),
+        FragmentProgram::Solid | FragmentProgram::VertexColor => return Ok(0),
         FragmentProgram::Texture(mode) | FragmentProgram::TextureVertexColor(mode) => mode,
     };
     let texture = state.texture.ok_or(CompileError::InvalidState)?;
     let sampler = state.sampler.ok_or(CompileError::InvalidState)?;
-    if sampler.min_filter() != sampler.mag_filter()
-        || sampler.address_u() != AddressMode::ClampToEdge
-        || sampler.address_v() != AddressMode::ClampToEdge
+    // Fixed TEX shaders have no depth-reference operand; comparison sampling
+    // belongs to programmable shaders with an explicit reference value.
+    if !sampler.min_lod().is_finite()
+        || !sampler.max_lod().is_finite()
+        || sampler.max_lod() < sampler.min_lod()
     {
+        return Err(CompileError::InvalidResource);
+    }
+    if sampler.compare().is_some() {
         return Err(CompileError::UnsupportedFeature);
     }
     let ResourceKind::Image(image) = &find_resource(resources, texture)?.kind else {
         return Err(CompileError::InvalidResource);
     };
+    if image
+        .subresources
+        .is_some_and(|l| l.descriptor.array_layers > 1)
+    {
+        return Err(CompileError::UnsupportedFeature);
+    }
     let format_matches = match sample_mode {
         TextureSampleMode::Rgba | TextureSampleMode::RgbIgnoreAlpha => matches!(
             image.format,
-            TextureFormat::Bgra8Unorm | TextureFormat::Rgba8Unorm | TextureFormat::Nv12
+            TextureFormat::Bgra8Unorm
+                | TextureFormat::Rgba8Unorm
+                | TextureFormat::Nv12
+                | TextureFormat::Bgra8UnormSrgb
+                | TextureFormat::Rgba8UnormSrgb
+                | TextureFormat::R8Unorm
+                | TextureFormat::Rg8Unorm
+                | TextureFormat::Depth32Float
         ),
         TextureSampleMode::AlphaMask => image.format == TextureFormat::R8Unorm,
     };
     if !format_matches
         || !matches!(
             image.storage_format,
-            TextureFormat::Bgra8Unorm | TextureFormat::Nv12
+            TextureFormat::Bgra8Unorm | TextureFormat::Nv12 | TextureFormat::Depth32Float
         )
         || !image.usage.contains(TextureUsage::SAMPLED)
     {
         return Err(CompileError::InvalidResource);
     }
-    Ok(sampler.min_filter() == FilterMode::Linear)
+    let min_linear = sampler.min_filter() == FilterMode::Linear;
+    let mag_linear = sampler.mag_filter() == FilterMode::Linear;
+    let address = |mode| match mode {
+        AddressMode::ClampToEdge => 0,
+        AddressMode::Repeat => 1,
+        AddressMode::MirrorRepeat => 2,
+    };
+    // Retain legacy records: bit 1 alone still means both filters are linear.
+    // Bit 6 selects different min/mag filters; bits 7..10 carry the portable
+    // U/V address modes rather than unrestricted hardware TSC fields.
+    Ok((u32::from(min_linear) << 1)
+        | (u32::from(min_linear != mag_linear) << 6)
+        | (address(sampler.address_u()) << 7)
+        | (address(sampler.address_v()) << 9)
+        | (u32::from(sampler.mip_filter() == FilterMode::Linear) << 11))
 }
 
 fn emit_texture_upload(
@@ -1018,11 +1214,13 @@ fn convert_upload_row(
 }
 
 fn validate_pipeline_descriptor(pipeline: &PipelineMeta) -> Result<(), CompileError> {
-    use sgfx_core::ir::{FrontFace, PrimitiveTopology, TextureSampleMode, VertexFormat};
+    use sgfx_core::ir::{PrimitiveTopology, TextureSampleMode, VertexFormat};
 
     let descriptor = &pipeline.descriptor;
-    if descriptor.target_format() != TextureFormat::Bgra8Unorm
-        || descriptor.topology() != PrimitiveTopology::TriangleList
+    if !matches!(
+        descriptor.target_format(),
+        TextureFormat::Bgra8Unorm | TextureFormat::Rgba8Unorm
+    ) || descriptor.topology() != PrimitiveTopology::TriangleList
         || descriptor
             .depth_state()
             .is_some_and(|depth| depth.format() != TextureFormat::Depth32Float)
@@ -1081,24 +1279,7 @@ fn validate_pipeline_descriptor(pipeline: &PipelineMeta) -> Result<(), CompileEr
         }
         _ => false,
     };
-    let fixed_state_ok = match descriptor.vertex_buffer().stride() {
-        16 | 24 | 32 => {
-            descriptor.blend() == BlendState::SOURCE_OVER_STRAIGHT_ALPHA
-                && descriptor.raster().cull_mode() == CullMode::None
-                && descriptor.raster().front_face() == FrontFace::CounterClockwise
-        }
-        40 => {
-            descriptor.blend() == BlendState::SOURCE_OVER_STRAIGHT_ALPHA
-                && matches!(
-                    descriptor.raster().cull_mode(),
-                    CullMode::None | CullMode::Back
-                )
-                && descriptor.raster().front_face() == FrontFace::CounterClockwise
-        }
-        28 => descriptor.blend() == BlendState::REPLACE,
-        _ => false,
-    };
-    if layout_ok && fixed_state_ok {
+    if layout_ok {
         Ok(())
     } else {
         Err(CompileError::UnsupportedFeature)
