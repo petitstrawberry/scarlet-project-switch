@@ -66,7 +66,7 @@ rev = "66554fb762efc32f0640fe16ab7024780a84b323"
 
 [easyrpg-player-scarlet]
 git = "https://github.com/petitstrawberry/easyrpg-player-scarlet"
-rev = "5ff3ea823f3611754a978845dcb767343d2c55ab"
+rev = "97848fec1dd7fc7a43c24319e800efa153282355"
 
 [scarlet-bundle-linux-games]
 git = "https://github.com/petitstrawberry/scarlet-bundle-linux-games"
