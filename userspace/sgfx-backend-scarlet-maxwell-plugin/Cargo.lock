@@ -249,7 +249,7 @@ source = "git+https://github.com/petitstrawberry/sgfx?rev=040dbb5cf42b75489504e1
 [[package]]
 name = "sgfx-backend-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/sgfx?rev=51e1e62516f65cf9425a97ca5f1ae9292ad8ad97#51e1e62516f65cf9425a97ca5f1ae9292ad8ad97"
+source = "git+https://github.com/petitstrawberry/sgfx?rev=216a30a4aa2ba1ff072dd2d9d65e4256e6ce599d#216a30a4aa2ba1ff072dd2d9d65e4256e6ce599d"
 
 [[package]]
 name = "sgfx-backend-scarlet-maxwell"
@@ -270,7 +270,7 @@ name = "sgfx-backend-scarlet-maxwell-plugin"
 version = "0.1.0"
 dependencies = [
  "maxwell-submit-wire",
- "sgfx-backend-abi 1.0.0 (git+https://github.com/petitstrawberry/sgfx?rev=51e1e62516f65cf9425a97ca5f1ae9292ad8ad97)",
+ "sgfx-backend-abi 1.0.0 (git+https://github.com/petitstrawberry/sgfx?rev=216a30a4aa2ba1ff072dd2d9d65e4256e6ce599d)",
  "sgfx-backend-scarlet-maxwell",
  "sgfx-codegen-maxwell",
  "sgfx-core",
