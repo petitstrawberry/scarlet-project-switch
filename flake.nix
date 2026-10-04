@@ -108,7 +108,7 @@
           default = pkgs.mkShell {
             packages = [
               rust sdk switchvisor pkgs.python3 pkgs.ripgrep pkgs.git pkgs.gh pkgs.curl
-              pkgs.llvmPackages.llvm pkgs.dtc pkgs.cpio pkgs.qemu
+              pkgs.llvmPackages.llvm pkgs.llvmPackages.lld pkgs.dtc pkgs.cpio pkgs.qemu
               pkgs.cmake pkgs.ninja pkgs.meson pkgs.pkg-config pkgs.e2fsprogs pkgs.minicom
               pkgs.pkgsCross.aarch64-multiplatform.buildPackages.gcc
             ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ (mkNxboot pkgs) ];
