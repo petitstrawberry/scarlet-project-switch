@@ -16,6 +16,10 @@ const MAX_METHOD_WORDS: usize = 240 * 1024;
 const TIC_OFFSET: usize = 0;
 const TSC_OFFSET: usize = draw::MAX_IMAGES * 32;
 const UNIFORM_START: usize = 4096;
+// The graphics frontend uses CB0..CB15, including the private CB15 table.
+// A five-bit CB_BIND field does not make all 32 indices valid on GM20B:
+// unbinding slot 18 (0x120) faults before the startup draw can execute.
+const GRAPHICS_CB_COUNT: usize = 16;
 
 /// Addresses and layout supplied only by the context's checked attachments.
 #[derive(Clone, Copy)]
@@ -355,6 +359,9 @@ pub fn prepare(metadata: &[u8], authority: &impl Authority) -> Result<PreparedDr
     let mut cb_offsets = [[0usize; 32]; 2];
     for i in 0..draw.uniform_count() {
         let u = draw.uniform(i).unwrap();
+        if u.slot as usize >= GRAPHICS_CB_COUNT {
+            return Err("programmable constant buffer slot unsupported");
+        }
         let stage = usize::from(u.stage == 4);
         let bytes = if u.range.token == 0 {
             &draw.inline_data()
@@ -619,7 +626,7 @@ pub fn prepare(metadata: &[u8], authority: &impl Authority) -> Result<PreparedDr
     }
     b.method(0x0360, &[0x20164010, 0x20])?;
     for (stage_index, hardware_stage) in [0u32, 4].into_iter().enumerate() {
-        for slot in 0..32 {
+        for slot in 0..GRAPHICS_CB_COUNT {
             if cb_sizes[stage_index][slot] != 0 {
                 b.cb(
                     hardware_stage,
@@ -993,6 +1000,26 @@ mod tests {
         assert!(prepared.arena.len() < 64 * 1024);
         let published = prepared.publish(0x300000).unwrap();
         assert!(!published.words.is_empty());
+        // Decode the actual startup push: the old 32-slot reset emitted
+        // CB_BIND=0x120 and faulted on GM20B before any rendering occurred.
+        let mut offset = 0;
+        let mut cb_bindings = [0u32; 2];
+        while offset < published.words.len() {
+            let header = published.words[offset];
+            let method = (header & 0x1fff) * 4;
+            let count = ((header >> 16) & 0x1fff) as usize;
+            if let Some(stage) = [CB_BIND, CB_BIND + 4 * 0x20]
+                .iter()
+                .position(|&binding| method == binding)
+            {
+                assert_eq!(count, 1);
+                let value = published.words[offset + 1];
+                assert!(value >> 4 < 16, "unsupported CB binding {value:#x}");
+                cb_bindings[stage] |= 1 << (value >> 4);
+            }
+            offset += count + 1;
+        }
+        assert_eq!(cb_bindings, [0xffff; 2]);
         for patch in &prepared.patches {
             let address = u64::from(published.words[patch.high]) << 32
                 | u64::from(published.words[patch.high + 1]);
