@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 use crate::packet::{self, Registers};
 use alloc::{boxed::Box, string::ToString, sync::Arc, vec, vec::Vec};
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use scarlet::{
     device::{
         events::InterruptCapableDevice,
@@ -528,8 +528,17 @@ pub struct TegraUart {
     // DLAB aliases RBR/IER while changing baud. RX IRQs use the same lock,
     // with local interrupts masked, as serial-tegra.c's uart_port lock does.
     lock: IrqSpinLock<()>,
+    // Serialize whole packets and baud changes without masking interrupts or
+    // holding a preemption guard across hardware waits. IRQ RX never takes it.
+    tx_busy: AtomicBool,
     interrupt_id: InterruptId,
     rx_interrupt: IrqSpinLock<UartRxInterrupt>,
+}
+struct UartTxGuard<'a>(&'a AtomicBool);
+impl Drop for UartTxGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 struct UartRxInterrupt {
     waker: Option<Arc<Waker>>,
@@ -563,6 +572,7 @@ impl TegraUart {
         self.instance
     }
     pub fn configure(&self, baud: u32) -> Result<(), &'static str> {
+        let _tx = self.claim_tx()?;
         let _lock = self.lock.lock();
         self.car.uart_baud(self.source, baud)?;
         self.regs.write(4, 0);
@@ -630,25 +640,61 @@ impl TegraUart {
         ]
     }
     pub fn send(&self, bytes: &[u8]) -> Result<(), &'static str> {
-        let _lock = self.lock.lock();
+        let _tx = self.claim_tx()?;
         // CTS can pause a transfer while the controller handles a command.
-        let deadline = scarlet::time::current_time_ns().saturating_add(100_000_000);
+        let start = scarlet::time::current_time_ns();
+        let deadline = start.saturating_add(100_000_000);
         for byte in bytes {
             // T210 exposes FIFO-full in LSR bit 8. THRE waits for an empty
             // FIFO and needlessly separates bytes of a single wire packet.
-            while self.regs.read(0x14) & (1 << 8) != 0 {
+            loop {
+                {
+                    let _lock = self.lock.lock();
+                    if self.regs.read(0x14) & (1 << 8) == 0 {
+                        self.regs.write(0, *byte as u32);
+                        break;
+                    }
+                }
                 if scarlet::time::current_time_ns() >= deadline {
                     return Err("rail UART TX timeout");
                 }
+                Self::wait_tx(start);
             }
-            self.regs.write(0, *byte as u32);
         }
-        while self.regs.read(0x14) & 0x40 == 0 {
+        loop {
+            {
+                let _lock = self.lock.lock();
+                if self.regs.read(0x14) & 0x40 != 0 {
+                    return Ok(());
+                }
+            }
             if scarlet::time::current_time_ns() >= deadline {
                 return Err("rail UART drain timeout");
             }
+            Self::wait_tx(start);
         }
-        Ok(())
+    }
+    fn claim_tx(&self) -> Result<UartTxGuard<'_>, &'static str> {
+        self.tx_busy
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .map(|_| UartTxGuard(&self.tx_busy))
+            .map_err(|_| "rail UART TX busy")
+    }
+    fn wait_tx(start: u64) {
+        // Keep normal short transfers cheap. A stalled CTS must not burn a
+        // core or prevent RX/timer/GPU IRQs from running for the full timeout.
+        // Bring-up and atomic callers may only poll; never sleep in an IRQ or
+        // while the caller holds a spinlock/preemption guard.
+        if scarlet::time::current_time_ns().saturating_sub(start) >= 20_000
+            && scarlet::sync::preemptible()
+            && scarlet::interrupt::are_interrupts_enabled()
+        {
+            if let Some(task) = scarlet::task::mytask() {
+                task.sleep(task.get_trapframe(), 1_000_000);
+                return;
+            }
+        }
+        core::hint::spin_loop();
     }
     pub fn receive(&self, bytes: &mut [u8]) -> Result<usize, UartRxError> {
         self.receive_with_wait(bytes, true)
@@ -930,6 +976,7 @@ fn probe_uart(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
         source,
         car,
         lock: IrqSpinLock::new(()),
+        tx_busy: AtomicBool::new(false),
         interrupt_id,
         rx_interrupt: IrqSpinLock::new(UartRxInterrupt {
             waker: None,
