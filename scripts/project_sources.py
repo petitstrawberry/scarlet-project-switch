@@ -73,11 +73,12 @@ def write_generated(path, text):
         temporary.unlink(missing_ok=True)
 
 
-def native_sgfx_config(checkout, project, ui_checkout=None):
-    """Unify application pins on the selected public SGFX and UI releases.
+def native_sgfx_config(checkout, project, ui_checkout=None, sws_checkout=None):
+    """Coordinate SGFX, UI and SWS clients with the selected distribution.
 
-    These Cargo replacements refer exclusively to the verified, immutable
-    checkout. They never refer to a sibling worktree or edit upstream sources.
+    SGFX/UI replacements use verified immutable checkouts. SWS replacements
+    follow the selected distribution, including an explicitly selected local
+    bundle checkout. No upstream sources are edited.
     Keep them out of the repository-wide config: the driver has its own locked
     build and communicates with the clients through ABI v2.
     """
@@ -97,11 +98,28 @@ def native_sgfx_config(checkout, project, ui_checkout=None):
             if url == SGFX_URL and package.endswith("-plugin"):
                 continue
             config += f'{json.dumps(package)} = {{ path = {json.dumps(str(manifest.parent))} }}\n'
+    if sws_checkout is not None:
+        # SWS clients must negotiate the protocol shipped by the distribution.
+        # Older UI pins otherwise silently select CPU rendering, even though
+        # both the compositor and the graphics driver support shared images.
+        config += '\n[patch."https://github.com/petitstrawberry/Scarlet"]\n'
+        # Shared Handle values must use one runtime crate in std and legacy builds.
+        for package, directory in (("sws-client", "sws-client"),
+                                   ("sws-protocol", "sws-protocol"),
+                                   ("scarlet-os", "scarlet-os"),
+                                   ("scarlet-std", "std")):
+            path = sws_checkout / "user/lib" / directory
+            config += f'{json.dumps(package)} = {{ path = {json.dumps(str(path))} }}\n'
     return config
 
 
-def prepare():
+def prepare(local_bundles=None, published=False):
     checkouts = {name: source(name) for name in pins()}
+    selection = PROJECT / ".scarlet/bundle-source.local"
+    if not published and local_bundles is None and selection.is_file():
+        local_bundles = Path(selection.read_text().strip())
+    sws_source = (local_bundles.resolve(strict=True) if local_bundles is not None
+                  else checkouts.get("scarlet-distribution"))
     links = PROJECT / ".scarlet/sources"
     links.mkdir(parents=True, exist_ok=True)
     for name, checkout in checkouts.items():
@@ -120,7 +138,8 @@ def prepare():
     target = '\n[target.aarch64-unknown-scarlet]\n'
     target += 'rustflags = ["--cfg", \'getrandom_backend="custom"\']\n'
     write_generated(ROOT / ".cargo/config.toml", config + target)
-    native = (native_sgfx_config(checkouts["sgfx"], PROJECT, checkouts.get("scarlet-ui"))
+    native = (native_sgfx_config(checkouts["sgfx"], PROJECT, checkouts.get("scarlet-ui"),
+                                sws_source)
               if "sgfx" in checkouts else target)
     write_generated(PROJECT / ".scarlet/userspace.toml", config + native)
     return checkouts
@@ -129,14 +148,14 @@ def prepare():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--published", action="store_true",
-                        help="compatibility option; upstream commit pins are always used")
+                        help="use published SWS clients instead of the saved local bundle selection")
     parser.add_argument("--path", choices=list(pins()),
                         help="print one resolved source directory without preparing Cargo")
     args = parser.parse_args()
     if args.path:
         print(source(args.path))
     else:
-        for name, path in prepare().items():
+        for name, path in prepare(published=args.published).items():
             print(f"{name}: {path}")
 
 

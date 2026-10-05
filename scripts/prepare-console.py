@@ -86,7 +86,7 @@ def main():
     args = parser.parse_args()
     if (PROJECT / "scarlet.local.toml").exists():
         parser.error("remove the project's scarlet.local.toml override; use upstream commit pins")
-    checkouts = prepare()
+    checkouts = prepare(local_bundles=args.local_bundles, published=args.published)
     selection = PROJECT / ".scarlet/bundle-source.local"
     local = args.local_bundles
     if not args.published and local is None and selection.is_file():
