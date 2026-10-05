@@ -34,6 +34,7 @@ mod normalization;
 mod preparation;
 mod programmable;
 mod resource;
+mod retirement;
 mod scheduler;
 mod wire;
 
@@ -720,6 +721,9 @@ impl MappedTargetSession {
     }
 
     /// Detach and release a previously imported sampled texture.
+    /// Wait for accepted context work and its retained owners to retire before
+    /// detaching. Closing a window is a synchronous lifecycle operation;
+    /// temporary dispatcher contention must not invalidate the compositor.
     pub fn release_imported_texture(
         &mut self,
         texture: ir::TextureId,

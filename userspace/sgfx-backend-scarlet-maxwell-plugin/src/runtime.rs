@@ -361,7 +361,10 @@ unsafe extern "C" fn release_import(p: Object, slot: u32) -> i32 {
     status((|| {
         let s = unsafe { session(p) }?;
         let id = s.table.abi_texture(slot).map_err(ir_error)?.id();
-        s.inner.release_imported_texture(id).map_err(error)
+        s.inner.release_imported_texture(id).map_err(|failure| {
+            eprintln!("scarlet-maxwell: imported texture retirement failed: {failure:?}");
+            error(failure)
+        })
     })())
 }
 

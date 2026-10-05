@@ -410,6 +410,17 @@ impl NativeScheduler {
             .ok_or(IrSubmitError::ResourceBusy)?;
         operation()
     }
+
+    pub(crate) fn with_idle_wait<R>(
+        &self,
+        operation: impl FnOnce() -> Result<R, IrSubmitError>,
+    ) -> Result<R, IrSubmitError> {
+        let _guard = crate::retirement::wait_idle_guard(&self.shared.scheduler, |signal| {
+            signal.wait(None).map(|_| ()).map_err(|_| Failure::Unavailable)
+        })
+        .map_err(IrSubmitError::from)?;
+        operation()
+    }
 }
 
 impl Drop for NativeScheduler {

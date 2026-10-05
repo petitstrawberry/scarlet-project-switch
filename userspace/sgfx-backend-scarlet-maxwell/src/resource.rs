@@ -635,10 +635,18 @@ impl ContextResources {
         if self.image_identities.get(slot).copied().flatten()!=Some(texture) || self.images.get(slot).and_then(Option::as_ref).is_none(){
             return Err(IrSubmitError::ImageNotMapped);
         }
-        self.release_texture(texture)
+        self.release_texture_when_idle(texture, true)
     }
 
     pub(crate) fn release_texture(&mut self, texture: ir::TextureId) -> Result<(), IrSubmitError> {
+        self.release_texture_when_idle(texture, false)
+    }
+
+    fn release_texture_when_idle(
+        &mut self,
+        texture: ir::TextureId,
+        wait: bool,
+    ) -> Result<(), IrSubmitError> {
         // Validate against the old live table before any metadata replacement
         // can make a later generation resolve to this physical cache slot.
         let slot = self.resources.texture_ref(texture)?.slot();
@@ -647,14 +655,17 @@ impl ContextResources {
             .images
             .get_mut(slot)
             .ok_or(IrSubmitError::ResourceTableMismatch)?;
-        self.context
-            .dispatcher
-            .with_idle(|| {
-                refresh_cache_identity(identity,image,texture);
-                release_slot(image,|image|image.detach())?;
-                *identity=None;
-                Ok(())
-            })
+        let retire = || {
+            refresh_cache_identity(identity, image, texture);
+            release_slot(image, |image| image.detach())?;
+            *identity = None;
+            Ok(())
+        };
+        if wait {
+            self.context.dispatcher.with_idle_wait(retire)
+        } else {
+            self.context.dispatcher.with_idle(retire)
+        }
     }
 
     pub(crate) fn release_buffer(&mut self, buffer: ir::BufferId) -> Result<(), IrSubmitError> {
