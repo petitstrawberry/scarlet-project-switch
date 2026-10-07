@@ -7,16 +7,16 @@ rev = "2e385418021669a2315fbe4a562df4bf1903b921"
 # published GPU backends to preserve Cargo crate identity.
 [scarlet-native]
 git = "https://github.com/petitstrawberry/Scarlet"
-rev = "d3b1c05127d4df3616f988b81a99f616e8a88064"
+rev = "b3d2a55740a3d2ca49daad0ec7baba233f706f7a"
 
 # Pin userspace independently so kernel-only fixes reuse the tested distribution.
 [scarlet-distribution]
 git = "https://github.com/petitstrawberry/Scarlet"
-rev = "9c669db2f9c61cb7bf7eff72688692a658eb95ab"
+rev = "2448b2e3438c6381848599309fda7164d0640f46"
 
 [sgfx]
 git = "https://github.com/petitstrawberry/sgfx"
-rev = "27f0ca95bf2406174a3c9915ca862e8f1179dd0b"
+rev = "216a30a4aa2ba1ff072dd2d9d65e4256e6ce599d"
 
 # Maxwell's driver and code generator use the ABI v2 resource mirror.
 [sgfx-core]
@@ -25,35 +25,35 @@ rev = "040dbb5cf42b75489504e1765183d37f6131f54c"
 
 [scarlet-ui]
 git = "https://github.com/petitstrawberry/scarlet-ui"
-rev = "ce807d0f2dfc978c60d7f3b807026455ee101da4"
+rev = "a9ec0b8b622456a698e6ffc7fc36cf82f862ce7a"
 
 [scarlet-project-chromebook]
 git = "https://github.com/petitstrawberry/scarlet-project-chromebook"
-rev = "fa3b967ffb3d79b3f80a4d3d4c6348b1b15ecedb"
+rev = "ed98fe5c73d476cde26d057e677acbfaa4defd77"
 
 [carmine]
 git = "https://github.com/petitstrawberry/carmine"
-rev = "d363b11d5360f91ea8216736bc49469aa94d2a6a"
+rev = "42690fef00c4ee6bacd90b378f92b94e31a8bae0"
 
 [myrica]
 git = "https://github.com/petitstrawberry/myrica"
-rev = "78bae5b4a9e1443f583723ac80389be6191aa813"
+rev = "44b689c5cccc2784fbe6cbf4b479e3b08d91d31e"
 
 [vellum]
 git = "https://github.com/petitstrawberry/vellum"
-rev = "d1260998467002cb7ea905a366c7e71e623fa955"
+rev = "c620e775ab7fa18591ff3123bdb3c62315a75e92"
 
 [boxcraft]
 git = "https://github.com/petitstrawberry/boxcraft"
-rev = "b71dfd53ca4f38ea39003c47080b0cc821fd2669"
+rev = "38190f7e1c64735e7fe36c21e227acb6972e4907"
 
 [moonlight-scarlet]
 git = "https://github.com/petitstrawberry/moonlight-scarlet"
-rev = "5c112707db9dcece66181478231bb5635be3da5e"
+rev = "c2523a4d86054c32e20671b069a0f742a7fafcc5"
 
 [yt-for-scarlet]
 git = "https://github.com/petitstrawberry/yt-for-scarlet"
-rev = "d5aa0a4e3b658f4c01ff7f7dafab8a8d3a2779e2"
+rev = "37346315dbfcd0c4102da620f7087c253babf184"
 
 [blitz]
 git = "https://github.com/petitstrawberry/blitz"
@@ -62,11 +62,11 @@ rev = "c26e20dfff971941486ca9f50c8dcd332ec404da"
 
 [resonara]
 git = "https://github.com/petitstrawberry/resonara"
-rev = "a5c5b3c5314bc5448a25fb317543f90d9c199cd1"
+rev = "eb297b61f3cd70f04da654ee2301ca79dd3fc62a"
 
 [easyrpg-player-scarlet]
 git = "https://github.com/petitstrawberry/easyrpg-player-scarlet"
-rev = "557a87e6e6fb3d97f90f2eaf61d8ba44119880ff"
+rev = "51b264e6a04fd945525f4624e3f2fa29150b9983"
 
 [scarlet-bundle-linux-games]
 git = "https://github.com/petitstrawberry/scarlet-bundle-linux-games"
