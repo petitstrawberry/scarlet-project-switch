@@ -465,7 +465,7 @@ unsafe extern "C" fn drop_receipt(p: Object) {
 /// # Safety
 /// Non-null output storage must be writable for `size` bytes. `host` must be
 /// readable and its CPU feature bits must describe the initialized host CPU.
-#[cfg_attr(target_os = "scarlet", unsafe(no_mangle))]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn sgfx_backend_get_api_v2(
     version: u32,
     size: usize,
@@ -475,14 +475,14 @@ pub unsafe extern "C" fn sgfx_backend_get_api_v2(
     if let Err(code) = check_api(version, size, out) {
         return code;
     }
-    let host = match unsafe { host_info(host) } {
+    let _host = match unsafe { host_info(host) } {
         Ok(host) => host,
         Err(code) => return code,
     };
     // A cdylib has no executable std startup or private auxv. Match the host's
     // confirmed LSE support through compiler-builtins' atomic feature hook.
     #[cfg(all(target_arch = "aarch64", target_os = "scarlet"))]
-    if host.cpu_features & abi::CPU_AARCH64_LSE != 0 {
+    if _host.cpu_features & abi::CPU_AARCH64_LSE != 0 {
         unsafe extern "C" {
             fn __rust_enable_lse();
         }

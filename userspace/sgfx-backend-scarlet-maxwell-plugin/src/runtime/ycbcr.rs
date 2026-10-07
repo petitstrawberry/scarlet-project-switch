@@ -20,7 +20,7 @@ unsafe extern "C" fn import_ycbcr(p: Object, slot: u32, raw: i32, value: YcbcrCo
 /// # Safety
 /// `out` must be writable for `size` bytes. The import callback accepts only
 /// session objects from this library and consumes one owned Scarlet handle.
-#[cfg_attr(target_os = "scarlet", unsafe(no_mangle))]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn sgfx_backend_get_ycbcr_api_v2(
     version: u32,
     size: usize,

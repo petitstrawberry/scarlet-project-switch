@@ -347,7 +347,7 @@ unsafe extern "C" fn clone_receipt(p: Object) {
 /// # Safety
 /// `out` must be writable for `size` bytes. All subsequently used opaque objects
 /// must originate from this DSO and obey the table's ownership contracts.
-#[cfg_attr(target_os = "scarlet", unsafe(no_mangle))]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn sgfx_backend_get_driver_api_v2(
     version: u32,
     size: usize,

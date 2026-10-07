@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tomllib
 from project_sources import pins, prepare
+from linux_vulkan_package import validate_build
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
@@ -83,7 +84,10 @@ def main():
                       help="use this Scarlet checkout's bundles; remember the selection locally")
     parser.add_argument("--initramfs-dev", action="store_true",
                         help="include the small GPU desktop and USB network config in initramfs")
+    parser.add_argument("--linux-vulkan-build", type=Path,
+                        help="include a validated Linux ICD/Maxwell build directory in the SD rootfs")
     args = parser.parse_args()
+    linux_vulkan_root = validate_build(args.linux_vulkan_build) if args.linux_vulkan_build else None
     if (PROJECT / "scarlet.local.toml").exists():
         parser.error("remove the project's scarlet.local.toml override; use upstream commit pins")
     checkouts = prepare()
@@ -126,6 +130,9 @@ def main():
         # Canonical paths avoid treating a source symlink and its destination
         # as two separate Cargo packages in the same dependency graph.
         layers = [layer for path in inputs for layer in full_layers(path, sources, local_roots)]
+        if name == "full" and linux_vulkan_root is not None:
+            layers.append({"kind": "copy", "source": str(linux_vulkan_root),
+                           "to": "/systems/linux-aarch64"})
         if name == "initramfs" and args.initramfs_dev:
             layers.extend(development_layers(bundles, sources, local_roots))
         text = "\n\n".join("[[layers]]\n" + "\n".join(f"{key} = {value(item)}" for key, item in layer.items()) for layer in layers)

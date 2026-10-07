@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 sgfx-backend-abi = { git = "https://github.com/petitstrawberry/sgfx", rev = "216a30a4aa2ba1ff072dd2d9d65e4256e6ce599d" }
 sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "040dbb5cf42b75489504e1765183d37f6131f54c", default-features = false, features = ["backend-abi"] }
 
-[target.'cfg(target_os = "scarlet")'.dependencies]
+[target.'cfg(any(target_os = "scarlet", all(target_os = "linux", target_arch = "aarch64")))'.dependencies]
 sgfx-backend-scarlet-maxwell = { path = "../sgfx-backend-scarlet-maxwell", default-features = false, features = ["std"] }
 sgfx-codegen-maxwell = { path = "../sgfx-codegen-maxwell" }
 maxwell-submit-wire = { path = "../../shared/maxwell-submit-wire" }
