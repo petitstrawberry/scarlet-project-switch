@@ -7,7 +7,7 @@ rev = "2e385418021669a2315fbe4a562df4bf1903b921"
 # published GPU backends to preserve Cargo crate identity.
 [scarlet-native]
 git = "https://github.com/petitstrawberry/Scarlet"
-rev = "b3d2a55740a3d2ca49daad0ec7baba233f706f7a"
+rev = "d3b1c05127d4df3616f988b81a99f616e8a88064"
 
 # Pin userspace independently so kernel-only fixes reuse the tested distribution.
 [scarlet-distribution]
@@ -16,7 +16,7 @@ rev = "388e95b36fc929751220e4aaa2a1f47e0306b00c"
 
 [sgfx]
 git = "https://github.com/petitstrawberry/sgfx"
-rev = "216a30a4aa2ba1ff072dd2d9d65e4256e6ce599d"
+rev = "27f0ca95bf2406174a3c9915ca862e8f1179dd0b"
 
 # Maxwell's driver and code generator use the ABI v2 resource mirror.
 [sgfx-core]
@@ -25,7 +25,7 @@ rev = "040dbb5cf42b75489504e1765183d37f6131f54c"
 
 [scarlet-ui]
 git = "https://github.com/petitstrawberry/scarlet-ui"
-rev = "7136831fd071cdd38260d256b0768f080b14a73e"
+rev = "ce807d0f2dfc978c60d7f3b807026455ee101da4"
 
 [scarlet-project-chromebook]
 git = "https://github.com/petitstrawberry/scarlet-project-chromebook"
