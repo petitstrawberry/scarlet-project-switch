@@ -29,11 +29,11 @@ rev = "ce807d0f2dfc978c60d7f3b807026455ee101da4"
 
 [scarlet-project-chromebook]
 git = "https://github.com/petitstrawberry/scarlet-project-chromebook"
-rev = "ed98fe5c73d476cde26d057e677acbfaa4defd77"
+rev = "fa3b967ffb3d79b3f80a4d3d4c6348b1b15ecedb"
 
 [carmine]
 git = "https://github.com/petitstrawberry/carmine"
-rev = "42690fef00c4ee6bacd90b378f92b94e31a8bae0"
+rev = "d363b11d5360f91ea8216736bc49469aa94d2a6a"
 
 [myrica]
 git = "https://github.com/petitstrawberry/myrica"
@@ -41,19 +41,19 @@ rev = "44b689c5cccc2784fbe6cbf4b479e3b08d91d31e"
 
 [vellum]
 git = "https://github.com/petitstrawberry/vellum"
-rev = "c620e775ab7fa18591ff3123bdb3c62315a75e92"
+rev = "d1260998467002cb7ea905a366c7e71e623fa955"
 
 [boxcraft]
 git = "https://github.com/petitstrawberry/boxcraft"
-rev = "38190f7e1c64735e7fe36c21e227acb6972e4907"
+rev = "b71dfd53ca4f38ea39003c47080b0cc821fd2669"
 
 [moonlight-scarlet]
 git = "https://github.com/petitstrawberry/moonlight-scarlet"
-rev = "c2523a4d86054c32e20671b069a0f742a7fafcc5"
+rev = "5c112707db9dcece66181478231bb5635be3da5e"
 
 [yt-for-scarlet]
 git = "https://github.com/petitstrawberry/yt-for-scarlet"
-rev = "37346315dbfcd0c4102da620f7087c253babf184"
+rev = "d5aa0a4e3b658f4c01ff7f7dafab8a8d3a2779e2"
 
 [blitz]
 git = "https://github.com/petitstrawberry/blitz"
@@ -62,11 +62,11 @@ rev = "c26e20dfff971941486ca9f50c8dcd332ec404da"
 
 [resonara]
 git = "https://github.com/petitstrawberry/resonara"
-rev = "66554fb762efc32f0640fe16ab7024780a84b323"
+rev = "a5c5b3c5314bc5448a25fb317543f90d9c199cd1"
 
 [easyrpg-player-scarlet]
 git = "https://github.com/petitstrawberry/easyrpg-player-scarlet"
-rev = "51b264e6a04fd945525f4624e3f2fa29150b9983"
+rev = "557a87e6e6fb3d97f90f2eaf61d8ba44119880ff"
 
 [scarlet-bundle-linux-games]
 git = "https://github.com/petitstrawberry/scarlet-bundle-linux-games"
