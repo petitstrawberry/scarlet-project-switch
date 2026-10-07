@@ -12,7 +12,7 @@ rev = "d3b1c05127d4df3616f988b81a99f616e8a88064"
 # Pin userspace independently so kernel-only fixes reuse the tested distribution.
 [scarlet-distribution]
 git = "https://github.com/petitstrawberry/Scarlet"
-rev = "388e95b36fc929751220e4aaa2a1f47e0306b00c"
+rev = "9c669db2f9c61cb7bf7eff72688692a658eb95ab"
 
 [sgfx]
 git = "https://github.com/petitstrawberry/sgfx"
