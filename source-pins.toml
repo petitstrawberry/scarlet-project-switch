@@ -37,7 +37,7 @@ rev = "d363b11d5360f91ea8216736bc49469aa94d2a6a"
 
 [myrica]
 git = "https://github.com/petitstrawberry/myrica"
-rev = "44b689c5cccc2784fbe6cbf4b479e3b08d91d31e"
+rev = "78bae5b4a9e1443f583723ac80389be6191aa813"
 
 [vellum]
 git = "https://github.com/petitstrawberry/vellum"
