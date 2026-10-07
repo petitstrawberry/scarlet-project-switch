@@ -78,3 +78,30 @@ docs/                                 usage guides and design references
 
 Build outputs and local logs live under ignored `.scarlet/`, `.cache/`
 and `target/` directories.
+
+## Linux-ABI Vulkan ICD
+
+Native Scarlet applications and Linux Vulkan applications use separate runtime
+libraries. Build the Linux ICD and matching Linux Maxwell/VirGL plugins from
+explicit compatible source checkouts; the existing native Maxwell DSO is not a
+Linux plugin:
+
+```sh
+python3 scripts/build-linux-vulkan.py --scarlet-source ../Scarlet --sgfx-source ../sgfx
+python3 scripts/prepare-console.py --linux-vulkan-build projects/aarch64-switch-l4t-console/.scarlet/linux-vulkan
+```
+
+The first command builds in Docker and stages artifacts without deployment.
+The second verifies the report, artifact checksums and Linux ELF ABI, then adds
+the package to `/systems/linux-aarch64` in the full SD bundle. It leaves the
+native initramfs GPU driver package separate. These commands do not flash or
+boot hardware. Current immutable source pins are unchanged; select source
+checkouts containing the Linux dynamic ICD implementation until it is published.
+
+Linux driver manifests live at `/usr/lib/sgfx` within the Linux root. The GPU
+service backend ID selects `scarlet-maxwell` for `nvidia-gm20b` or `scarlet-virgl`
+for `virtio-gpu`; `SGFX_BACKEND` and `SGFX_DRIVER_PATH` provide explicit overrides.
+A successful build/ABI probe does not prove Vulkan rendering on the Switch;
+queue submission, image presentation and real application behavior still need
+hardware validation. The Linux root also needs the runtime dependencies recorded
+in the ELF build report.
