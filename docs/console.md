@@ -30,7 +30,7 @@ The Nix toolchain and SDK are pinned in `flake.lock`. The SGFX facade must
 enable generic `backend-dynamic`; preparation checks this default feature.
 The Switch project builds and audits `libsgfx_scarlet_maxwell.so` before linking
 applications. Both images install the library and its manifest under
-`/system/lib/sgfx`; native clients use `/bin/scarlet-ld`.
+`/lib/sgfx`; native clients use `/bin/scarlet-ld`.
 Firmware pins remain separate from source revisions.
 Rootfs preparation retains every layer of Scarlet's `full` bundle and applies
 the application revisions from `source-pins.toml`, including Widget Factory,

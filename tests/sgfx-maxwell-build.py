@@ -221,7 +221,7 @@ class BuildTests(unittest.TestCase):
         artifact.write_bytes(b"audited driver fixture")
 
     def test_build_is_locked_release_and_audits_before_installing_exactly_two_files(self):
-        install = self.root / "staging/system/lib/sgfx"
+        install = self.root / "staging/lib/sgfx"
         inherited = {"CARGO_ENCODED_RUSTFLAGS": "old-flags", "CARGO_UNSTABLE_BUILD_STD": "std,panic_abort",
                      "CARGO_UNSTABLE_BUILD_STD_FEATURES": "compiler-builtins-mem", "RUSTFLAGS": "old-flags"}
         with patch.dict(os.environ, inherited), patch.object(builder.subprocess, "run", side_effect=self.compile_fixture), \
@@ -247,7 +247,7 @@ class BuildTests(unittest.TestCase):
         self.assertEqual((install / builder.MANIFEST).read_bytes(), (self.plugin / builder.MANIFEST).read_bytes())
 
     def test_failed_audit_never_creates_an_install_destination(self):
-        install = self.root / "staging/system/lib/sgfx"
+        install = self.root / "staging/lib/sgfx"
         with patch.object(builder.subprocess, "run", side_effect=self.compile_fixture), \
                 patch.object(builder, "audit_driver", side_effect=RuntimeError("audit failed")):
             with self.assertRaisesRegex(RuntimeError, "audit failed"):
@@ -259,7 +259,7 @@ class BuildTests(unittest.TestCase):
         bundle = ROOT / "projects/aarch64-switch-l4t-console/bundles/sgfx-maxwell.toml"
         layer, = tomllib.loads(bundle.read_text())["layers"]
         self.assertEqual(layer["kind"], "script")
-        self.assertEqual(layer["to"], "/system/lib/sgfx")
+        self.assertEqual(layer["to"], "/lib/sgfx")
         self.assertNotIn("output", layer)
         wrapper = (bundle.parent / layer["source"]).resolve()
         fake_bin = self.root / "fake-bin"
@@ -269,7 +269,7 @@ class BuildTests(unittest.TestCase):
         python.write_text('#!/bin/sh\nprintf "%s\\n" "$PWD" "$@" > "$SGFX_TEST_RECORD"\n')
         python.chmod(0o755)
         self.project.mkdir()
-        install = self.root / "initramfs staging/system/lib/sgfx"
+        install = self.root / "initramfs staging/lib/sgfx"
         env = os.environ | {"PATH": f"{fake_bin}:{os.environ['PATH']}", "SGFX_TEST_RECORD": str(record)}
         subprocess.run(["sh", str(wrapper), str(install)], cwd=self.project, env=env, check=True)
         self.assertEqual(record.read_text().splitlines(), [

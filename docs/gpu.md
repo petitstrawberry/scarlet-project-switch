@@ -1,7 +1,7 @@
 # GM20B graphics and SGFX
 
 The kernel links `scarlet-driver-nvidia-gm20b`. Native 64-bit SGFX clients
-load `libsgfx_scarlet_maxwell.so` from `/system/lib/sgfx` using the
+load `libsgfx_scarlet_maxwell.so` from `/lib/sgfx` using the
 `scarlet-maxwell.sgfx-driver` manifest and ABI v2. SWS and ScarletUI use the
 ordinary SGFX facade and display APIs.
 

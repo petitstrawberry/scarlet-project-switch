@@ -2,4 +2,4 @@
 [[layers]]
 kind = "script"
 source = "../../../scripts/install-sgfx-maxwell.sh"
-to = "/system/lib/sgfx"
+to = "/lib/sgfx"

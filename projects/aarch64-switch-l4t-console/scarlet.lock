@@ -6,472 +6,376 @@ hash = "sha256:59509d5c96a27434793036986d79aaebd924eef295401b97edb1454dc1e6a0bf"
 [[sections.initramfs.layers]]
 kind = "script"
 to = "/etc/ssl/certs/ca-certificates.crt"
-hash = "sha256:2404c5ebc7d236b368d6a2f00b9ac5e01d6e55a75cdf44e4839f5876f45c249b"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/tools/install-ca-certificates.sh"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/tools/install-ca-certificates.sh"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 package = "scarlet-ld"
 bin = "scarlet-ld"
 to = "/bin/scarlet-ld"
-hash = "sha256:2720d54fa863f1d5963f0d4524536218adb93d1168ad2d1952b04da89e3ffe37"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/scarlet-ld"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/scarlet-ld"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "init"
 to = "/init"
-hash = "sha256:24b2f087a65dbc9ebd33e2c9a3366b1fe03b979ab81741f125b5b5f020d4d066"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "sh"
 to = "/bin/sh"
-hash = "sha256:3c2d9376376730d2068d289874297d7e30d07266eb23880f2d997d32462684cc"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "login"
 to = "/bin/login"
-hash = "sha256:d4df16fa83d74a107beb17df082fa1276d77d247d9f8e0fcc29df35af7c6f97e"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "stemd"
 to = "/bin/stemd"
-hash = "sha256:c2f5c22c3f21f3e89eb8919731385fed8fa1208569ad124ee903074f340daa58"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "logd"
 to = "/bin/logd"
-hash = "sha256:6f0346779393d08c2d69cabe63c82070a3a1a7b50976791a6157ce378158e06c"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "logctl"
 to = "/bin/logctl"
-hash = "sha256:65787437ef6a68c0aac94104457704c5a45bdc5f203f21c0a43710efdc61fed4"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "sbusd"
 to = "/bin/sbusd"
-hash = "sha256:6283f6dd4c4f0d33038ed7757dddf045b49bddbd219254708f423b66affca9c1"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "hello"
 to = "/bin/hello"
-hash = "sha256:79e085bba468bc09e822e899662deb3d03e390b57f5d2fc617cd439f0207abcf"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "kernel-info"
 to = "/bin/kernel-info"
-hash = "sha256:4d726965c4b49a02e4afa517657a4e3924d6bcf5903f23f9dbbadb5f9a8e9830"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "ps"
 to = "/bin/ps"
-hash = "sha256:c390c71398ece8921e106fbb0101babc3b174f1bfd04ca264eadd9afda344fd3"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "shutdown"
 to = "/bin/shutdown"
-hash = "sha256:965e17d1fb1474494ede228b85248507dfdf7ae1ee732f741f5784df752d324a"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "top"
 to = "/bin/top"
-hash = "sha256:3a340c53a1180a1f1b477061cb1189a87c3cd0d25f7baa0cd331a11144ec0c70"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "kill"
 to = "/bin/kill"
-hash = "sha256:6b10d7a39b83cc141ec746f735474c9d3da02089c20f22682a362dd59fcd35ed"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "scpm"
 to = "/bin/scpm"
-hash = "sha256:3dba93045f617622f9e4c230203bf03e00a31918ed9231d2f217b4b050d6a92b"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "netcfgd"
 to = "/bin/netcfgd"
-hash = "sha256:8889ebb66d018c853977b9c622b05ccc161d1c26476a1303bd601f88f8c19d86"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "sshd"
 to = "/bin/sshd"
-hash = "sha256:59d2ea6dc3a0c6a67e3388206a198cc1221a3abe42b328c792bc322a41246d13"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "resolverd"
 to = "/bin/resolverd"
-hash = "sha256:fa61b4ec76f902fc8b61ae8623fbbf6c2a0acf64b5bc19a06f995bf44453408c"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "ntpd"
 to = "/bin/ntpd"
-hash = "sha256:1271627344d1020f0c3e9504c6dd9eac759f7d7159ca10c91b6b66c44439f853"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "cpufreqctl"
 to = "/bin/cpufreqctl"
-hash = "sha256:2aa99969f20cb1b07f07dc5332a0ec210fc3e1173ed304b2c7b9fcb892580990"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "storage-check"
 to = "/bin/storage-check"
-hash = "sha256:069c233390de5b653cd4cc307747ab9ee6630e362368f60daa808ea85b479283"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "gpu-info"
 to = "/bin/gpu-info"
-hash = "sha256:75795caf435c86557bb5127809c0611e3fc16cdac52ea72ba7cc390ec15a95b4"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "power-info"
 to = "/bin/power-info"
-hash = "sha256:c1660f38745b305d717e46f05cba83dd8956904ee250c95071fa4fcc6c174ea8"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "abi-run"
 to = "/bin/abi-run"
-hash = "sha256:0593ab557d4a208a64ba63e5a25f3b9dc648c7c08498e1d9c3b6b27335f6b375"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "ls"
 to = "/bin/ls"
-hash = "sha256:2f9a3078d8405b8a15b23eb3385213024a2597d710eedfd0134b538dfca016e8"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "cat"
 to = "/bin/cat"
-hash = "sha256:82d80b124f80419a8246e10fdf08113396ff4f838788b243a123dd84d736b9c7"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "rm"
 to = "/bin/rm"
-hash = "sha256:48b8e4517ab0ab09a569208f5f77279698b428b29aa35995e4d23d25df603186"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "resolve"
 to = "/bin/resolve"
-hash = "sha256:2d77de5e3cca86f4f564e4031325ee1d472cab40625e0406ae90a6d5bc144811"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "nc"
 to = "/bin/nc"
-hash = "sha256:233fad58d5818f760b450feede32c6f965afff4422b37633dc010d9b9742377b"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "ping"
 to = "/bin/ping"
-hash = "sha256:2cb0f7b465f176c1e92d1ff38c7b96af18bbe1228d48061b4c2bce0bf3e34993"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "netcfg"
 to = "/bin/netcfg"
-hash = "sha256:4ca7cc5df1eaecad8256b2e65b64ab55b00b3aa60ca64b9635ab2ee7bbc3fd69"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "watch"
 to = "/bin/watch"
-hash = "sha256:78d983a6a2a277cd7802db5aafe5d9f7ee40fc74c83353caed740fe5f08f5a2e"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "date"
 to = "/bin/date"
-hash = "sha256:0d82117c86319c8bcd5081f8778273e1cffd5859a368946690fa84099ff5aef7"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "cargo"
 bin = "fb-test"
 to = "/bin/fb-test"
-hash = "sha256:7591d22ebda401a1d443963298a396f4244279c06669922db4801a166ad4c8d9"
+hash = ""
 
 [sections.initramfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.initramfs.layers]]
 kind = "script"
-to = "/system/lib/sgfx"
+to = "/lib/sgfx"
 hash = "sha256:fdf992444baeb0369eeae16db7c79774e159563316025b2d17f8c59ae7628d4e"
 
 [sections.initramfs.layers.source]
 type = "path"
 path = "../../scripts/install-sgfx-maxwell.sh"
-
-[[sections.initramfs.layers]]
-kind = "cargo"
-package = "user-bin"
-bin = "scarlet-desktop"
-to = "/bin/scarlet-desktop"
-hash = "sha256:4cfd52667e122b6775e14c7112068b05b7bc2e9bdf8fe585c88e165df1ae8b63"
-
-[sections.initramfs.layers.source]
-type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
-
-[[sections.initramfs.layers]]
-kind = "cargo"
-package = "user-bin"
-bin = "desktop-settings"
-to = "/bin/desktop-settings"
-hash = "sha256:1177a590918ff6736fe204b6dd53946df07fad933681910840b94182695ced96"
-
-[sections.initramfs.layers.source]
-type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
-
-[[sections.initramfs.layers]]
-kind = "cargo"
-package = "scarlet-std-bin"
-bin = "scarlet-shell"
-to = "/bin/scarlet-shell"
-hash = "sha256:23eb1f1cb6b890113a8aa5d86eef17b556e51f3e98792474ac59b0d5ca5f5d63"
-
-[sections.initramfs.layers.source]
-type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
-
-[[sections.initramfs.layers]]
-kind = "cargo"
-package = "scarlet-std-bin"
-bin = "sws"
-to = "/bin/sws"
-hash = "sha256:e721287f4ac9c5c0b19859201d9a938352a350678ae6e3078f0c9992ef24dbfd"
-
-[sections.initramfs.layers.source]
-type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
-
-[[sections.initramfs.layers]]
-kind = "cargo"
-package = "user-bin"
-bin = "sas"
-to = "/bin/sas"
-hash = "sha256:44fcb1d5899027b08cc3e4460f8fa5b0e9092f7636816ceda720e9475d84e393"
-
-[sections.initramfs.layers.source]
-type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/bin"
-
-[[sections.initramfs.layers]]
-kind = "cargo"
-bin = "task-manager"
-to = "/bin/task-manager"
-hash = "sha256:34dad2c42decc41ea76979a84cc50f0335f57e2fc9d0da0db73b288a9304b2e4"
-
-[sections.initramfs.layers.source]
-type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
-
-[[sections.initramfs.layers]]
-kind = "cargo"
-package = "scarlet-std-bin"
-bin = "sgfx-probe"
-to = "/bin/sgfx-probe"
-hash = "sha256:bcd0a5f1b6fda58499fb1e2abc3fe614dca523d69bf1fd9e4241aed387fdda92"
-
-[sections.initramfs.layers.source]
-type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
-
-[[sections.initramfs.layers]]
-kind = "cargo"
-bin = "sgfx-cube"
-to = "/bin/sgfx-cube"
-hash = "sha256:09a65f6bbc3a945aee80effa8178ebd2b00d1b16f788f1ebc7a9251fb0419389"
-
-[sections.initramfs.layers.source]
-type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
-
-[[sections.initramfs.layers]]
-kind = "cargo"
-bin = "sgfx-texture"
-to = "/bin/sgfx-texture"
-hash = "sha256:89f02c730a90283e5586c9526e194545cad4075dbd303bd5c6cde29e9187ff8e"
-
-[sections.initramfs.layers.source]
-type = "path"
-path = "../../.cache/sources/scarlet-distribution/388e95b36fc929751220e4aaa2a1f47e0306b00c/user/std-bin"
 
 [sections.rootfs]
 hash = "sha256:f85f9d05b075adb5d4dc570bbd6c14b94d781328e36bfc8fd05ea0699b071001"
@@ -479,498 +383,498 @@ hash = "sha256:f85f9d05b075adb5d4dc570bbd6c14b94d781328e36bfc8fd05ea0699b071001"
 [[sections.rootfs.layers]]
 kind = "script"
 to = "/etc/ssl/certs/ca-certificates.crt"
-hash = "sha256:2404c5ebc7d236b368d6a2f00b9ac5e01d6e55a75cdf44e4839f5876f45c249b"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/tools/install-ca-certificates.sh"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/tools/install-ca-certificates.sh"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-ld"
 bin = "scarlet-ld"
 to = "/bin/scarlet-ld"
-hash = "sha256:6a95bed4f2cbe568631bec5713eacbc2ddf8b6d957c8548167356c17ee8a6434"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/scarlet-ld"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/scarlet-ld"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "init"
 to = "/init"
-hash = "sha256:bd184ef741536957a2e3ebb325305ac2b0cf251c112da92cb509649eabf43da3"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "sh"
 to = "/bin/sh"
-hash = "sha256:b34c08f984d558dbe65120acec51cded5a1ebca72b78f4cff422c7372f3401d7"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "login"
 to = "/bin/login"
-hash = "sha256:eb0543decb09aa8d1d04a93abdc19a31132d209b4cc9b09f611b9d26339c91df"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "stemd"
 to = "/bin/stemd"
-hash = "sha256:0af5f248d200681b92288827ac38841c4619bd7996f7affb391a652232f76b54"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "logd"
 to = "/bin/logd"
-hash = "sha256:277804776d3d9377f1011ccc1a19a174e792cd7dba81eca5436e8c86c1a6e91b"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "logctl"
 to = "/bin/logctl"
-hash = "sha256:552c58c565bbe35567fb4b041305df7107570c893ae9a3a33a361db6c09934c2"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "sbusd"
 to = "/bin/sbusd"
-hash = "sha256:1399b94a9854a786b88bc4b026e79eefdbb8f148710014383c5e48b0ccaf8bd9"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "hello"
 to = "/bin/hello"
-hash = "sha256:1ac3ba06c352f3493d57c6b99c9ee0df2510fe9cbc5977938403e74c6b220d12"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "kernel-info"
 to = "/bin/kernel-info"
-hash = "sha256:4aab413401f707b78d953c478f03fccdd12074bce8d96b74bc3f5c39d3639155"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "ps"
 to = "/bin/ps"
-hash = "sha256:2a247da1d993a6e4de53220a334108d46696901c9b18aaf54b3319f40bceaa87"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "shutdown"
 to = "/bin/shutdown"
-hash = "sha256:b3a2ecb834d4354d73b4708adde4ae6e35544f130de014d83411e2090406ffac"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "top"
 to = "/bin/top"
-hash = "sha256:4a18de87f3e2e21493f2f107fe7268f37fa5ee68718f753b9f844100d5d6b780"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "kill"
 to = "/bin/kill"
-hash = "sha256:f600bc0d917b558cebd51241f769bb449afa984364687df816dce9077075a3ed"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "scpm"
 to = "/bin/scpm"
-hash = "sha256:ea1142a274d93d4568a2f918c690561f3951c544c884826fa811e6ee416e0555"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "netcfgd"
 to = "/bin/netcfgd"
-hash = "sha256:2a86bae2a48939802f1f8d50e4bdf9ef899171f12c343a486c8286e2265a5381"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "sshd"
 to = "/bin/sshd"
-hash = "sha256:1fd6f387d9c1d73c9d0317c9bf522bf18b2f14f09112cbb637c13e304cd0ae1e"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "resolverd"
 to = "/bin/resolverd"
-hash = "sha256:1f66aa9e9fd582842efd0d791c2564f6a2c38613d3aef97789fdcc84a33d9f3c"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "ntpd"
 to = "/bin/ntpd"
-hash = "sha256:66d507eb55c5955bf53e64b5d45f306d553b81965d95b7103ec0acd00dfc2493"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "cpufreqctl"
 to = "/bin/cpufreqctl"
-hash = "sha256:c9e6668cf27ccebf63bcfd2beac29905214ddf35932af4a70d8c2f77d0b75f54"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "storage-check"
 to = "/bin/storage-check"
-hash = "sha256:01a660db27074f928ee7eabd8dcdd795bd546a2b55ffa1960306d6d70cb96459"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "gpu-info"
 to = "/bin/gpu-info"
-hash = "sha256:f8d0e1d54aa98301815933e8ae865269d081dfb5a15042cc09a49d1d8a0af566"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "power-info"
 to = "/bin/power-info"
-hash = "sha256:6f69d9c8681facde29b0908fb8de61fa81d8184c8afde311abc587a217300f6b"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "abi-run"
 to = "/bin/abi-run"
-hash = "sha256:08d0cfe02f09f865d7d0f3c5ae65513d8c8a849e35f0eb010bdf5bef7127ef36"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "ls"
 to = "/bin/ls"
-hash = "sha256:9429907d53785884d2738835d7c9017919ce3b197bc24ea616e524af7cba242a"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "cat"
 to = "/bin/cat"
-hash = "sha256:11c1b1682529a47a912db5ac9f8243b21bed6a35e089a1d741db8437ea86c7ce"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "rm"
 to = "/bin/rm"
-hash = "sha256:cc5317af8bf186b09fbd8895f959b06149cb84df435636f6c7844aa0c57ef35f"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "resolve"
 to = "/bin/resolve"
-hash = "sha256:93f8ae65a2c37fc1e4b7980292816f9c5f353b55e04cc8ccbbd5d198918c239b"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "nc"
 to = "/bin/nc"
-hash = "sha256:9ec90c490472d32e9f9dff5cd624210825699976f0e28dfe49c4875ac668385c"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "ping"
 to = "/bin/ping"
-hash = "sha256:47bbc30ca3c8bd8cef441aaff8e8f0e590c3dd413696d93007da108f13791395"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "netcfg"
 to = "/bin/netcfg"
-hash = "sha256:294bd314adebb1337d21b2404425d2f68710c90cebe9ba38d26d4b403da6117a"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "watch"
 to = "/bin/watch"
-hash = "sha256:4a25ce1c816fc41184dfcb00c9e1bf5bb3b2e176ad2d6892ef27b9609a637b98"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "date"
 to = "/bin/date"
-hash = "sha256:1f125d7d5ca0b50f45e8fa8b3d9779bb22e252230e3ea1809355be38ad34da58"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "fb-test"
 to = "/bin/fb-test"
-hash = "sha256:5c49ac1c2fa85882c5f4377cd241729b8724b2b6b47f9c7fe6017828435fb1d8"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "scarlet-desktop"
 to = "/bin/scarlet-desktop"
-hash = "sha256:907ee1fba02c6f71d09ae97a10a75d082b8e1af98717064fd0a3bfc235eb8829"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "desktop-settings"
 to = "/bin/desktop-settings"
-hash = "sha256:a8ff208c2a5511e5c93dda3c144873a905287f2aacfedfaf2b5b88a40f82a6db"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "files"
 to = "/bin/files"
-hash = "sha256:e01dfbe4011f9d90b6a1db9cc8946b9e53bac398c9a96ff386f53dbc26bd0f4b"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "notepad"
 to = "/bin/notepad"
-hash = "sha256:32524589138f07330476f6384e12e1f13aeec68e45c7fb61322c331d68b9be6b"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "scarlet-shell"
 to = "/bin/scarlet-shell"
-hash = "sha256:1c921051c742169f5964b8f81bc6117441b10d6b188b3c5d02978ae6197a8823"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "terminal"
 to = "/bin/terminal"
-hash = "sha256:300d02e3e1d162140ebb18fd9d73d31e8a839e6ba3a8fcbf616e4b3847b6df26"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "sws"
 to = "/bin/sws"
-hash = "sha256:e1548027f051d51686f957ae13dde2bcb5f18f5239030c6c88a9ddf086b67622"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "sas"
 to = "/bin/sas"
-hash = "sha256:6743494d0032345a030c6f61e33cab8fb941b2cfb2ec4636cdb0e43ad725251b"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "sasctl"
 to = "/bin/sasctl"
-hash = "sha256:39ab7b395fe48fada8d72ca97cd9cf557b3d894d1d8259979272e8f71c804dff"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "mplayer"
 to = "/bin/mplayer"
-hash = "sha256:fa948dcb0b362cab561662bdd1a031e8f81ad4938d3417a83355283f3f2000bb"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "ui-demo"
 to = "/bin/ui-demo"
-hash = "sha256:944b5b8a99d6a4893e349c8e9e2b21639a3bae38390e3c18f2ecdcb6fea49512"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "ui-benchmark"
 to = "/bin/ui-benchmark"
-hash = "sha256:e422dc2473ee2bba149c3a236e337b551cab80406ca8052ccc3299982c9000d0"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
@@ -978,334 +882,340 @@ package = "scarlet-ui-widget-factory"
 bin = "scarlet-ui-widget-factory"
 subdir = "examples/widget-factory"
 to = "/bin/widget-factory"
-hash = "sha256:9af666e95a8efdb717b6f7b8f7bd219952a8dc69f955d957b9670f94226fe374"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-ui/e6e00f11c95de371057899ec05b7a832d04adc7f"
+path = "../../.cache/sources/scarlet-ui/1b0f08aeb0a7057c9a6d0d7312554372411afff8"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "ui-sgfx-showcase"
 to = "/bin/ui-sgfx-showcase"
-hash = "sha256:c6cfd6259da43c701c2a4a2d5bc1f9d5472c876c406fc9a636d6a312471a7545"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "settings"
 to = "/bin/settings"
-hash = "sha256:5f87abdffa30a1486d3dbd8b71062c163783d5e6fff24bb6ff6f0c750a4a1a23"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "task-manager"
 to = "/bin/task-manager"
-hash = "sha256:2b5095e7700ace99562f9259714054b279e520a158d0c5e2e634595422661dc8"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "scarlet-skk"
 to = "/bin/scarlet-skk"
-hash = "sha256:f7312699010dfdd04efeb23d16051052f8f33402022d48166159129c1f95387c"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "script"
 to = "/share/skk/SKK-JISYO.L"
 output = ".scarlet/.scarlet/cache/skk/SKK-JISYO.L"
-hash = "sha256:cb3638df4cf621359db4e5aca385deae3cd0e681540da1c788d004374d261a42"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/bundles/desktop/tools/fetch_skk_dictionary.sh"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/bundles/desktop/tools/fetch_skk_dictionary.sh"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "wayland-bridge"
 to = "/bin/wayland-bridge"
-hash = "sha256:ee4c7ac5ab5bb029f6f4bec4855a721f8f63576134844f74bea806f3d23ae392"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "ansi-banner"
 to = "/bin/ansi-banner"
-hash = "sha256:a06a44c122d9475d198f591f6084b3ee4d9557ed609b78348051108a3fba330d"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "sgfx-probe"
 to = "/bin/sgfx-probe"
-hash = "sha256:5437635ed4745b70ea0cd2f5a3bef062a99f029c90726929246aed2a3a89eafb"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "sgfx-cube"
 to = "/bin/sgfx-cube"
-hash = "sha256:a5b0e3934188bd5c4e6d1ff0e1a6aee4635144ea5a5f41b0b6217bf53175bb25"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "sgfx-texture"
 to = "/bin/sgfx-texture"
-hash = "sha256:21335d2e507be4f72f3a098e2c0b920727902768af4cd8ded88d053a317af114"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "sgfx-showcase"
 to = "/bin/sgfx-showcase"
-hash = "sha256:458ef4743862d4605e893b2b8f15979e6b0cb5c80bcd9575bc9d52ae1d06dbfe"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "vulkan-canvas-demo"
 bin = "vulkan-canvas-demo"
 to = "/bin/vulkan-canvas-demo"
-hash = "sha256:0a6dd76c6e3968dc29d8dc62f8d5944785960c25cfb93b417967480001e5c1e4"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/vulkan-canvas-demo"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/vulkan-canvas-demo"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "httpd"
 to = "/bin/httpd"
-hash = "sha256:51cc306bbfd1e2e82196b6a616bdf447339453752614e79d15735d0e4683fe1c"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "ushv"
 to = "/bin/ushv"
-hash = "sha256:42e2e4fb3ecbb03bae715bb5e95d2eb92b8dd93bcebb97e89261012bb6ec32ef"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "lsm-list"
 to = "/bin/lsm-list"
-hash = "sha256:e818e6b630033ddc7135c611bff589f351f3e699df16439ef6875efcbb5a0f9b"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "clock"
 to = "/bin/clock"
-hash = "sha256:71e041e8bc1eecbacaca3bc5177533ac3d6f98a3f6d61d0843bc7227661e8786"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "lsm-load"
 to = "/bin/lsm-load"
-hash = "sha256:1de68d31e86d0b212aa81c6804019aacf429e9f3c705de37aa309333f5a4d0db"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "lsm-unload"
 to = "/bin/lsm-unload"
-hash = "sha256:446f47f76628bf14be20b573bb5703f763f3962a6f0ef14a0bb9a37b790a13d0"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "input-dump"
 to = "/bin/input-dump"
-hash = "sha256:a8e788216bfa529f764a2bb1241978253e8f5e749a5a2b330de0fea02c3e5b07"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "displayctl"
 to = "/bin/displayctl"
-hash = "sha256:f794b9419f343c57e3ff78802b0ecde94c6aaf819dd16067bc3bded24409bcac"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "sensor-dump"
 to = "/bin/sensor-dump"
-hash = "sha256:5976fb468a40d3d9e842ec379f452817464e502f2d45d946e09b1893dbd381ae"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "tabletctl"
 to = "/bin/tabletctl"
-hash = "sha256:092112a904a9445d96effae10c0c9b47aa9a58face27683c1c53a716378de310"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "mozc-server"
 to = "/bin/mozc-server"
-hash = "sha256:c934937c7a4653298b96efedcb2dc169379d699483903bcb616c9661b9ce1180"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "scarlet-mozc"
 to = "/bin/scarlet-mozc"
-hash = "sha256:6822f4d0acdc230efbb2f55fcb05a708148c2a1edcf35a07d34c86ca4eee856f"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
-package = "user-bin"
+package = "userprogram"
 bin = "dcp-flip-test"
 to = "/bin/dcp-flip-test"
-hash = "sha256:ae9f3f8fc0f1b41607fa20297c6cbc9bca11e6df2419f54bf3f07ff1b3bc0a0c"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "carmine"
 bin = "carmine"
 to = "/bin/carmine"
-hash = "sha256:acbd71a711e25d44c14825853c4b1ea4cd57b8ac7500a46658be4f895e150f14"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/carmine/5ed3e9270b4949e4ee27052e62d12443770d1884"
+path = "../../.cache/sources/carmine/106809d9a6d5d0ec1a31a1b7b83e41e68878ee89"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "myrica"
 bin = "myrica"
 to = "/bin/myrica"
-hash = "sha256:46316b68541159814c381c666ce9ee702635f0dc8f8dd45f02969d465579ecf7"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/myrica/37a34c4195def793923cfb5868f41780aaded167"
+path = "../../.cache/sources/myrica/60b52e4c2eff17ea629c4df17ddc02fa00bacaa9"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "vellum"
 bin = "vellum"
 to = "/bin/vellum"
-hash = "sha256:4c6772b197cff8959277956c827709f0b3e4978292d89e1347beda3c1d418580"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/vellum/98dfc25b60a0b179ad8f0b65738f0d2191f160ea"
+path = "../../.cache/sources/vellum/87a0f17173a7be09ead750f913b64b1fc5e0c785"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "boxcraft"
 bin = "boxcraft"
 to = "/bin/boxcraft"
-hash = "sha256:87c217573c42c9cf8fab70f0b002c1480f21fa03d4c7f4ae3975e32a732806cf"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/boxcraft/859bb7b41c0c8fa46bc3cd3e54a0b607fb26f90e"
+path = "../../.cache/sources/boxcraft/a341f37b323572815871df1a95c8be812b9cdf86"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 bin = "remote-desktop"
 to = "/bin/remote-desktop"
-hash = "sha256:235a6a94639b2c06745c80e0ae6cdf5eadd2edcfd9b128438e34cca09eb39fa1"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
+
+[[sections.rootfs.layers]]
+kind = "app"
+source = "../../../cadence/platforms/scarlet/app.toml"
+to = "/applications/cadence.app"
+hash = ""
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "soft-keyboard"
 to = "/bin/soft-keyboard"
-hash = "sha256:faa3ca4e6011ec069c3c64a868bb32dedbaf983127afd7763550590aac05be80"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "archive"
@@ -1336,99 +1246,99 @@ kind = "cargo"
 package = "moonlight"
 bin = "moonlight"
 to = "/bin/moonlight"
-hash = "sha256:620b2a0330deb15293aa51f38ca3895226da8b225f584b98f87c9ef69140be3a"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/moonlight-scarlet/d0e1ce9e661a9f76c18deacbdcc13357a3c350af"
+path = "../../.cache/sources/moonlight-scarlet/c2523a4d86054c32e20671b069a0f742a7fafcc5"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "yt"
 bin = "yt"
 to = "/bin/yt"
-hash = "sha256:9cc13e8fbb44fe70d49e781f7c2d9c143a24057aa34d4f3687a14da5ac63c00d"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/yt-for-scarlet/202c312525b411e4998d15a8a261384476fb431a"
+path = "../../.cache/sources/yt-for-scarlet/37346315dbfcd0c4102da620f7087c253babf184"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "yt-gui"
 bin = "yt-gui"
 to = "/bin/yt-gui"
-hash = "sha256:d4c2494393365660909bfc5f8a465fbc4753df02b0d9023b25d9060e6d0a2c62"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/yt-for-scarlet/202c312525b411e4998d15a8a261384476fb431a"
+path = "../../.cache/sources/yt-for-scarlet/37346315dbfcd0c4102da620f7087c253babf184"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "axum-demo"
 to = "/bin/axum-demo"
-hash = "sha256:0b0e5f58dcc02bf55251739ea1af7ec8779cd98f6f37a1ceecf9a43d8212d057"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-std-bin"
 bin = "reqwest-demo"
 to = "/bin/reqwest-demo"
-hash = "sha256:07e821e4d81a14cd40e188ff6d3596481c2d38daa290ec9ccb580869ea06d38d"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/std-bin"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/std-bin"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-tonic-demo"
 bin = "tonic-server"
 to = "/bin/tonic-server"
-hash = "sha256:975141a2e97a99feb699c4f043a62f096a16d30c5921f69a4e521de0e6d56e2c"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/tonic-demo"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/tonic-demo"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-tonic-demo"
 bin = "tonic-client"
 to = "/bin/tonic-client"
-hash = "sha256:561e157d3fded69f897a9d2983b3ebb43e5ab528d18db342f9760a7c9f525b5c"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/tonic-demo"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/tonic-demo"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-websocket-demo"
 bin = "ws-server"
 to = "/bin/ws-server"
-hash = "sha256:5a35e03dd8770ce0988416da8c72edcae73101ea7af60313cce144b21138e26b"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/websocket-demo"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/websocket-demo"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-websocket-demo"
 bin = "ws-client"
 to = "/bin/ws-client"
-hash = "sha256:53e27b0106c7f651062cfbc1657030e9e9b82ceafd9fd0fd727be742cbdf1bab"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/websocket-demo"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/websocket-demo"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
@@ -1447,29 +1357,29 @@ kind = "cargo"
 package = "resonara"
 bin = "resonara"
 to = "/bin/resonara"
-hash = "sha256:42568a2eddca890067a8720d861a705fe3e7ec0d1dc48048e352c527ffffa9be"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/resonara/275dc0c941c9430600ff802813a2d238ae981422"
+path = "../../../Resonara"
 
 [[sections.rootfs.layers]]
 kind = "script"
 to = "/usr/lib/clap"
-hash = "sha256:c1ec6f306649a7b82ba703c4813dda2e42c01b51e56b6c6f3a6cd3bc67583a48"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/resonara/275dc0c941c9430600ff802813a2d238ae981422/scripts/scarlet-plugins-aarch64.sh"
+path = "../../../Resonara/scripts/scarlet-plugins-aarch64.sh"
 
 [[sections.rootfs.layers]]
 kind = "script"
 to = "/bin/easyrpg-player"
-hash = "sha256:d3f2437cb33b9ded3290e0214220444e677c1928213310580c9b9e88896e5d04"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/easyrpg-player-scarlet/5ff3ea823f3611754a978845dcb767343d2c55ab/bundle/build-aarch64.sh"
+path = "../../.cache/sources/easyrpg-player-scarlet/51b264e6a04fd945525f4624e3f2fa29150b9983/bundle/build-aarch64.sh"
 
 [[sections.rootfs.layers]]
 kind = "script"
@@ -1502,8 +1412,17 @@ features = [
 ]
 default-features = false
 to = "/bin/video-player"
-hash = "sha256:301beecb94513e3e0650b4ff8015a9c79ec17360c2e6279c21c60ccab8db8259"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
-path = "../../.cache/sources/scarlet-distribution/ca9fdafe1e633d752cb3a335d795496d5df5d272/user/video_player"
+path = "../../.cache/sources/scarlet-distribution/616f6ad06643587f7c5270a692131d4cfaabfa6a/user/video_player"
+
+[[sections.rootfs.layers]]
+kind = "script"
+to = "/lib/sgfx"
+hash = ""
+
+[sections.rootfs.layers.source]
+type = "path"
+path = "../../scripts/install-sgfx-maxwell.sh"
