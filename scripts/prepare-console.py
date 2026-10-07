@@ -90,7 +90,7 @@ def main():
     linux_vulkan_root = validate_build(args.linux_vulkan_build) if args.linux_vulkan_build else None
     if (PROJECT / "scarlet.local.toml").exists():
         parser.error("remove the project's scarlet.local.toml override; use upstream commit pins")
-    checkouts = prepare()
+    checkouts = prepare(local_bundles=args.local_bundles, published=args.published)
     selection = PROJECT / ".scarlet/bundle-source.local"
     local = args.local_bundles
     if not args.published and local is None and selection.is_file():
