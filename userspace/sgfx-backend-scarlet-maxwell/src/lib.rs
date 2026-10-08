@@ -365,7 +365,8 @@ impl Context {
         })
     }
 
-    /// Create a presentation-capable linear BGRA render target.
+    /// Create a presentation-capable BGRA render target, using a tiled layout
+    /// when depth rendering is supported.
     ///
     /// # Arguments
     ///

@@ -47,7 +47,12 @@ impl RawImage {
             | GPU_IMAGE_USAGE_PRESENTABLE
             | GPU_IMAGE_USAGE_SAMPLED
             | GPU_IMAGE_USAGE_TRANSFER_SRC
-            | GPU_IMAGE_USAGE_TRANSFER_DST;
+            | GPU_IMAGE_USAGE_TRANSFER_DST
+            | if context.device.capabilities.supports_depth() {
+                GPU_IMAGE_USAGE_DEPTH_COMPATIBLE
+            } else {
+                0
+            };
         let raw = context.device.gpu.create_image_with_format_and_usage(
             GPU_IMAGE_FORMAT_BGRA8_UNORM,
             width,
