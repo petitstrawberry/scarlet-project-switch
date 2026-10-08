@@ -1239,7 +1239,10 @@ impl ContextResources {
                 push_u32(&mut sections[3], bank_size as u32);
                 push_u64(&mut sections[3], 0);
             }
+            // The kernel initializes base-vertex/instance data and all 16
+            // resource handle slots (0x20..0x60), including unbound slots.
             if aux_size > 0 {
+                let aux_size = aux_size.max(128);
                 let start = inline.len();
                 inline.resize(start + aux_size as usize, 0);
                 for value in [stage, 15] {
