@@ -39,9 +39,9 @@ and [ScarletUI API](https://github.com/petitstrawberry/scarlet-ui/blob/6ef3e3c4d
 Touch coordinates use the FDT's landscape logical range and the ordinary SWS
 touch path; no Switch-specific UI or extra rotation is introduced. All slots
 are reported in each active frame so a consumer can recover after input loss.
-ScarletUI is pinned to the published `feature/refactor-input` revision in
-`source-pins.toml`: it subscribes to SWS native touch frames and routes finger
-drags to `ScrollView`, including momentum after release. The older mouse
+The ScarletUI revision declared in the upstream Cargo and bundle manifests
+subscribes to SWS native touch frames and routes finger drags to `ScrollView`,
+including momentum after release. The older mouse
 compatibility path supports taps but does not provide touch scrolling. This
 requires rebuilding the userspace applications in the rootfs, not just the kernel.
 Controller reset, I2C failure and Joy-Con detach/stale input release state.
@@ -125,7 +125,7 @@ in the editor; focused and maximized windows resize above it. Touch capture
 keeps small finger motion and the visual inter-key gaps inside the nearest key.
 
 The SWS/TextInput extension and ScarletUI touch activation are carried by the
-recorded patches in `source-pins.toml`, so published builds do not require sibling
-checkouts. Rebuild the rootfs to update the server, clients, keyboard, and service
+upstream revisions declared in Cargo and bundle manifests, so published builds
+do not require sibling checkouts. Rebuild the rootfs to update the server, clients, keyboard, and service
 configuration together. `tests/test-input.py --panel` exercises the installed
 keyboard's touch-to-key path and editor focus in QEMU.

@@ -35,7 +35,7 @@ class SwitchvisorPackageTests(unittest.TestCase):
             hashes[relative] = package.digest(source)
             if name in ("bl31.bin", "bl33.bin", "nx-plat.dtimg"):
                 pins[name] = hashes[relative]
-                bootstack = self.project / ".scarlet/bootstack" / name
+                bootstack = self.project / "firmware/bootstack" / name
                 bootstack.parent.mkdir(parents=True, exist_ok=True)
                 bootstack.write_bytes(source.read_bytes())
         (self.project / "bootstack.json").write_text(json.dumps({"files": pins}))

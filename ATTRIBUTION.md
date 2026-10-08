@@ -6,7 +6,7 @@ retain their own licenses; this repository does not include their binaries.
 
 - [Scarlet](https://github.com/petitstrawberry/Scarlet), kernel/runtime interfaces
   and Linux Image bootstrap; source revisions are pinned in
-  [source-pins.toml](source-pins.toml).
+  Cargo and Scarlet manifests.
 - [Scarlet Chromebook project](https://github.com/petitstrawberry/scarlet-project-chromebook),
   external repository layout and Nix/SDK conventions.
 - [Switchvisor](https://github.com/petitstrawberry/switchvisor), GPL-2.0-only EL2
@@ -41,3 +41,28 @@ retain their own licenses; this repository does not include their binaries.
 
 The distributed Noble BL33 was inspected directly. The cited U-Boot source
 commit is supporting source evidence and does not assert binary reproducibility.
+
+The vendored `scripts/elf_audit.py` comes from Scarlet commit
+`616f6ad06643587f7c5270a692131d4cfaabfa6a` under the MIT license:
+
+MIT License
+
+Copyright (c) 2025 petitstrawberry
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

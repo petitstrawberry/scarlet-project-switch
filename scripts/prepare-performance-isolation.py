@@ -162,7 +162,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source_bundle", type=Path)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--dtimg", type=Path, default=PROJECT / ".scarlet/bootstack/nx-plat.dtimg")
+    parser.add_argument("--dtimg", type=Path, default=PROJECT / "firmware/bootstack/nx-plat.dtimg")
     parser.add_argument("--overlay", type=Path,
                         default=PROJECT / ".scarlet/switchvisor/switchroot/scarlet-switchvisor/usb-uart.dtbo")
     args = parser.parse_args()

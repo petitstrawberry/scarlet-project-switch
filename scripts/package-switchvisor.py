@@ -43,7 +43,7 @@ def build_distribution(destination, usb_net):
     if not data:
         raise ValueError("enter nix develop, or provide --switchvisor-dist for a custom build")
     data = Path(data)
-    bootstack = PROJECT / ".scarlet/bootstack"
+    bootstack = PROJECT / "firmware/bootstack"
     command = ["switchvisor-tool", "pack-payload", str(data / "bootstrap.raw"),
                str(bootstack), str(bootstack / "bl33.bin"), "0x68200",
                str(destination / "bl33.bin"), "--usb-uart", "--usb-control", "--no-fallback"]
@@ -92,7 +92,7 @@ def package_distribution(dist):
         if switchvisor["bootstack"]["files"][name]["sha256"] != expected:
             raise ValueError(f"Switchvisor bootstack has a different {name}")
     verified(dist / "bl33.bin", switchvisor["sha256"])
-    verified(PROJECT / ".scarlet/bootstack/bl33.bin", pins["bl33.bin"])
+    verified(PROJECT / "firmware/bootstack/bl33.bin", pins["bl33.bin"])
     sources = {}
     for name in ("bl31.bin", "nx-plat.dtimg", "uImage", "initramfs"):
         relative = f"{SOURCE_DIRECTORY}/{name}"
@@ -133,7 +133,7 @@ def package_distribution(dist):
             "version": 1,
             "entry": "0xaa000000",
             "images": [
-                {"path": "../bootstack/bl33.bin", "address": "0xaa000000",
+                {"path": "../../firmware/bootstack/bl33.bin", "address": "0xaa000000",
                  "runtime_size": "0x68200"},
                 {"path": f"../l4t/{SOURCE_DIRECTORY}/uImage", "address": "0xa0000000"},
                 {"path": f"../l4t/{SOURCE_DIRECTORY}/initramfs", "address": "0x92000000"},

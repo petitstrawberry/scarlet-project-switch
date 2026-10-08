@@ -22,7 +22,7 @@ def main():
                     "--output", str(args.output.resolve()), "--stage-only"], check=True)
     rootfs = validate_build(args.output)
     print(f"Validated Linux Vulkan package: {rootfs}")
-    print(f"Include it with prepare-console.py --linux-vulkan-build {args.output.resolve()}")
+    print(f"Add a copy layer for {rootfs} to /systems/linux-aarch64 in scarlet.local.toml")
 
 
 if __name__ == "__main__":

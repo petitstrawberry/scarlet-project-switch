@@ -69,7 +69,7 @@ def main():
             parser.error("boot directory and entry file must be simple names")
     elf = project / f"bsp/target/aarch64-switch-none-elf/{args.profile}/scarlet"
     initrd = project / ".scarlet/images/initramfs.cpio"
-    stack = project / ".scarlet/bootstack"
+    stack = project / "firmware/bootstack"
     pins = json.loads((project / "bootstack.json").read_text())
     for name, expected in pins["files"].items():
         path = stack / name
@@ -112,13 +112,8 @@ def main():
         shutil.copyfile(project / "bootloader" / args.entry_file, ini)
         hashes = {str(p.relative_to(tmp)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in sorted(tmp.rglob("*")) if p.is_file() and p != raw}
-        source = project / ".scarlet/sources/scarlet"
-        if source.is_dir():
-            kernel_rev = subprocess.check_output(
-                ["git", "-C", str(source), "rev-parse", "HEAD"], text=True).strip()
-        else:
-            source = tomllib.loads((project / "scarlet.toml").read_text())["bsp"]["kernel"]["source"]
-            kernel_rev = source.get("rev", "unknown")
+        source = tomllib.loads((project / "scarlet.toml").read_text())["bsp"]["kernel"]["source"]
+        kernel_rev = source.get("rev", "unknown")
         manifest = {
             "hardware_validated": False,
             "kernel_source_revision": kernel_rev,

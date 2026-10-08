@@ -23,7 +23,6 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.dont_write_bytecode = True
-from project_sources import source
 
 
 def module(name, path):
@@ -64,8 +63,8 @@ def run(command, commands, log, **kwargs):
 
 
 def prepare(args, output, commands):
-    distribution = source("scarlet-distribution")
-    sgfx = source("sgfx-core")
+    distribution = args.scarlet_source.resolve(strict=True)
+    sgfx = args.sgfx_source.resolve(strict=True)
     audit = module("maxwell_dynamic_builder", ROOT / "scripts/build-sgfx-maxwell.py")
     elf = module("maxwell_dynamic_elf", distribution / "tools/elf_audit.py")
     boot = module("maxwell_dynamic_boot", ROOT / "tests/qemu-smoke.py")
@@ -185,6 +184,8 @@ def execute(output, timeout, commands):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scarlet-source", type=Path, required=True)
+    parser.add_argument("--sgfx-source", type=Path, required=True)
     parser.add_argument("--library", type=Path, default=ROOT / "projects/aarch64-switch-l4t-console/.scarlet/sgfx-maxwell/libsgfx_scarlet_maxwell.so")
     parser.add_argument("--kernel", type=Path, default=ROOT / "tests/boot-probe/bsp/target/aarch64-switch-none-elf/release/scarlet")
     parser.add_argument("--loader", type=Path, help="reuse a built pinned interpreter instead of building one")

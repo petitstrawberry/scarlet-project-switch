@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Check Rust formatting for the coordinated input changes, without rewriting."""
 from pathlib import Path
+import os
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from project_sources import source
 
 
 def main():
-    scarlet = source("scarlet")
-    ui = source("scarlet-ui")
+    scarlet = Path(os.environ["SCARLET_SOURCE"]).resolve(strict=True)
+    ui = Path(os.environ["SCARLET_UI_SOURCE"]).resolve(strict=True)
     files = list((ROOT / "drivers").rglob("*.rs"))
     for crate in ("input-host", "input-fixture", "input-qa"):
         files.extend((ROOT / "tests" / crate / "src").rglob("*.rs"))

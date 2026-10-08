@@ -21,7 +21,7 @@ def main():
         if actual != expected:
             parser.error(f"{name}: SHA256 mismatch; review and update bootstack.json for a different stack")
         inputs.append((source, name))
-    destination = PROJECT / ".scarlet/bootstack"
+    destination = PROJECT / "firmware/bootstack"
     destination.mkdir(parents=True, exist_ok=True)
     for source, name in inputs:
         shutil.copyfile(source, destination / name)

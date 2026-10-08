@@ -10,8 +10,6 @@ import shutil
 import subprocess
 import sys
 
-from project_sources import source
-
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
@@ -25,8 +23,8 @@ RELOCATIONS = {"NONE", "RELATIVE", "JUMP_SLOT", "GLOB_DAT", "ABS64"}
 
 
 def audit_module():
-    """Resolve the parser through the project's immutable distribution pin."""
-    path = source("scarlet-distribution") / "tools/elf_audit.py"
+    """Use the vendored Scarlet ELF parser without resolving source checkouts."""
+    path = ROOT / "scripts/elf_audit.py"
     spec = importlib.util.spec_from_file_location("scarlet_elf_audit", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -97,6 +95,14 @@ def build(project, install_dir=None):
     shutil.copy2(artifact, library)
     shutil.copy2(PLUGIN / MANIFEST, manifest)
     (output / "driver-elf.json").write_text(json.dumps(report, indent=2) + "\n")
+    # As in Scarlet's native driver bundle, prepare linkage before subsequent
+    # Cargo layers. Application dependency selection stays with cargo-scarlet.
+    flags = ["--cfg", 'getrandom_backend="custom"', "-Zdefault-visibility=hidden",
+             "-C", "link-arg=--dynamic-linker=/bin/scarlet-ld",
+             "-C", "link-arg=--as-needed", "-C", f"link-arg={library}",
+             "-C", "link-arg=--unresolved-symbols=ignore-all"]
+    (project.resolve() / ".scarlet/userspace.toml").write_text(
+        '[target.aarch64-unknown-scarlet]\nrustflags = ' + json.dumps(flags) + '\n')
     if install_dir is not None:
         install_dir.mkdir(parents=True, exist_ok=True)
         for path in (library, manifest):

@@ -1,0 +1,5 @@
+# Reconstruct the pinned GPU firmware through cargo-scarlet's script layer.
+[[layers]]
+kind = "script"
+source = "../../../scripts/install-gm20b-firmware.sh"
+to = "/"

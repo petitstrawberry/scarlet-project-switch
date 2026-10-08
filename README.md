@@ -12,8 +12,8 @@ Switchvisor provides an optional USB console, guest-image upload and network
 connection.
 
 This is an experimental board port. It requires an existing Hekate/L4T
-setup. Source dependencies are fetched at fixed public revisions. The SD installers are specific
-to the inspected 128 GB, four-partition card layout; they do not prepare a
+setup. Source dependencies are fetched at fixed public revisions. The SD
+installers are specific to the inspected 128 GB, four-partition card layout; they do not prepare a
 new card.
 
 ## Build
@@ -22,20 +22,20 @@ The Nix environment supports Apple Silicon macOS, AArch64 Linux and x86-64
 Linux. It includes `switchvisorctl`, `switchvisor-tool`, the Switchvisor EL2
 monitor and `minicom`, with Switchvisor pinned in `flake.lock`.
 Run from this repository; the build downloads the
-[pinned dependencies](source-pins.toml) automatically:
+dependencies declared in Cargo and Scarlet manifests automatically:
 
 ```sh
 nix develop --accept-flake-config
 
 python3 scripts/prepare-bootstack.py \
   --source "/Volumes/SWITCH SD/switchroot/ubuntu-noble"
-python3 scripts/prepare-gm20b-firmware.py --download
-scripts/build-console.sh
+cargo scarlet image --project projects/aarch64-switch-l4t-console --release
 ```
 
 The console boot files are written to
-`projects/aarch64-switch-l4t-console/.scarlet/l4t/`. Firmware is imported into
-generated state and verified against the checked-in pins.
+`projects/aarch64-switch-l4t-console/.scarlet/l4t/`. The import verifies the
+Noble firmware against the checked-in pins and stores it under
+`projects/aarch64-switch-l4t-console/firmware/bootstack/`, outside build caches.
 
 ## Install and boot
 
@@ -88,15 +88,13 @@ Linux plugin:
 
 ```sh
 python3 scripts/build-linux-vulkan.py --scarlet-source ../Scarlet --sgfx-source ../sgfx
-python3 scripts/prepare-console.py --linux-vulkan-build projects/aarch64-switch-l4t-console/.scarlet/linux-vulkan
+# Add the validated directory as a copy layer in scarlet.local.toml
 ```
 
-The first command builds in Docker and stages artifacts without deployment.
-The second verifies the report, artifact checksums and Linux ELF ABI, then adds
-the package to `/systems/linux-aarch64` in the full SD bundle. It leaves the
-native initramfs GPU driver package separate. These commands do not flash or
-boot hardware. Current immutable source pins are unchanged; select source
-checkouts containing the Linux dynamic ICD implementation until it is published.
+The command builds in Docker and validates the staged artifact checksums and
+Linux ELF ABI. Include its reported rootfs directory with a standard copy layer
+to `/systems/linux-aarch64` in `scarlet.local.toml`. It does not flash or boot
+hardware. Select compatible checkouts containing the Linux dynamic ICD.
 
 Linux driver manifests live at `/usr/lib/sgfx` within the Linux root. The GPU
 service backend ID selects `scarlet-maxwell` for `nvidia-gm20b` or `scarlet-virgl`

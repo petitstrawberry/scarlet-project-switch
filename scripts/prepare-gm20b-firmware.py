@@ -5,6 +5,7 @@ import argparse
 import base64
 import hashlib
 import json
+import shutil
 from pathlib import Path
 import subprocess
 
@@ -71,6 +72,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, help="directory containing nvidia/gm20b and LICENCE.nvidia")
     parser.add_argument("--download", action="store_true", help="fetch the pinned public files using gh")
+    parser.add_argument("--install-dir", type=Path, help="install the verified firmware into a bundle output directory")
     args = parser.parse_args()
     if args.source is not None and args.download:
         parser.error("choose --source or --download")
@@ -78,6 +80,8 @@ def main():
         output, count = prepare(args.source, args.download)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"GPU firmware preparation failed: {error}\n")
+    if args.install_dir is not None:
+        shutil.copytree(output, args.install_dir, dirs_exist_ok=True)
     print(f"GM20B firmware: {count} pinned firmware/licence files verified; {output}")
 
 

@@ -1,11 +1,9 @@
 # Development checks
 
 Run commands from the repository root inside `nix develop`.
-Run `python3 scripts/project_sources.py` to prepare the pinned source
-dependencies and target configuration as described in the
-[setup guide](console.md#dependencies). SGFX application dependencies use the
-generated configuration for the selected public release. Local source patches
-and source path overrides are not supported.
+Builds use cargo-scarlet's standard source resolution. Host tests that inspect
+Scarlet and ScarletUI sources take explicitly selected checkouts via
+`SCARLET_SOURCE` and `SCARLET_UI_SOURCE`; they do not fetch or patch sources.
 Build the relevant project before running tests that consume its packaged
 Image and initramfs.
 
@@ -98,7 +96,7 @@ cargo test --manifest-path shared/maxwell-image-layout/Cargo.toml
 cargo test --manifest-path userspace/sgfx-shader-maxwell/Cargo.toml
 cargo test --manifest-path userspace/sgfx-codegen-maxwell/Cargo.toml
 python3 scripts/build-sgfx-maxwell.py
-python3 tests/sgfx-maxwell-dynamic-smoke.py
+python3 tests/sgfx-maxwell-dynamic-smoke.py --scarlet-source /path/to/Scarlet --sgfx-source /path/to/sgfx
 ```
 
 The shader tests compile actual WGSL/SPIR-V into SASS and validate the resulting

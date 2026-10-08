@@ -123,14 +123,8 @@ class AuditTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "unexpected driver exports"):
             self.audit(ElfFixture(symbols=[("sgfx_backend_get_api_v2", 1, 1, 2, 2)]))
 
-    def test_parser_is_loaded_from_the_pinned_distribution(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            checkout = Path(temporary)
-            (checkout / "tools").mkdir()
-            (checkout / "tools/elf_audit.py").write_text("PINNED_PARSER = True\n")
-            with patch.object(builder, "source", return_value=checkout) as source:
-                self.assertTrue(builder.audit_module().PINNED_PARSER)
-            source.assert_called_once_with("scarlet-distribution")
+    def test_parser_is_available_without_source_preparation(self):
+        self.assertTrue(callable(builder.audit_module().Elf))
 
 
 def elf_fixture(kind=2, visibility=0, symbol_size=24):
@@ -169,12 +163,7 @@ def elf_fixture(kind=2, visibility=0, symbol_size=24):
 class PinnedParserTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Unit tests stay offline; exercise the real parser if source preparation
-        # has already fetched its immutable pin, as it does before image builds.
-        pin = tomllib.loads((ROOT / "source-pins.toml").read_text())["scarlet-distribution"]["rev"]
-        path = ROOT / ".cache/sources/scarlet-distribution" / pin / "tools/elf_audit.py"
-        if not path.is_file():
-            raise unittest.SkipTest("pinned distribution parser has not been fetched")
+        path = ROOT / 'scripts/elf_audit.py'
         spec = importlib.util.spec_from_file_location("pinned_sgfx_elf_audit", path)
         cls.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.module)

@@ -17,52 +17,20 @@ The full root image uses Scarlet's full distribution catalog.
 
 ## Dependencies
 
-Published builds use the URLs and full commit IDs in
-[source-pins.toml](../source-pins.toml). Console preparation downloads these
-sources into ignored `.cache/sources/`. Native userspace resolves SGFX and
-ScarletUI packages to their selected public checkouts through the generated
-Cargo config. This keeps applications with older pins on one IR, loader and
-UI release, including the generic external-driver feature selection.
-The Maxwell shared library has its own locked build and exchanges data with
-clients through ABI v2. Cached sources are checked for modifications.
+Source declarations live in `Cargo.toml`, `scarlet.toml` and the upstream
+bundles. `cargo-scarlet` resolves Git revisions and writes `scarlet.lock` using
+its standard cache. The upstream full bundle is included directly, without
+flattening it or overriding its application dependencies.
 
-The Nix toolchain and SDK are pinned in `flake.lock`. The SGFX facade must
-enable generic `backend-dynamic`; preparation checks this default feature.
-The Switch project builds and audits `libsgfx_scarlet_maxwell.so` before linking
-applications. Both images install the library and its manifest under
-`/lib/sgfx`; native clients use `/bin/scarlet-ld`.
-Firmware pins remain separate from source revisions.
-Rootfs preparation retains every layer of Scarlet's `full` bundle and applies
-the application revisions from `source-pins.toml`, including Widget Factory,
-Moonlight, yt and Blitz. Board settings come from the project's `rootfs/` tree.
-`scarlet` and `scarlet-distribution` pin the kernel and full catalog to the same
-upstream revision. `scarlet-native` retains the native userspace API revision
-shared by ScarletUI and the published GPU backends. `sgfx-core` pins the
-driver's ABI v2 mirror and programmable compiler frontend; the generated
-userspace configuration coordinates application crate identity separately.
-
-Make dependency fixes in the owning repository, push them upstream, and update
-the commit pins here. Preparation rejects local patch declarations, source
-path overrides and edited cached source files. To prepare the pinned sources, run:
-
-```sh
-python3 scripts/project_sources.py
-```
-
-`scripts/build-console.sh` defaults to these pins. For local development,
-select a Scarlet checkout's bundles and userspace sources explicitly:
-
-```sh
-scripts/build-console.sh --local-bundles /path/to/Scarlet
-```
-
-This selection is remembered in the ignored `.scarlet/bundle-source.local`
-file. It includes the Switch video-player override; kernel and external
-dependency pins still come from the public manifests. Run
-`scripts/build-console.sh --published` to clear the local selection and build
-from published pins again. Project-level `scarlet.local.toml` overrides remain
-unsupported. Generated target flags, test fixture paths and source links stay
-outside Git.
+The Maxwell driver bundle runs before native Cargo layers, installs the driver
+under `/lib/sgfx`, and generates only the linker flags for `/bin/scarlet-ld`.
+GPU firmware is reconstructed by a standard script layer. The separately
+imported Noble bootstack is a durable input under `firmware/bootstack`, not
+under `.scarlet`. After importing it once, `cargo scarlet image` builds and
+packages the complete configuration without a preparation command.
+`scarlet.local.toml` uses the SDK's normal override semantics. To use a local
+Scarlet bundle instead of a Git source, change that bundle layer in
+`scarlet.toml` to `path = "/path/to/Scarlet/bundles/full/bundle.toml"`.
 
 ## Build
 
@@ -72,15 +40,14 @@ Run from the repository root:
 nix develop --accept-flake-config
 python3 scripts/prepare-bootstack.py \
   --source "/Volumes/SWITCH SD/switchroot/ubuntu-noble"
-python3 scripts/prepare-gm20b-firmware.py --download
-scripts/build-console.sh
+cargo scarlet image --project projects/aarch64-switch-l4t-console --release
 ```
 
 Use a directory containing the pinned Switchroot Noble 5.1.2 boot files.
 The importer rejects mismatched hashes. For offline GPU firmware preparation,
 use `--source /path/to/linux-firmware` instead of `--download`.
 
-The build prepares distribution layers, builds the kernel, creates the
+cargo-scarlet resolves the upstream bundles, builds the kernel, creates the
 initramfs and ext2 root image, and packages the Hekate boot files under
 `projects/aarch64-switch-l4t-console/.scarlet/l4t/`. Packaging enforces the
 224 MiB initramfs loading limit. The generated manifest contains the source

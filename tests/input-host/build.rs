@@ -5,11 +5,11 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SCARLET_UI_SOURCE");
     let scarlet = PathBuf::from(
         env::var("SCARLET_SOURCE")
-            .expect("run python3 scripts/project_sources.py before the input tests"),
+            .expect("set SCARLET_SOURCE and SCARLET_UI_SOURCE to the checkouts under test"),
     );
     let ui = PathBuf::from(
         env::var("SCARLET_UI_SOURCE")
-            .expect("run python3 scripts/project_sources.py before the input tests"),
+            .expect("set SCARLET_SOURCE and SCARLET_UI_SOURCE to the checkouts under test"),
     );
     let mut modules = String::new();
     for (name, path) in [

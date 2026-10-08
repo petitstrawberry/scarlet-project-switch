@@ -35,12 +35,21 @@ output = ".scarlet/images/initramfs.cpio"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-path = ".scarlet/initramfs-bundle.toml"
+path = "bundles/sgfx-maxwell.toml"
 
 [[images.initramfs.layers]]
-kind = "copy"
-source = ".scarlet/gm20b-firmware"
-to = "/"
+kind = "bundle"
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "616f6ad06643587f7c5270a692131d4cfaabfa6a" }
+subdir = "bundles/base"
+
+[[images.initramfs.layers]]
+kind = "bundle"
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "616f6ad06643587f7c5270a692131d4cfaabfa6a" }
+subdir = "bundles/cli-utils"
+
+[[images.initramfs.layers]]
+kind = "bundle"
+path = "bundles/gpu-firmware.toml"
 
 [hooks.post-image]
 command = "tools/package-l4t.sh"
@@ -53,12 +62,20 @@ output = ".scarlet/images/rootfs-switch-full.ext2"
 
 [[images.rootfs.layers]]
 kind = "bundle"
-path = ".scarlet/full-bundle.toml"
+path = "bundles/sgfx-maxwell.toml"
 
 [[images.rootfs.layers]]
-kind = "copy"
-source = ".scarlet/gm20b-firmware"
-to = "/"
+kind = "bundle"
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "616f6ad06643587f7c5270a692131d4cfaabfa6a" }
+subdir = "bundles/full"
+
+[[images.rootfs.layers]]
+kind = "bundle"
+path = "bundles/nvdec-player.toml"
+
+[[images.rootfs.layers]]
+kind = "bundle"
+path = "bundles/gpu-firmware.toml"
 
 [[images.rootfs.layers]]
 kind = "copy"
