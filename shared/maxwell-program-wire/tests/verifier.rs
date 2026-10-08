@@ -297,7 +297,7 @@ fn texture_resource_slots_are_authorized_and_never_bindless() {
     m.resource_mask = 1;
     let tex = |handle: u64| {
         let variables = ((1u64 << 13) - 1) << 36 | (3u64 << 55);
-        ((0x0380u64 << 48) & !variables)
+        ((0xc038u64 << 48) & !variables)
             | TRUE
             | 0xff00
             | (255u64 << 20)
@@ -306,6 +306,10 @@ fn texture_resource_slots_are_authorized_and_never_bindless() {
             | (handle << 36)
     };
     assert!(check(&[tex(8), EXIT], m).is_ok());
+    // A transposed opcode previously admitted by the verifier does not execute
+    // a Maxwell TEX. Never accept that malformed encoding again.
+    let malformed = (tex(8) & !(0xffffu64 << 48)) | (0x0380u64 << 48);
+    assert_eq!(check(&[malformed, EXIT], m).unwrap_err(), Error::Instruction);
     for handle in [0, 7, 9, 72, 8191] {
         assert_eq!(check(&[tex(handle), EXIT], m).unwrap_err(), Error::Resource);
     }

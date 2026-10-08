@@ -166,7 +166,7 @@ fn decode(w: u64, ip: usize, size: usize, m: &Metadata, limits: &Limits) -> Resu
     // a GPR or CB. The authorized descriptor table is generated per draw.
     let common = PRED | mask(0, 16) | mask(20, 15) | mask(36, 15);
     let textures = [
-        (0x0380, common | mask(35, 1) | mask(54, 3), 0u8),
+        (0xc038, common | mask(35, 1) | mask(54, 3), 0u8),
         (0xdc38, common | mask(35, 1) | mask(55, 1), 1),
         (0xc838, common | mask(54, 4), 2),
         (0xdf58, (common & !mask(50, 1)) | mask(35, 1), 3),

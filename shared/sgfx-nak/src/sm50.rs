@@ -2169,7 +2169,7 @@ impl SM50Op for OpTex {
     fn encode(&self, e: &mut SM50Encoder<'_>) {
         match self.tex {
             TexRef::Bound(idx) => {
-                e.set_opcode(0x0380);
+                e.set_opcode(0xc038);
                 e.set_field(36..49, idx);
                 e.set_bit(54, self.offset_mode == TexOffsetMode::AddOffI);
                 e.set_tex_lod_mode(55..57, self.lod_mode);

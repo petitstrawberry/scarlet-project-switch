@@ -400,6 +400,35 @@ struct Out { @location(0) color:vec4<f32>, @location(3) aux:vec4<f32> }
 }
 
 #[test]
+fn bound_sampling_uses_the_maxwell_tex_encoding() {
+    let desc = ShaderModuleDesc::wgsl(
+        "@group(0) @binding(0) var t: texture_2d<f32>; @group(0) @binding(1) var s: sampler; @fragment fn main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> { return textureSample(t, s, uv); }".into(),
+    ).unwrap();
+    let shader = compile_shader(&desc, ShaderStage::Fragment, "main").unwrap();
+    // Envytools GM107 ISA: bound TEX matches c038 / fc38. A misspelled
+    // 0380 opcode used to compile and pass our verifier without sampling.
+    let instructions: Vec<u64> = shader
+        .code
+        .chunks_exact(2)
+        .enumerate()
+        .filter(|(index, _)| index % 4 != 0)
+        .map(|(_, words)| u64::from(words[0]) | u64::from(words[1]) << 32)
+        .collect();
+    assert_eq!(
+        instructions
+            .iter()
+            .filter(|word| **word & 0xfc38000000000000 == 0xc038000000000000)
+            .count(),
+        1
+    );
+    assert!(
+        !instructions
+            .iter()
+            .any(|word| *word & 0xfe38000000000000 == 0x0200000000000000)
+    );
+}
+
+#[test]
 fn sampled_dimensions_depth_comparison_and_fetch_compile() {
     for (image, expression) in [
         ("texture_1d<f32>", "textureSampleLevel(t,s,uv.x,0.0)"),

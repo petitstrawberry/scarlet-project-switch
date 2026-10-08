@@ -865,7 +865,7 @@ mod tests {
     #[test]
     fn memory_control_texture_and_external_opcodes_are_absent() {
         for opcode in [
-            0xeed0, 0xeed8, 0xef90, 0xef98, 0xe240, 0xe300, 0xe330, 0xdeb8, 0x0380,
+            0xeed0, 0xeed8, 0xef90, 0xef98, 0xe240, 0xe300, 0xe330, 0xdeb8, 0xc038,
         ] {
             assert!(
                 find_alu_encoding(instruction(opcode, 0)).is_none(),

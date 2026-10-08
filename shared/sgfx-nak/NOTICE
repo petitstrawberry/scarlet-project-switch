@@ -26,7 +26,11 @@ Local adaptations:
     they reference. ShaderModelInfo dispatch accepts SM50 and SM52 only.
   lib.rs excludes C NIR, C API, QMD, other generations and hardware tests.
   Graphics metadata initialization, validation and integration tests are
-    SGFX additions. Upstream algorithms and instruction encoding remain.
+    SGFX additions. Upstream algorithms remain.
+  sm50.rs corrects the bound TEX opcode from 0x0380 to 0xc038, matching
+    the GM107 ISA decoder and hardware textured-cube readback.
+    Reference: https://github.com/envytools/envytools/blob/master/envydis/gm107.c
+    (bound TEX encoding 0xc038000000000000 / mask 0xfc38000000000000).
 
 NVIDIA Shader Program Header constants:
   src/nouveau/headers/nvidia/classes/cla097sph.h
