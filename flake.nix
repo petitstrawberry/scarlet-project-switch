@@ -10,7 +10,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     scarlet-rust-toolchain.url = "github:petitstrawberry/scarlet-rust-nix/main";
     scarlet-sdk = {
-      url = "github:petitstrawberry/scarlet-sdk/9b3a257e02a5fddd37cf785912269a3e8702f10f";
+      url = "github:petitstrawberry/scarlet-sdk/29e82f9b797fcedef2fe8f967c2d7f7729d51cbc";
       flake = false;
     };
     rust-overlay.follows = "scarlet-rust-toolchain/rust-overlay";
