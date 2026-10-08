@@ -199,6 +199,9 @@ impl Shared {
             (work, pending.failure)
         };
         let result = failure.map_or_else(|| self.execute_prepared(&work.prepared), Err);
+        if let Err(error) = &result {
+            scarlet::println!("gm20b: execution failed: {:?}", error);
+        }
         let lost = matches!(result, Err(GpuBackendSubmitError::DeviceLost(_)));
         if lost {
             self.work.state.lock().failure = result.err();

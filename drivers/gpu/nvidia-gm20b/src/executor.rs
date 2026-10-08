@@ -845,7 +845,10 @@ impl Prepared {
         attached: &BTreeMap<u64, Attachment>,
         programmable: bool,
     ) -> Result<Self, GpuBackendSubmitError> {
-        Self::prepare(bytes, attached, programmable).map_err(GpuBackendSubmitError::Rejected)
+        Self::prepare(bytes, attached, programmable).map_err(|reason| {
+            scarlet::println!("gm20b: submission rejected: {}", reason);
+            GpuBackendSubmitError::Rejected(reason)
+        })
     }
     fn prepare(
         bytes: &[u8],
