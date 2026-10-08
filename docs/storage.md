@@ -61,8 +61,10 @@ sudo python3 scripts/install-rootfs.py --device /dev/diskN \
   --image /absolute/path/to/prepared-rootfs.ext2 --sha256 IMAGE_SHA256 --write
 ```
 
-The writer unmounts the card, requires the recorded raw MBR fingerprint,
-opens only p4 for writing and verifies the complete written image.
+The writer unmounts the card, validates the raw MBR partition layout,
+opens only p4 for writing and verifies the complete written image by default.
+Use `--skip-readback` to omit the complete image readback; an optional
+`--mbr-sha256` can require a separately inspected MBR fingerprint.
 It also compares the MBR and samples at both ends of p2/p3.
 It does not build, resize or format an image, or replace the partition table.
 

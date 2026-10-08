@@ -2,7 +2,7 @@
 """Deploy an existing ext2 image to the inspected SD's Scarlet partition (p4).
 
 The default is a read-only plan. --write requires macOS administrator access,
-unmounts this SD, validates its MBR, writes only p4, and verifies every byte.
+unmounts this SD, validates its MBR, and writes only p4. Readback is optional.
 This script does not build, resize, format, or repartition an image or device.
 """
 
@@ -20,7 +20,6 @@ import time
 
 
 DISK_BYTES = 123773911040
-MBR_SHA256 = "fe40c9f4c23cc7696e566fd1fb7b04bd70c8cbe8dab5f105c8411fe9d1615aba"
 PARTITIONS = [(0x0C, 32768, 105054208), (0x83, 105086976, 67108864),
               (0xE0, 180584448, 61143040), (0x83, 172195840, 8388608)]
 CHUNK = 4 * 1024 * 1024
@@ -73,11 +72,14 @@ def stream_hash(stream, size, label=None):
     return digest.hexdigest()
 
 
-def protected_samples(stream, expected_mbr=MBR_SHA256):
+def protected_samples(stream, expected_mbr=None):
     stream.seek(0)
     mbr = read_exact(stream, 512)
-    if hashlib.sha256(mbr).hexdigest() != expected_mbr:
+    actual_mbr = hashlib.sha256(mbr).hexdigest()
+    if expected_mbr is not None and actual_mbr != expected_mbr:
         raise ValueError("SD MBR fingerprint differs from the inspected card")
+    if mbr[510:512] != b"\x55\xaa":
+        raise ValueError("SD MBR signature is invalid")
     entries = []
     for index in range(4):
         entry = mbr[446 + index * 16:462 + index * 16]
@@ -85,7 +87,7 @@ def protected_samples(stream, expected_mbr=MBR_SHA256):
         entries.append((entry[4], first, count))
     if entries != PARTITIONS:
         raise ValueError("raw MBR partition layout differs from the handoff")
-    hashes = {"mbr": expected_mbr}
+    hashes = {"mbr": actual_mbr}
     for number in (2, 3):
         _, first, count = PARTITIONS[number - 1]
         for name, offset in [("start", first * 512), ("end", (first + count) * 512 - CHUNK)]:
@@ -99,12 +101,14 @@ def main():
     parser.add_argument("--device", required=True)
     parser.add_argument("--image", type=Path, required=True)
     parser.add_argument("--sha256", required=True, help="expected SHA-256 of the prepared image")
-    parser.add_argument("--mbr-sha256", default=MBR_SHA256,
-                        help="expected SHA-256 of the inspected card's raw MBR")
+    parser.add_argument("--mbr-sha256",
+                        help="optional expected SHA-256 of the inspected card's raw MBR")
     parser.add_argument("--write", action="store_true")
+    parser.add_argument("--skip-readback", action="store_true",
+                        help="skip reading the written root filesystem back")
     args = parser.parse_args()
     if not all(re.fullmatch(r"[0-9a-f]{64}", value)
-               for value in (args.sha256, args.mbr_sha256)):
+               for value in (args.sha256, args.mbr_sha256) if value is not None):
         raise ValueError("expected a lowercase SHA-256 digest")
     validate_disk(args.device)
     image = args.image.resolve(strict=True)
@@ -130,7 +134,7 @@ def main():
         print(f"Image: {image}\nSHA-256: {args.sha256}", flush=True)
         print(f"Target: {target}, {size} bytes, SD byte offset {PARTITIONS[3][1] * 512}", flush=True)
         if not args.write:
-            print("Plan complete. --write also requires the exact raw MBR fingerprint and verifies p4 readback.")
+            print("Plan complete. --write validates the raw MBR layout and writes only p4.")
             return
         subprocess.run(["/usr/sbin/diskutil", "unmountDisk", args.device], check=True)
         if any(part.get("MountPoint") for part in validate_disk(args.device)):
@@ -160,14 +164,15 @@ def main():
                     if written % (256 * 1024 * 1024) == 0 or written == size:
                         print(f"write: {written}/{size} bytes", flush=True)
                 os.fsync(output.fileno())
-            with open(target, "rb", buffering=0) as check:
-                if stream_hash(check, size, "verify") != args.sha256:
-                    raise ValueError("p4 readback SHA-256 mismatch")
-            after = protected_samples(disk, args.mbr_sha256)
+            if not args.skip_readback:
+                with open(target, "rb", buffering=0) as check:
+                    if stream_hash(check, size, "verify") != args.sha256:
+                        raise ValueError("p4 readback SHA-256 mismatch")
+            after = protected_samples(disk, before["mbr"])
             if before != after:
                 raise ValueError("protected MBR or neighboring partition samples changed")
         print(json.dumps({"device": target, "bytes": size, "sha256": args.sha256,
-                          "readback_verified": True, "protected_samples": after,
+                          "readback_verified": not args.skip_readback, "protected_samples": after,
                           "elapsed_seconds": round(time.monotonic() - started, 1)}, indent=2), flush=True)
 
 
