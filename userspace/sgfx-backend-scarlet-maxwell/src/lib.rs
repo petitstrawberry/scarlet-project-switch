@@ -840,8 +840,10 @@ impl IrResources {
 
     /// Validate a retired bind group; command lowering retains its bindings.
     pub fn release_bind_group(&mut self, group: ir::BindGroupId) -> Result<(), IrSubmitError> {
+        // Lowered draws own their buffer/image references and immutable binding
+        // metadata. Retiring this logical descriptor never detaches DMA backing.
         self.inner.resources.bind_group_ref(group)?;
-        self.inner.context.dispatcher.with_idle(|| Ok(()))
+        Ok(())
     }
 
     /// Read native CPU-visible buffer storage after earlier submissions retire.
