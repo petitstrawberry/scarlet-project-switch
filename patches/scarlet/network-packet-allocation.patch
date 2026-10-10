@@ -1,0 +1,295 @@
+diff --git a/kernel/src/network/protocol_stack.rs b/kernel/src/network/protocol_stack.rs
+--- a/kernel/src/network/protocol_stack.rs
++++ b/kernel/src/network/protocol_stack.rs
+@@ -70,6 +70,35 @@
+     pub active_connections: u64,
+ }
+ 
++// Protocol-neutral inline metadata. Unusual keys/values and excess entries
++// retain dynamically sized storage; no protocol names are special-cased.
++const CONTEXT_INLINE_ENTRIES: usize = 8;
++const CONTEXT_INLINE_KEY: usize = 24;
++const CONTEXT_INLINE_VALUE: usize = 32;
++
++#[derive(Debug, Clone)]
++struct InlineContextEntry {
++    key: [u8; CONTEXT_INLINE_KEY],
++    key_len: u8,
++    value: [u8; CONTEXT_INLINE_VALUE],
++    value_len: u8,
++}
++
++impl InlineContextEntry {
++    fn new(key: &str, value: &[u8]) -> Self {
++        let mut entry = Self {
++            key: [0; CONTEXT_INLINE_KEY], key_len: key.len() as u8,
++            value: [0; CONTEXT_INLINE_VALUE], value_len: value.len() as u8,
++        };
++        entry.key[..key.len()].copy_from_slice(key.as_bytes());
++        entry.value[..value.len()].copy_from_slice(value);
++        entry
++    }
++    fn matches(&self, key: &str) -> bool {
++        &self.key[..self.key_len as usize] == key.as_bytes()
++    }
++}
++
+ /// Context passed between network layers for routing decisions
+ ///
+ /// This structure carries routing information through the protocol stack,
+@@ -104,39 +133,50 @@
+ /// ```
+ #[derive(Debug, Clone, Default)]
+ pub struct LayerContext {
+-    /// Protocol-agnostic key-value store for routing information
+-    /// Each layer can add/read arbitrary data needed for packet delivery
+-    ///
+-    /// Common keys (convention, not enforced):
+-    /// - "ip_src", "ip_dst": IPv4/IPv6 addresses
+-    /// - "tcp_src_port", "tcp_dst_port": TCP ports  
+-    /// - "udp_src_port", "udp_dst_port": UDP ports
+-    /// - "ip_protocol": Protocol number (6=TCP, 17=UDP)
+-    /// - "ttl": Time-to-live
+-    /// - "tos": Type of service
+-    pub info: BTreeMap<String, Vec<u8>>,
++    inline: [Option<InlineContextEntry>; CONTEXT_INLINE_ENTRIES],
++    overflow: BTreeMap<String, Vec<u8>>,
+ }
+ 
+ impl LayerContext {
+-    /// Create a new empty LayerContext
+-    pub fn new() -> Self {
+-        Self::default()
+-    }
+-
+-    /// Set a value in the context
++    pub fn new() -> Self { Self::default() }
++
++    /// Own arbitrary routing metadata. Short, common-size entries never touch
++    /// the global heap, including when a layer clones or overwrites them.
+     pub fn set(&mut self, key: &str, value: &[u8]) {
+-        self.info.insert(String::from(key), value.to_vec());
+-    }
+-
+-    /// Get a value from the context
++        if let Some(slot) = self.inline.iter_mut().find(|slot| {
++            slot.as_ref().is_some_and(|entry| entry.matches(key))
++        }) {
++            if value.len() <= CONTEXT_INLINE_VALUE {
++                let entry = slot.as_mut().unwrap();
++                entry.value[..value.len()].copy_from_slice(value);
++                entry.value_len = value.len() as u8;
++            } else {
++                self.overflow.insert(String::from(key), value.to_vec());
++                *slot = None;
++            }
++            return;
++        }
++        if let Some(existing) = self.overflow.get_mut(key) {
++            existing.clear();
++            existing.extend_from_slice(value);
++            return;
++        }
++        if key.len() <= CONTEXT_INLINE_KEY && value.len() <= CONTEXT_INLINE_VALUE {
++            if let Some(slot) = self.inline.iter_mut().find(|slot| slot.is_none()) {
++                *slot = Some(InlineContextEntry::new(key, value));
++                return;
++            }
++        }
++        self.overflow.insert(String::from(key), value.to_vec());
++    }
++
+     pub fn get(&self, key: &str) -> Option<&[u8]> {
+-        self.info.get(key).map(|v| v.as_slice())
+-    }
+-
+-    /// Check if a key exists
+-    pub fn contains(&self, key: &str) -> bool {
+-        self.info.contains_key(key)
+-    }
++        self.inline.iter().flatten().find(|entry| entry.matches(key))
++            .map(|entry| &entry.value[..entry.value_len as usize])
++            .or_else(|| self.overflow.get(key).map(Vec::as_slice))
++    }
++
++    pub fn contains(&self, key: &str) -> bool { self.get(key).is_some() }
+ }
+ 
+ /// Configuration for socket creation and layer binding
+diff --git a/kernel/src/network/ipv4.rs b/kernel/src/network/ipv4.rs
+--- a/kernel/src/network/ipv4.rs
++++ b/kernel/src/network/ipv4.rs
+@@ -131,7 +131,7 @@
+ 
+     /// Calculate checksum
+     pub fn calculate_checksum(&self) -> u16 {
+-        let mut bytes = self.to_bytes();
++        let mut bytes = self.to_array();
+         if bytes.len() >= 12 {
+             bytes[10] = 0;
+             bytes[11] = 0;
+@@ -140,20 +140,22 @@
+     }
+ 
+     /// Serialize header to bytes
+-    pub fn to_bytes(&self) -> Vec<u8> {
+-        let mut bytes = Vec::with_capacity(20);
+-        bytes.push(self.version_ihl);
+-        bytes.push(self.tos);
+-        bytes.extend_from_slice(&self.total_length.to_be_bytes());
+-        bytes.extend_from_slice(&self.identification.to_be_bytes());
+-        bytes.extend_from_slice(&self.flags_fragment.to_be_bytes());
+-        bytes.push(self.ttl);
+-        bytes.push(self.protocol);
+-        bytes.extend_from_slice(&self.checksum.to_be_bytes());
+-        bytes.extend_from_slice(&self.source_ip);
+-        bytes.extend_from_slice(&self.dest_ip);
++    fn to_array(&self) -> [u8; 20] {
++        let mut bytes = [0; 20];
++        bytes[0] = self.version_ihl;
++        bytes[1] = self.tos;
++        bytes[8] = self.ttl;
++        bytes[9] = self.protocol;
++        bytes[12..16].copy_from_slice(&self.source_ip);
++        bytes[16..20].copy_from_slice(&self.dest_ip);
++        bytes[2..4].copy_from_slice(&self.total_length.to_be_bytes());
++        bytes[4..6].copy_from_slice(&self.identification.to_be_bytes());
++        bytes[6..8].copy_from_slice(&self.flags_fragment.to_be_bytes());
++        bytes[10..12].copy_from_slice(&self.checksum.to_be_bytes());
+         bytes
+     }
++
++    pub fn to_bytes(&self) -> Vec<u8> { self.to_array().to_vec() }
+ 
+     /// Parse header from bytes
+     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+@@ -735,7 +737,8 @@
+         header.checksum = header.calculate_checksum();
+ 
+         // Serialize header
+-        let mut ip_packet = header.to_bytes();
++        let mut ip_packet = Vec::with_capacity(20 + packet.len());
++        ip_packet.extend_from_slice(&header.to_array());
+ 
+         // Create IP packet: header + payload
+         ip_packet.extend_from_slice(packet);
+diff --git a/kernel/src/network/ethernet.rs b/kernel/src/network/ethernet.rs
+--- a/kernel/src/network/ethernet.rs
++++ b/kernel/src/network/ethernet.rs
+@@ -436,7 +436,7 @@
+         let header = EthernetHeader::new(dest_mac, *src_mac.as_bytes(), ether_type);
+         let total_size = ETHERNET_HEADER_SIZE + packet.len();
+ 
+-        let mut frame = Vec::with_capacity(total_size);
++        let mut frame = Vec::with_capacity(total_size.max(ETHERNET_MIN_SIZE.saturating_sub(4)));
+         frame.extend_from_slice(&header.to_bytes());
+         frame.extend_from_slice(packet);
+ 
+diff --git a/kernel/src/network/tcp.rs b/kernel/src/network/tcp.rs
+--- a/kernel/src/network/tcp.rs
++++ b/kernel/src/network/tcp.rs
+@@ -186,56 +186,55 @@
+     }
+ 
+     fn calculate_checksum_with_options(
+-        &self,
+-        src_ip: [u8; 4],
+-        dst_ip: [u8; 4],
+-        options: &[u8],
+-        data: &[u8],
++        &self, src_ip: [u8; 4], dst_ip: [u8; 4], options: &[u8], data: &[u8],
+     ) -> u16 {
+         let tcp_len = (TCP_HEADER_SIZE + options.len() + data.len()) as u16;
+-        let mut pseudo = Vec::with_capacity(12 + TCP_HEADER_SIZE + options.len() + data.len());
+-        pseudo.extend_from_slice(&src_ip);
+-        pseudo.extend_from_slice(&dst_ip);
+-        pseudo.push(0);
+-        pseudo.push(6); // TCP protocol number
+-        pseudo.extend_from_slice(&tcp_len.to_be_bytes());
+-
++        let mut pseudo = [0u8; 12];
++        pseudo[..4].copy_from_slice(&src_ip);
++        pseudo[4..8].copy_from_slice(&dst_ip);
++        pseudo[9] = 6;
++        pseudo[10..].copy_from_slice(&tcp_len.to_be_bytes());
+         let mut header = *self;
+         header.checksum = 0;
+-        pseudo.extend_from_slice(&header.to_bytes());
+-        pseudo.extend_from_slice(options);
+-        pseudo.extend_from_slice(data);
+-
+-        let mut sum: u32 = 0;
+-        for chunk in pseudo.chunks(2) {
+-            if chunk.len() == 2 {
+-                sum += u16::from_be_bytes([chunk[0], chunk[1]]) as u32;
+-            } else {
+-                sum += (chunk[0] as u32) << 8;
+-            }
+-            sum = (sum & 0xFFFF) + (sum >> 16);
+-        }
+-
+-        while sum >> 16 != 0 {
+-            sum = (sum & 0xFFFF) + (sum >> 16);
+-        }
+-
++        let bytes = header.to_array();
++        // Carry an odd byte across slice boundaries: padding each slice would
++        // change the wire checksum for an odd-sized options/data boundary.
++        let mut sum = 0u32;
++        let mut high = None;
++        for mut slice in [pseudo.as_slice(), bytes.as_slice(), options, data] {
++            if slice.is_empty() { continue; }
++            if let Some(first) = high.take() {
++                sum += u16::from_be_bytes([first, slice[0]]) as u32;
++                sum = (sum & 0xffff) + (sum >> 16);
++                slice = &slice[1..];
++            }
++            let mut pairs = slice.chunks_exact(2);
++            for pair in &mut pairs {
++                sum += u16::from_be_bytes([pair[0], pair[1]]) as u32;
++                sum = (sum & 0xffff) + (sum >> 16);
++            }
++            high = pairs.remainder().first().copied();
++        }
++        if let Some(byte) = high { sum += (byte as u32) << 8; }
++        while sum >> 16 != 0 { sum = (sum & 0xffff) + (sum >> 16); }
+         !sum as u16
+     }
+ 
+     /// Serialize header to bytes
+-    pub fn to_bytes(&self) -> Vec<u8> {
+-        let mut bytes = Vec::with_capacity(20);
+-        bytes.extend_from_slice(&self.src_port.to_be_bytes());
+-        bytes.extend_from_slice(&self.dst_port.to_be_bytes());
+-        bytes.extend_from_slice(&self.seq_number.to_be_bytes());
+-        bytes.extend_from_slice(&self.ack_number.to_be_bytes());
+-        bytes.extend_from_slice(&self.data_offset_flags.to_be_bytes());
+-        bytes.extend_from_slice(&self.window_size.to_be_bytes());
+-        bytes.extend_from_slice(&self.checksum.to_be_bytes());
+-        bytes.extend_from_slice(&self.urgent_pointer.to_be_bytes());
++    fn to_array(&self) -> [u8; 20] {
++        let mut bytes = [0; 20];
++        bytes[0..2].copy_from_slice(&self.src_port.to_be_bytes());
++        bytes[2..4].copy_from_slice(&self.dst_port.to_be_bytes());
++        bytes[4..8].copy_from_slice(&self.seq_number.to_be_bytes());
++        bytes[8..12].copy_from_slice(&self.ack_number.to_be_bytes());
++        bytes[12..14].copy_from_slice(&self.data_offset_flags.to_be_bytes());
++        bytes[14..16].copy_from_slice(&self.window_size.to_be_bytes());
++        bytes[16..18].copy_from_slice(&self.checksum.to_be_bytes());
++        bytes[18..20].copy_from_slice(&self.urgent_pointer.to_be_bytes());
+         bytes
+     }
++
++    pub fn to_bytes(&self) -> Vec<u8> { self.to_array().to_vec() }
+ 
+     /// Parse header from bytes
+     pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+@@ -1592,7 +1591,7 @@
+             header.calculate_checksum_with_options(local_ip.0, dest_ip.0, options, data);
+ 
+         // Serialize header
+-        let header_bytes = header.to_bytes();
++        let header_bytes = header.to_array();
+ 
+         // Combine header and data
+         let mut segment = Vec::with_capacity(total_len);

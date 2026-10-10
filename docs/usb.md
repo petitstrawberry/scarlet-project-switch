@@ -719,7 +719,57 @@ ownership across ring wrap, failed/short completions, detach, slot reuse and
 changed endpoint/size rejection. IRQ masking, DMA/cache, scheduling and
 device callbacks are modeled. These host checks do not establish physical
 coherency, throughput improvement or the remaining bottleneck. Physical
-comparison of this candidate is pending.
+comparison did not establish an overall throughput improvement. After closing
+video playback, an 8 MiB transfer in each direction delivered 71.25/66.99 Mbps
+with profiling off and 70.78/67.54 Mbps with profiling on (Mac→Switch / reverse).
+The sampled receive-buffer drain fell to about 1µs, while TCP receive still
+averaged about 143µs in the first captured receive phase. These nested sampled
+wall spans are not CPU time. A separate enabled run failed partway through TX
+at 7,553,024 of 8,388,608 bytes; its incomplete pair is excluded from successful
+rate comparisons. Later captures while video playback was active are also
+not equivalent idle comparisons. Every run verified helper cleanup and
+profiling disabled. Evidence is under `.cache/network-perf/network-copy/`.
+
+## Remove per-packet allocation and worker scheduling overhead
+
+`patches/scarlet/network-packet-allocation.patch` removes heap allocation from
+short routing metadata and TCP checksum construction. `LayerContext` holds
+eight arbitrary keys of up to 24 bytes and values of up to 32 bytes inline;
+larger keys, values, and excess entries retain dynamically sized map storage.
+The key names remain protocol-neutral. `new`, `set`, `get`, `contains`, `Clone`
+and `Default` retain their semantics. Storage is now private: external source
+code using the former public `info` field must migrate to those methods. The
+pinned core and compiled Switch modules use the method API.
+
+TCP and IPv4 serialize fixed headers into arrays internally, while the public
+`to_bytes` methods still return owned vectors. TCP checksums stream over the
+pseudo-header, header, options and payload without making a combined copy,
+carrying odd bytes across slice boundaries. IPv4 reserves the final packet
+size and Ethernet reserves padding space upfront.
+
+`patches/scarlet/xhci-worker-batching.patch` retains the controller scratch
+vector's capacity across wakes and permits up to four consecutive bounded
+controller passes before a voluntary yield. A drained worker still sleeps
+through the existing waker; controller references and locks are released
+before sleeping or yielding. Per-pass event/TX budgets, deferred interrupt
+completion, IRQ re-enable ordering and the waker implementation are unchanged.
+
+`python3 tests/test-network-packet-allocation.py` executes seven packet tests
+and five tests of the extracted worker loop. The host allocation counter
+observed **26→0 allocations** for the ordinary TCP→IPv4→Ethernet metadata
+construction/clone/update sequence and **2→0** for TCP checksum construction.
+This is not the allocation count of an entire TCP receive or ACK path. The
+tests compare baseline/candidate bytes and checksums, exercise odd slice
+boundaries, long values, overflow, independent clones and owned inputs. Worker
+tests check idle sleep, work arriving at wait, bounded yields, reference/lock
+release and one scratch allocation across repeated passes. Scheduler, waker
+and controller boundaries are modeled; physical performance remains unverified.
+
+Build the candidate using the preceding copy-candidate command, adding these
+two core patches after `xhci-ncm-rx-lock-scope.patch` and using output
+`.scarlet/usb-network-hotpath-candidate`. The experimental global-allocator
+profiling patch is not part of this candidate. Validation artifacts are under
+`.cache/network-perf/network-hotpath/`.
 
 ## Primary implementation references
 

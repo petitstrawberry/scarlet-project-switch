@@ -1,0 +1,66 @@
+diff --git a/kernel/src/drivers/usb/xhci/mod.rs b/kernel/src/drivers/usb/xhci/mod.rs
+--- a/kernel/src/drivers/usb/xhci/mod.rs
++++ b/kernel/src/drivers/usb/xhci/mod.rs
+@@ -7680,33 +7680,42 @@
+     XHCI_WORKER_CONTROLLERS.call_once(|| IrqSpinLock::new(Vec::new()))
+ }
+ 
++// Keep a bounded burst of IRQ/TX work on the worker before a voluntary yield.
++// Waiting when drained remains interrupt-driven; this is not an idle poll.
++const XHCI_WORKER_PASS_BUDGET: usize = 4;
++
+ fn xhci_worker_entry() {
++    // Preserve allocation capacity across wakes. Strong controller references
++    // are still released before either sleeping or yielding.
++    let mut controllers = Vec::new();
++    let mut consecutive_passes = 0;
+     loop {
+-        let controllers = {
++        {
+             let mut registered = xhci_worker_controllers().lock();
+-            let mut live = Vec::with_capacity(registered.len());
+             registered.retain(|weak| {
+                 if let Some(controller) = weak.upgrade() {
+-                    live.push(controller);
++                    controllers.push(controller);
+                     true
+                 } else {
+                     false
+                 }
+             });
+-            live
+-        };
++        }
+ 
+         let mut processed = false;
+-        for controller in controllers {
++        for controller in &controllers {
+             processed |= controller.process_deferred_interrupt_work();
+         }
++        controllers.clear();
+         if processed {
+-            // A level-triggered controller can immediately assert another
+-            // interrupt after its deferred token is completed. Yield between
+-            // bounded event-ring passes so a continuously busy endpoint cannot
+-            // monopolize the CPU that also runs its protocol and user tasks.
+-            // `process_deferred_interrupt_work` has returned with every xHCI
+-            // lock released, so this is a safe scheduling point.
++            consecutive_passes += 1;
++            if consecutive_passes < XHCI_WORKER_PASS_BUDGET {
++                continue;
++            }
++            // Event/TX batches are individually bounded. Cap consecutive
++            // passes too, so continuously active endpoints cannot starve
++            // protocol tasks. All controller/registry locks are released.
++            consecutive_passes = 0;
+             let Some(task) = crate::task::mytask() else {
+                 crate::arch::instruction::idle();
+             };
+@@ -7714,6 +7723,7 @@
+             continue;
+         }
+ 
++        consecutive_passes = 0;
+         let Some(task) = crate::task::mytask() else {
+             crate::arch::instruction::idle();
+         };
