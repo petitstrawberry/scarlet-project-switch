@@ -771,6 +771,68 @@ two core patches after `xhci-ncm-rx-lock-scope.patch` and using output
 profiling patch is not part of this candidate. Validation artifacts are under
 `.cache/network-perf/network-hotpath/`.
 
+## Batch NCM transfers directly in DMA buffers
+
+The hotpath candidate completed a single bounded 8 MiB transfer per direction
+at **135.57 Mbps Mac→Switch / 106.61 Mbps Switch→Mac**, versus the earlier
+71.25/66.99 Mbps no-video observation. Both byte receipts matched; the reverse
+payload was also checked on the Mac. This is a historical comparison, not a
+controlled repeated A/B test or attribution to one patch. Type-C task CPU time
+did not advance during these captures. The boot log included a CPU1 online
+timeout followed by 4/4 CPUs online and a USB disconnect/reconnect; their
+causes are not established. Receipts and limitations are in
+`.cache/network-perf/network-hotpath/physical-summary.json`.
+
+`patches/scarlet/ncm-dma-batching.patch` addresses the remaining NCM copies and
+per-frame USB requests in both directions:
+
+- TX transfers ownership of Ethernet frames into the existing bounded queue.
+  The worker takes a FIFO batch of already queued frames, limited by the
+  device's NTB byte/alignment/datagram constraints and a host cap of 16 frames.
+  It builds that NTB directly in an idle DMA buffer, initializes transmitted
+  padding, and cleans only the published prefix before ring publication.
+  A single frame is sent immediately; aggregation adds no polling or timer.
+  NTB sequence numbers advance per block. Completion/error counts account
+  for every frame in the batch, and packet references are freed outside the
+  registry lock. The eight-buffer pipeline and bounded per-pass work remain.
+- RX parses the completed DMA slice before requeue and copies each frame once
+  into its independently owned `DevicePacket`. The intermediate whole-NTB
+  allocation/copy is removed. Cache invalidation and full-buffer preparation
+  before device reuse remain; no borrowed DMA data escapes to the stack.
+  Queued interface names use `Arc<str>` allocated at device construction.
+  The receive queue reserves its bounded capacity once and releases rejected
+  frames/the input list after the IRQ lock is released.
+
+This changes the internal source interface `CdcNcmTransport::enqueue_ntb` to
+`enqueue_frame(DevicePacket)`. The pinned tree's sole transport is xHCI and
+is updated with the class driver. External transports must adapt to the new
+owned-frame contract; the network-device/socket API is unchanged. TX restore
+and publication additionally compare device Arc identity, preventing a
+reused slot from acquiring an old generation's DMA buffer.
+
+Linux's `cdc_ncm_fill_tx_frame` similarly aggregates Ethernet datagrams into
+NTBs and accounts per-frame statistics; its timer policy is not copied here.
+See [Linux CDC-NCM](https://github.com/torvalds/linux/blob/master/drivers/net/usb/cdc_ncm.c).
+
+Run `python3 tests/test-ncm-dma-batching.py`. It applies the full patch series
+in a temporary pinned clone and executes 12 encoding/receive-queue tests plus
+21 ownership tests. Actual production encoder/parser, RX claim/requeue,
+TX enqueue/batch/submission/completion and ring code are extracted. IRQ/cache,
+DMA allocation, scheduler wake and device callbacks are modeled; the parser
+is separately exercised against reused buffers and malformed input. Tests
+cover short packets, device limits, varied alignment/remainders, FIFO splitting,
+queue/depth limits, generation replacement and disconnect during encoding,
+completion accounting and cache-before-publication ordering. Ten 1514-byte
+frames form one 15248-byte NTB with **zero encoder allocations**; an already
+allocated RX queue accepts 32 packets with **zero new allocations**. These
+counts exclude creation of Ethernet frames and RX frame copies.
+
+Build using the hotpath patch list with `ncm-dma-batching.patch` last, retaining
+`linux-imod-policy.patch`, and output
+`.scarlet/usb-ncm-dma-candidate`. Evidence is under
+`.cache/network-perf/ncm-tx-batch/`. Physical throughput and stability of this
+new DMA candidate are not yet verified.
+
 ## Primary implementation references
 
 - [Linux Tegra xHCI](https://github.com/torvalds/linux/blob/70293240c5ce675a67bfc48f419b093023b862b3/drivers/usb/host/xhci-tegra.c)
