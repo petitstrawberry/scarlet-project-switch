@@ -15,6 +15,7 @@ python3 tests/qemu-smoke.py --kernel
 python3 tests/host-tools.py
 python3 tests/project-sources.py
 python3 tests/switchvisor-package.py
+python3 tests/start-switchvisor.py
 python3 tests/isa-audit.py
 python3 tests/check-isa.py
 ```
