@@ -34,6 +34,10 @@ Scarlet bundle instead of a Git source, change that bundle layer in
 
 ## Build
 
+The kernel and all board drivers use the same committed Scarlet Git revision.
+Common kernel fixes are maintained in Scarlet; this project does not apply
+local kernel patches. See [USB/network integration](usb.md#build-and-checks).
+
 Run from the repository root:
 
 ```sh

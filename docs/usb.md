@@ -273,9 +273,10 @@ and ordinary unpowered OTG are separate paths; validate each on hardware.
 
 ## Common xHCI correction
 
-[The board patch](../patches/scarlet/xhci-cooperative-waits.patch) changes the
-still-pinned Scarlet `6fa4a4ac2c4a1b05034057b16f614736a44344b2` core. EP0
-finishes fallible data-buffer DMA mapping before changing its transfer ring.
+The common xHCI corrections are integrated into
+[Scarlet `cfe8b57b`](https://github.com/petitstrawberry/Scarlet/commit/cfe8b57bca7d3407e108c3cdf43e0a9fd7dac030),
+which is the Switch kernel and board-driver dependency pin. EP0 finishes
+fallible data-buffer DMA mapping before changing its transfer ring.
 It stages the complete Setup/Data/Status transfer descriptor with the first
 TRB's cycle bit withheld, synchronizes the ring, then publishes that first
 cycle bit before ringing the doorbell. This follows Linux's
@@ -294,7 +295,7 @@ polling. Successful Address Device completion also leaves a cooperative
 
 Failure diagnostics copy bounded ring and endpoint snapshots before printing,
 so printing does not hold those guards. The global `PrintGuard` still prints
-synchronously; these changes do not guarantee interrupt latency. The patch
+synchronously; these changes do not guarantee interrupt latency. This implementation
 does not add the serialized initial `RESET_SSPI` hook described above.
 
 ## Hardware bring-up status
@@ -335,8 +336,8 @@ IRQ66 had zero deliveries. The captured logs have no `FW_HANG` report. There
 is no post-freeze stack or physical PK4 pad readback, so the freeze cause
 and the relationship to Type-C CPU use remain unproven.
 
-[The TCP registry patch](../patches/scarlet/tcp-registry-drop-order.patch)
-addresses a separately reproduced deadlock in the pinned core: a temporary
+The TCP registry fix, now maintained in Scarlet,
+addresses a separately reproduced deadlock in the earlier core: a temporary
 last-owner `Arc<TcpSocket>` could drop while `port_map` was locked, and its
 destructor re-entered that same registry. Lookups now snapshot weak entries
 before upgrading; registration retains temporary strong owners until the
@@ -345,27 +346,20 @@ the last-owner failure, and 26 filtered Cortex-A57 QEMU TCP cases passed,
 including two new registry regressions. These are not a reproduction of the
 reported physical freeze; the combined candidate passed build validation.
 
-Two additional common-core patches address bounded network service and lock
-scope. [The xHCI fairness patch](../patches/scarlet/xhci-network-fairness.patch)
+Two additional common-core fixes address bounded network service and lock
+scope. The xHCI fairness change
 serves queued NCM transmit work before deferring another full receive-event
 pass. The existing limits remain 256 events per pass, 32 transmit attempts and
 eight in-flight transfers per NIC. Interrupt masking and deferred interrupt
-token ownership are unchanged. [The TCP statistics patch](../patches/scarlet/tcp-rx-stats-lock-scope.patch)
+token ownership are unchanged. The TCP statistics fix
 releases the statistics guard immediately after updating its counters, before
 socket lookup, payload processing and ACK transmission. These changes do not
 add periodic packet polling or change TCP protocol/window behavior.
 
-Run the focused regressions from the repository root:
-
-```sh
-python3 tests/test-xhci-network-fairness.py
-python3 tests/test-tcp-rx-stats.py
-```
-
-The tests extract the production method bodies from the pinned core and
-reproduce the old paths before checking the patches. MMIO, DMA, locks and
-IRQ boundaries are modeled; the tests establish control flow and guard
-lifetime, not physical throughput. Measure finite raw TCP transfers in both
+These historical tests established control flow and guard lifetime, with
+MMIO, DMA, locks and IRQ boundaries modeled. The upstream integration and
+current regression command are described [below](#build-and-checks).
+Measure finite raw TCP transfers in both
 directions with receiver-confirmed byte counts, alongside task CPU time and
 IRQ counters. SSH encryption, terminal forwarding and storage add costs and
 should be measured separately.
@@ -392,469 +386,94 @@ separate from the positive USB/PD observations.
 
 ## Build and checks
 
-Build the console normally with [the console instructions](console.md).
-That path keeps the project kernel pin unchanged. To build the reviewed
-common-core correction with the current GPIO/event board driver after a
-normal package/cache has been prepared, run from the repository root:
+All common-kernel changes live in
+[Scarlet `cfe8b57b`](https://github.com/petitstrawberry/Scarlet/commit/cfe8b57bca7d3407e108c3cdf43e0a9fd7dac030).
+The Switch project and all 14 board drivers refer to that same Git revision,
+including `scarlet-abi`. There is no local kernel patch series, patched-core
+builder, or build-time kernel source override. Future common-kernel changes
+belong in Scarlet; update the Git pins after committing them there.
+
+Build normally using [the console instructions](console.md):
 
 ```sh
-nix develop --command python3 scripts/build-patched-usb.py \
-  --core-patch patches/scarlet/tcp-registry-drop-order.patch \
-  --core-patch patches/scarlet/xhci-network-fairness.patch \
-  --core-patch patches/scarlet/tcp-rx-stats-lock-scope.patch \
-  --output projects/aarch64-switch-l4t-console/.scarlet/usb-network-candidate
+nix develop --command cargo scarlet build \
+  --project projects/aarch64-switch-l4t-console --release
 ```
 
-[The candidate builder](../scripts/build-patched-usb.py) leaves the shared
-cached Scarlet source, production package and project manifests/locks intact.
-It applies the xHCI patch and optional `--core-patch` files to a temporary
-clone and uses one path source for both `scarlet` and `scarlet-abi`. Optional
-`--board-patch` files apply only to an isolated copy of `drivers/`; the
-generated project resolves the covered driver modules to that copy. Board patches
-cannot address the shared dependencies. The temporary core, board copy,
-BSP and target are removed after validation.
-It requires the existing offline Cargo cache and eight-payload
-`.scarlet/l4t` package at the pinned base revision. Its separate output is
-`projects/aarch64-switch-l4t-console/.scarlet/usb-xhci-candidate` by default
-(`--output` selects another directory). The eight boot payloads retain six
-existing files and replace `Image`/`uImage`; the manifest and build receipt
-record the base revision, every applied core/board patch's SHA-256 and the
-retained kernel ELF's hash. The build receipt also records modified core/board
-source hashes and original/effective board-module inputs. Earlier xHCI/GPIO
-candidates passed their builds and Cortex-A57 ISA audits; the combined
-regression candidate also passed both.
+`cargo scarlet image` also rebuilds the images and packages the boot files.
+The board driver selects the validated 40 µs interrupt moderation interval
+in `drivers/usb/tegra210-xusb/src/runtime.rs`; common xHCI retains its platform
+configuration API and default policy for other boards.
 
-The board driver can also be checked separately:
+The 62 network regression tests are maintained in Scarlet and extract the
+production methods directly. With the sibling checkout at the pinned revision:
+
+```sh
+python3 tests/test-upstream-network.py --core ../Scarlet
+```
+
+Or run `python3 tools/test-network-regression.py` inside Scarlet. The suites
+cover NTB encoding/alignment, allocation counts, DMA ownership, generation
+replacement, completion accounting, bounded worker passes and TCP bulk reads.
+IRQ/cache/scheduler behavior is modeled; physical throughput and long-running
+stability require hardware checks. The older patch-application runners and
+copied host harnesses have been removed from this repository.
+
+The board driver checks remain:
 
 ```sh
 cargo check --manifest-path drivers/usb/tegra210-xusb/Cargo.toml \
   --target aarch64-unknown-none
 cargo test --manifest-path drivers/usb/tegra210-xusb/Cargo.toml \
   --target aarch64-apple-darwin
-cargo test --manifest-path drivers/soc/tegra210/Cargo.toml \
-  --target aarch64-apple-darwin
-cargo test --manifest-path drivers/rtc/max77620/Cargo.toml \
-  --target aarch64-apple-darwin
 ```
 
-Use the installed host triple instead of `aarch64-apple-darwin` on another
-development machine. The host tests exercise firmware parsing/boot protocol,
-mailbox values, Linux USB-C initialization, Type-C source policy, PDO/RDO
-selection, command/contract freshness, charger work, PHY sequencing, CAR
-bank isolation, shared tracking-clock guards and PMIC supply checks.
-Mailbox tests cover bounded IRQ replies, deferred ownership and online-CPU
-placement. Integrated powered-hub tests exercise host publication after
-DR_SWAP, delayed charging after a stalled swap, bounded read-only recovery
-and rejection of observed fault, role, cable or contract changes.
-GPIO host tests cover bank/pin routing, owned-pin masking/acknowledgment and
-assertions around rearm; policy tests cover alert draining and finite
-deadlines with no detached/completed periodic timer. The GPIO/event candidate
-passed its target build and Cortex-A57 ISA audit. A separate Cortex-A57 QEMU
-fixture exercised the actual common-core `Waker`: indefinite idle stayed
-blocked until one timer-IRQ callback, finite deadlines expired, and IRQ
-notifications before and after waiter registration were consumed correctly.
-It did not execute the board runtime or physical GPIO delivery. The current
-physical snapshots support idle behavior and bounded NIC traffic as described
-above; GPIO84 alert delivery, detach latency and sustained peripheral traffic
-remain unverified.
-The PMIC tests cover FPS-controlled rails and ensure shared or live supplies
-are never rewritten. They do not emulate
-Tegra hardware. A full console kernel link checks integration and the
-Cortex-A57 target; QEMU does not validate these physical USB peripherals.
+Use your host triple for the host tests. The platform-probe QEMU fixture is
+independent: `python3 tests/test-usb-probe.py` retains its historical base pin
+and tests firmware PHY ownership rather than the network runtime.
 
-The common-core candidate passed ten host tests of the actual ring code and
-two extracted wait-policy tests. Its Cortex-A57 QEMU kernel run completed
-46 xHCI cases, but the full suite failed later in
-`test_lazy_mapping_and_unmapping` with a direct-map memory-attribute conflict.
-The untouched pinned baseline reproduced that same failure and source
-location. Host cache visibility is a model, not proof of Arm DMA ordering;
-wait-policy tests alone do not establish scheduler fairness or USB operation.
-An independent synthetic-MMIO QEMU fixture exercised the real command wait
-and contention gate on the same CPU. Both calls timed out as expected at
-approximately 5 and 10 seconds while blocked tasks, heartbeat progress and
-timer IRQs were observed. The fixture emulates initial controller reset;
-it does not validate every wait site or physical USB operation.
+## Network runtime and physical observations
 
-Inside `nix develop`, run `python3 tests/test-usb-probe.py` to exercise the
-pinned kernel's real platform pre-probe path in QEMU. A mock driver verifies
-that standard `phys` without a provider defers before the driver is called,
-while the private binding reaches the driver with both lane phandles and
-PHY names intact. Logs are retained in `.cache/usb-probe-qa`; the temporary
-build project is removed.
+Scarlet now contains the cooperative xHCI waits and complete-TD publication,
+TCP registry/drop-order and receive stats fixes, bounded worker passes, bulk
+TCP drains, DMA RX parsing outside the registry lock, inline packet metadata,
+and NCM TX batching directly into reusable DMA buffers. Receive packets own
+one copy of their frame; the intermediate whole-NTB copy is removed. Interface
+names share an `Arc<str>`, and queue overflow frees happen outside the IRQ lock.
+TX batches respect device byte/alignment/datagram limits with a host cap of 16
+frames. An isolated frame is sent immediately, with no aggregation timer.
 
-For a hardware check, boot the direct SD entry and collect UART output
-independently of the USB-C port under test. Start with one keyboard and one
-mouse through the OTG adapter, then try a hub and the existing NIC. Confirm
-input events and actual network traffic, not just driver registration. Check
-cold boot with a device attached, attach after boot, repeated unplug/replug,
-and both USB-C orientations. Use a known SuperSpeed device and cable to
-check the negotiated link speed separately from HID's USB2 operation.
-After unplugging, check that the system remains responsive and charging
-behavior recovers. Retain any `tegra210-xusb:` startup, mailbox or USB-C
-failure messages with the cable/device configuration used.
+The common source files in this upstream commit match the hardware-tested
+`21e686f` Switch candidate exactly. The migration changes source provenance,
+not the networking behavior observed in that candidate.
 
-For the freeze regression, retain the PK4 before/after pad and GPIO lines and
-any `GPIO84 remains asserted` report, plus timestamped `/proc/interrupts`,
-task CPU/state snapshots and UART output. Repeated SSH connection/close and
-NIC traffic checks must keep the kernel, display and Joy-Con input responsive.
-Keep those bounded checks distinct from long-term stability and from the
-earlier capture taken before the freeze.
+One 8 MiB transfer per direction, with profiling disabled, completed at
+**134.87 Mbps Mac→Switch / 116.44 Mbps Switch→Mac**. The preceding candidate
+measured 135.57/106.61 Mbps. These are single observations across boots, not a
+controlled A/B comparison. Receive throughput is effectively unchanged and
+its bottleneck remains unresolved. Both exact byte receipts passed, and the
+reverse payload was content-checked. Type-C CPU time did not advance during
+the captures. The boot log reports four CPUs online, SuperSpeed, a 1 Gbps NIC
+link and `IMOD=0xa0`.
 
-For a bounded snapshot, replace the address below with the Switch's current
-NIC address and repeat connection/close checks while retaining UART output:
+One separate bounded sampled diagnostic pair recorded 62.42 µs average in
+TCP receive, 66.86 µs in enclosing stack dispatch, 8.79 µs in NCM parsing,
+and 7.61 µs in RX requeue during Mac→Switch. Per-packet queue wait averaged
+2.10 ms. These wall times include preemption, overlapping stages and background
+traffic; do not sum them or interpret them as exclusive CPU cost. Whole-NTB RX
+copy and intermediate TX copy counters remained zero. RX errors, queue drops
+and TX queue-full counters were zero in both diagnostic directions. During
+receive, 6341 queued TX frames used 2742 NTB builds, confirming aggregation.
+The synchronous per-packet TCP ACK send path remains an investigation target,
+not yet an isolated measured cause.
 
-```sh
-ssh -o ConnectTimeout=5 -o ServerAliveInterval=2 -o ServerAliveCountMax=2 \
-  root@192.168.0.35 'cat /proc/interrupts'
-ssh -o ConnectTimeout=5 -o ServerAliveInterval=2 -o ServerAliveCountMax=2 \
-  root@192.168.0.35 'ps'
-```
-
-Use separate remote commands: the current native shell does not support
-semicolon-separated commands. Capture `/dev/kmsg` with a bounded one-read
-reader from a fresh handle; it is a point-in-time snapshot, and an empty log
-can block the first read. The native `kmsg-snapshot` diagnostic helper used
-for this run accepts a path, including `/dev/video0`. That status device
-does not reach EOF, so `cat /dev/video0` would keep reading.
-
-For descriptor stalls, retain mailbox command/data, ACK/NAK reply, owner
-transitions, service path and duration together with the CPU placement of
-the host, xHCI, Type-C and mailbox workers. `latest_irq_age_us` records the
-latest observed IRQ's age at service start; `service_us` records service
-duration. IRQs can coalesce and sequence gaps show overwritten trace reports,
-so the age is not a per-request interrupt-to-reply latency measurement. For
-I2C failures, retain the timeout stage and raw configuration/load,
-normal/packet status, interrupt and FIFO registers. Record PHY transitions, PD phase/contract,
-`FW_HANG` raw diagnostics and xHCI port/event-ring state on the same timeline.
-A link-up message or hub descriptor does not validate keyboard/mouse
-registration or NIC traffic; test those separately.
-
-If an attached hub remains unpowered or startup stays at `waiting for a
-USB-C host connection`, collect the `USB-C STATUS1`, decoded role and
-`CONFIG1`/`SYS1`/`SYS2`/`SYS3` and `BQ00`/`BQ01`/`BQ05`/`BQ08` lines.
-The monitor records them initially, on
-status changes, and when serviced events/deadlines reach the diagnostic
-interval. Stable idle does not run a periodic timer just for these logs.
-`boost-request` reports the source policy; BQ01 bits 5:4 report the programmed
-charger mode, and BQ08 bits 7:6 equal to 3 indicate actual boost operation
-([TI bq24193 datasheet, section 8.5.1.9](https://www.ti.com/lit/ds/symlink/bq24193.pdf)).
-Those diagnostic reads do not consume BM92T alerts or the charger's latched
-fault register. The source and PD policies own read-clear alerts. The PD
-policy records its phase, requested power and completion/failure under `PD`.
-State whether the hub's PD input had a charger attached. Waiting
-with no peripheral or only a power adapter does not validate host startup.
-
-The firmware is embedded unchanged; its license is installed in the
-initramfs and rootfs at `/usr/share/licenses/tegra210-xusb/LICENCE.nvidia`.
-See [firmware provenance](../drivers/usb/tegra210-xusb/firmware/README.md).
-
-## Network timing diagnostics
-
-The physical NIC reports a 1Gbps link and enumerates at SuperSpeed, but three
-bounded 8MiB TCP runs with the network candidate measured median receive/send
-rates of 70.4/66.7Mbps. Type-C and mailbox task CPU counters did not grow during
-the measured traffic; xHCI and NCM receive work did. These observations do not
-establish the remaining bottleneck or an isolated before/after improvement.
-
-`patches/scarlet/network-stage-profile.patch` adds opt-in `/dev/net_profile`
-diagnostics after the cooperative-wait, TCP registry-drop, xHCI fairness and
-TCP statistics-lock patches. It leaves traffic, DMA/cache operations and IRQ
-policy unchanged. The xHCI startup readback also records the current `IMOD`
-value without programming it.
-
-Profiling starts disabled. One complete write of ASCII `0` or `1`, optionally
-followed by one newline, disables or enables new observations. Counters are
-cumulative and are never reset. Collect snapshots in one bounded large read;
-position zero refreshes the shared diagnostic snapshot. Count and byte fields
-cover all enabled calls. Timing samples every sixteenth stage call and reports
-its actual `TIMED_CALLS`, `TIMED_BYTES`, `TIMED_CAPACITY` and `TIMED_NS`.
-
-Stages separate xHCI RX invalidation/copy/requeue, TX copy/cache clean, NCM
-parse/enqueue/queue residence/framing, network dispatch, TCP receive and socket
-receive-buffer drain. Timings include preemption and any lock waits inside
-their spans; nested dispatch/TCP spans and queue residence must not be added
-together. Snapshots use independent relaxed loads, and in-flight samples may
-finish after disable. Compare the same transfer with profiling off and on to
-measure instrumentation overhead, then disable on cleanup.
-
-`python3 tests/test-network-stage-profile.py` executes twenty host tests using
-the production profiler/device, NCM parser/queue paths and xHCI TX/fairness
-methods. RX cache and TCP integration sites are source checks, while MMIO,
-DMA/cache and scheduling boundaries are modeled. These tests and the linked
-Cortex-A57 build do not establish physical timing or a throughput improvement.
-
-The diagnostic kernel's 2026-10-10 boot confirmed the same NIC at SuperSpeed
-with a 1Gbps link and read back `IMOD=0xfa0`. Two sequential off/on pairs of
-receiver-confirmed 8MiB transfers produced these median rates:
-
-| Profiling | Mac → Switch | Switch → Mac |
-|---|---:|---:|
-| Disabled | 70.92Mbps | 63.73Mbps |
-| Enabled | 70.28Mbps | 63.60Mbps |
-
-Type-C and mailbox CPU counters did not grow in any of the eight direction
-intervals. All four runs removed their helpers and verified profiling was
-disabled on cleanup. Frequency and background tasks were not controlled;
-two sequential pairs do not establish an instrumentation overhead bound.
-
-Across the two enabled receive runs, sampled TCP receive spans averaged
-141.4µs over 767 samples, nested inside 144.1µs network-dispatch spans over
-769 samples. NCM queue residence averaged 5.657ms per sampled packet;
-receive-buffer drain averaged 22.86µs over 624 samples. RX copy, invalidation
-and requeue spans averaged 3.041/1.631/4.824µs. These are sampled wall times,
-including preemption and lock waits, not CPU usage; overlapping spans and
-per-packet queue residence must not be summed. The global snapshot intervals
-also include diagnostic SSH and background traffic. RX error/drop, TX queue
-full and full xHCI event-budget counters did not increase, while NCM reached
-its receive-pass budget 173 times. None of these observations identifies one
-exclusive bottleneck.
-
-## Tegra interrupt moderation candidate
-
-The earlier diagnostic boot's `IMOD` low bits `0xfa0` encode
-4,000 × 250ns = 1ms. This is a minimum interval between controller interrupts,
-not a software sleep per packet. Pinned Switchroot Linux 4.9 explicitly sets
-160 ticks (`0xa0`), or
-40µs, before enabling the interrupter: [runtime policy](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/usb/host/xhci.c#L644)
-and [IMOD register units](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/usb/host/xhci.h#L495).
-
-[The common-core patch](../patches/scarlet/tegra-xhci-interrupt-moderation.patch)
-adds an optional platform interval in nanoseconds. It programs only the low
-16 bits after controller reset and event-ring publication, before enabling
-interrupter 0, preserving the upper hardware counter. The existing generic
-and PCI bindings retain their previous behavior. [The board patch](../patches/tegra210-xusb/linux-imod-policy.patch)
-requests 40,000ns only from Tegra210. Both patches are required to activate
-the policy; the normal console project remains compatible with its pinned
-core API.
-
-Build the isolated candidate with the existing network corrections and
-diagnostics:
-
-```sh
-nix develop --command python3 scripts/build-patched-usb.py \
-  --core-patch patches/scarlet/tcp-registry-drop-order.patch \
-  --core-patch patches/scarlet/xhci-network-fairness.patch \
-  --core-patch patches/scarlet/tcp-rx-stats-lock-scope.patch \
-  --core-patch patches/scarlet/network-stage-profile.patch \
-  --core-patch patches/scarlet/tegra-xhci-interrupt-moderation.patch \
-  --board-patch patches/tegra210-xusb/linux-imod-policy.patch \
-  --output projects/aarch64-switch-l4t-console/.scarlet/usb-imod-candidate
-```
-
-`python3 tests/test-tegra-xhci-interrupt-moderation.py` passed 13 host cases:
-three baseline and ten patched cases executing extracted production binding,
-initialization and MMIO-update paths. They check interval conversion/range,
-upper-counter preservation, unchanged default traces and update ordering.
-Reset, DMA, IRQ and scheduling boundaries are modeled.
-
-The moderation candidate's fresh physical boot confirmed `IMOD` low bits
-`0xa0`, the NIC's SuperSpeed enumeration and 1Gbps link, and `/dev/gpu0`.
-Four receiver-confirmed 8MiB runs, comprising two off/on pairs, passed and
-removed their helpers with profiling disabled on cleanup. Their median
-receive/send rates did not demonstrate a throughput improvement:
-
-| Controller interval | Profiling | Mac → Switch | Switch → Mac |
-|---|---|---:|---:|
-| Earlier 1ms | Disabled | 70.92Mbps | 63.73Mbps |
-| Candidate 40µs | Disabled | 69.34Mbps | 63.52Mbps |
-| Earlier 1ms | Enabled | 70.28Mbps | 63.60Mbps |
-| Candidate 40µs | Enabled | 70.93Mbps | 64.47Mbps |
-
-Type-C and mailbox CPU counters stayed unchanged in all eight new direction
-intervals; xHCI and NCM counters grew. CPU-frequency snapshots before and
-after the runs reported 1,017,600kHz, which does not establish a fixed clock
-throughout the transfers. Background work and clock behavior were not
-controlled across boots. The earlier measurements have no matching IRQ
-brackets, so they cannot establish a change in interrupt cost. The candidate
-matches the pinned Linux policy; it is not a demonstrated performance fix
-and does not identify the cause of the remaining low throughput.
-
-## TCP drain and USB receive copy candidate
-
-The next isolated candidate retains the 40µs policy and adds two receive-path
-changes. [TCP bulk drain](../patches/scarlet/tcp-bulk-receive-drain.patch)
-copies the receive deque's one or two contiguous slices into the caller's
-buffer, then drains that prefix. It replaces the per-byte `pop_front` loops
-in both receive methods while preserving the receive guard, state/error
-checks, waker registration and window-update ACK ordering. ACK submission
-still occurs after the receive guard and drain profile span are dropped.
-
-[The xHCI NCM RX patch](../patches/scarlet/xhci-ncm-rx-lock-scope.patch)
-claims the exact completed request under the controller registry guard, then
-invalidates its DMA buffer, copies the received NTB and prepares the full
-allocation for the next device write outside that guard. Before requeueing,
-it reacquires the guard and checks the captured device's `Arc` identity,
-endpoint DCI, transfer size and attachment state. Ring publication and
-in-flight ownership publication remain under the same guard. The RX pool
-depth remains eight; the owned NTB copy and full cache preparation remain.
-
-`XhciRxRequeue` timing now includes registry reacquisition and publication,
-as well as cache preparation. Its earlier and new elapsed means therefore
-have different scopes and cannot be compared directly. The existing
-post-unlock doorbell window and delivery to the captured device after a
-disconnect remain; these changes do not establish general hotplug safety.
-
-Build with the existing full patch chain:
-
-```sh
-nix develop --command python3 scripts/build-patched-usb.py \
-  --core-patch patches/scarlet/tcp-registry-drop-order.patch \
-  --core-patch patches/scarlet/xhci-network-fairness.patch \
-  --core-patch patches/scarlet/tcp-rx-stats-lock-scope.patch \
-  --core-patch patches/scarlet/network-stage-profile.patch \
-  --core-patch patches/scarlet/tegra-xhci-interrupt-moderation.patch \
-  --core-patch patches/scarlet/tcp-bulk-receive-drain.patch \
-  --core-patch patches/scarlet/xhci-ncm-rx-lock-scope.patch \
-  --board-patch patches/tegra210-xusb/linux-imod-policy.patch \
-  --output projects/aarch64-switch-l4t-console/.scarlet/usb-network-copy-candidate
-```
-
-`python3 tests/test-tcp-bulk-receive-drain.py` passed 17 cases on each of the
-extracted baseline and patched production receive methods, including wrapped
-FIFO reads, untouched output tails, EOF/errors, window ACK ordering and
-waker/wait boundaries. `python3 tests/test-xhci-ncm-rx-lock-scope.py` passed
-14 cases executing the production RX claim/completion paths, TX enqueue and
-ring methods. They cover ACK enqueue during unlocked preparation, exact
-ownership across ring wrap, failed/short completions, detach, slot reuse and
-changed endpoint/size rejection. IRQ masking, DMA/cache, scheduling and
-device callbacks are modeled. These host checks do not establish physical
-coherency, throughput improvement or the remaining bottleneck. Physical
-comparison did not establish an overall throughput improvement. After closing
-video playback, an 8 MiB transfer in each direction delivered 71.25/66.99 Mbps
-with profiling off and 70.78/67.54 Mbps with profiling on (Mac→Switch / reverse).
-The sampled receive-buffer drain fell to about 1µs, while TCP receive still
-averaged about 143µs in the first captured receive phase. These nested sampled
-wall spans are not CPU time. A separate enabled run failed partway through TX
-at 7,553,024 of 8,388,608 bytes; its incomplete pair is excluded from successful
-rate comparisons. Later captures while video playback was active are also
-not equivalent idle comparisons. Every run verified helper cleanup and
-profiling disabled. Evidence is under `.cache/network-perf/network-copy/`.
-
-## Remove per-packet allocation and worker scheduling overhead
-
-`patches/scarlet/network-packet-allocation.patch` removes heap allocation from
-short routing metadata and TCP checksum construction. `LayerContext` holds
-eight arbitrary keys of up to 24 bytes and values of up to 32 bytes inline;
-larger keys, values, and excess entries retain dynamically sized map storage.
-The key names remain protocol-neutral. `new`, `set`, `get`, `contains`, `Clone`
-and `Default` retain their semantics. Storage is now private: external source
-code using the former public `info` field must migrate to those methods. The
-pinned core and compiled Switch modules use the method API.
-
-TCP and IPv4 serialize fixed headers into arrays internally, while the public
-`to_bytes` methods still return owned vectors. TCP checksums stream over the
-pseudo-header, header, options and payload without making a combined copy,
-carrying odd bytes across slice boundaries. IPv4 reserves the final packet
-size and Ethernet reserves padding space upfront.
-
-`patches/scarlet/xhci-worker-batching.patch` retains the controller scratch
-vector's capacity across wakes and permits up to four consecutive bounded
-controller passes before a voluntary yield. A drained worker still sleeps
-through the existing waker; controller references and locks are released
-before sleeping or yielding. Per-pass event/TX budgets, deferred interrupt
-completion, IRQ re-enable ordering and the waker implementation are unchanged.
-
-`python3 tests/test-network-packet-allocation.py` executes seven packet tests
-and five tests of the extracted worker loop. The host allocation counter
-observed **26→0 allocations** for the ordinary TCP→IPv4→Ethernet metadata
-construction/clone/update sequence and **2→0** for TCP checksum construction.
-This is not the allocation count of an entire TCP receive or ACK path. The
-tests compare baseline/candidate bytes and checksums, exercise odd slice
-boundaries, long values, overflow, independent clones and owned inputs. Worker
-tests check idle sleep, work arriving at wait, bounded yields, reference/lock
-release and one scratch allocation across repeated passes. Scheduler, waker
-and controller boundaries are modeled; physical performance remains unverified.
-
-Build the candidate using the preceding copy-candidate command, adding these
-two core patches after `xhci-ncm-rx-lock-scope.patch` and using output
-`.scarlet/usb-network-hotpath-candidate`. The experimental global-allocator
-profiling patch is not part of this candidate. Validation artifacts are under
-`.cache/network-perf/network-hotpath/`.
-
-## Batch NCM transfers directly in DMA buffers
-
-The hotpath candidate completed a single bounded 8 MiB transfer per direction
-at **135.57 Mbps Mac→Switch / 106.61 Mbps Switch→Mac**, versus the earlier
-71.25/66.99 Mbps no-video observation. Both byte receipts matched; the reverse
-payload was also checked on the Mac. This is a historical comparison, not a
-controlled repeated A/B test or attribution to one patch. Type-C task CPU time
-did not advance during these captures. The boot log included a CPU1 online
-timeout followed by 4/4 CPUs online and a USB disconnect/reconnect; their
-causes are not established. Receipts and limitations are in
-`.cache/network-perf/network-hotpath/physical-summary.json`.
-
-`patches/scarlet/ncm-dma-batching.patch` addresses the remaining NCM copies and
-per-frame USB requests in both directions:
-
-- TX transfers ownership of Ethernet frames into the existing bounded queue.
-  The worker takes a FIFO batch of already queued frames, limited by the
-  device's NTB byte/alignment/datagram constraints and a host cap of 16 frames.
-  It builds that NTB directly in an idle DMA buffer, initializes transmitted
-  padding, and cleans only the published prefix before ring publication.
-  A single frame is sent immediately; aggregation adds no polling or timer.
-  NTB sequence numbers advance per block. Completion/error counts account
-  for every frame in the batch, and packet references are freed outside the
-  registry lock. The eight-buffer pipeline and bounded per-pass work remain.
-- RX parses the completed DMA slice before requeue and copies each frame once
-  into its independently owned `DevicePacket`. The intermediate whole-NTB
-  allocation/copy is removed. Cache invalidation and full-buffer preparation
-  before device reuse remain; no borrowed DMA data escapes to the stack.
-  Queued interface names use `Arc<str>` allocated at device construction.
-  The receive queue reserves its bounded capacity once and releases rejected
-  frames/the input list after the IRQ lock is released.
-
-This changes the internal source interface `CdcNcmTransport::enqueue_ntb` to
-`enqueue_frame(DevicePacket)`. The pinned tree's sole transport is xHCI and
-is updated with the class driver. External transports must adapt to the new
-owned-frame contract; the network-device/socket API is unchanged. TX restore
-and publication additionally compare device Arc identity, preventing a
-reused slot from acquiring an old generation's DMA buffer.
-
-Linux's `cdc_ncm_fill_tx_frame` similarly aggregates Ethernet datagrams into
-NTBs and accounts per-frame statistics; its timer policy is not copied here.
-See [Linux CDC-NCM](https://github.com/torvalds/linux/blob/master/drivers/net/usb/cdc_ncm.c).
-
-Run `python3 tests/test-ncm-dma-batching.py`. It applies the full patch series
-in a temporary pinned clone and executes 12 encoding/receive-queue tests plus
-21 ownership tests. Actual production encoder/parser, RX claim/requeue,
-TX enqueue/batch/submission/completion and ring code are extracted. IRQ/cache,
-DMA allocation, scheduler wake and device callbacks are modeled; the parser
-is separately exercised against reused buffers and malformed input. Tests
-cover short packets, device limits, varied alignment/remainders, FIFO splitting,
-queue/depth limits, generation replacement and disconnect during encoding,
-completion accounting and cache-before-publication ordering. Ten 1514-byte
-frames form one 15248-byte NTB with **zero encoder allocations**; an already
-allocated RX queue accepts 32 packets with **zero new allocations**. These
-counts exclude creation of Ethernet frames and RX frame copies.
-
-Build using the hotpath patch list with `ncm-dma-batching.patch` last, retaining
-`linux-imod-policy.patch`, and output
-`.scarlet/usb-ncm-dma-candidate`. Evidence is under
-`.cache/network-perf/ncm-tx-batch/`.
-
-The physical candidate `21e686f` completed one 8 MiB transfer per direction
-with profiling disabled: **134.87 Mbps Mac→Switch / 116.44 Mbps Switch→Mac**.
-Both exact byte receipts passed and the reverse payload was content-checked.
-Compared with the preceding 135.57/106.61 Mbps observation, receive throughput
-is effectively unchanged; the receive bottleneck is **not resolved**. These
-are single observations across boots, not a controlled A/B speedup claim.
-The boot capture reports four CPUs online, SuperSpeed, 1 Gbps link, and
-`IMOD=0xa0`. Type-C task CPU time did not advance in either measured interval.
-
-One separate bounded diagnostic pair enabled the existing sampled stage
-counters. For Mac→Switch the sampled means were 62.42 µs in TCP receive,
-66.86 µs in enclosing stack dispatch, 8.79 µs in NCM parsing, and 7.61 µs
-in RX requeue; packet queue wait averaged 2.10 ms. These are wall times
-including preemption, with overlapping stages and background/SSH traffic;
-they must not be summed or interpreted as exclusive CPU cost. Whole-NTB RX
-copy and intermediate TX copy counters remained zero; RX errors, RX queue
-drops, and TX queue-full counts were zero in both diagnostic directions.
-During the receive case, 6341 queued TX frames used 2742 NTB builds, confirming
-aggregation on this hardware. The synchronous per-packet TCP ACK send path
-is a remaining investigation target, not yet an isolated measured cause.
-Profiling was disabled afterward and owned remote helpers/shells were removed.
-See `physical-summary.json`, `verification-off/`, and `stage-diagnostic/`
-under the evidence directory. Long-running stability is not established.
+`/dev/net_profile` is disabled by default. Profiling was disabled after the
+capture and all owned remote helpers/shells were removed. No USB transfer
+wait timeout or Falcon hang signature occurred in the post-transfer log;
+long-running stability is not established. Evidence is preserved in
+`.cache/network-perf/ncm-tx-batch/{physical-summary.json,verification-off/,stage-diagnostic/,post-transfer/}`.
+Earlier candidate receipts remain as historical evidence. Their local patch
+files and build commands are superseded by the upstream integration.
 
 ## Primary implementation references
 

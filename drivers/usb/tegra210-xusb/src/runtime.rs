@@ -25,7 +25,7 @@ use scarlet::{
             resource::{PlatformDeviceResource, PlatformDeviceResourceType},
         },
     },
-    drivers::usb::xhci::bind_xhci_mmio,
+    drivers::usb::xhci::bind_xhci_mmio_with_imod_interval_ns,
     interrupt::{
         InterruptClaim, InterruptId, InterruptResult, register_and_enable_platform_irq_device,
         resolve_platform_irq,
@@ -223,7 +223,8 @@ impl Host {
         // error. Retain platform mappings and firmware for the entire boot
         // once called: resetting its hardware here would race that worker.
         self.bound.store(true, Ordering::Release);
-        bind_xhci_mmio(base, Some(self.xhci_irq), context)?;
+        // Match Switchroot Linux 4.9's 160 x 250 ns moderation interval.
+        bind_xhci_mmio_with_imod_interval_ns(base, Some(self.xhci_irq), context, Some(40_000))?;
         self.send(Message {
             command: mailbox::MESSAGES_ENABLED,
             data: 0,
