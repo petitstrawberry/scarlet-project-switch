@@ -408,17 +408,21 @@ nix develop --command python3 scripts/build-patched-usb.py \
 [The candidate builder](../scripts/build-patched-usb.py) leaves the shared
 cached Scarlet source, production package and project manifests/locks intact.
 It applies the xHCI patch and optional `--core-patch` files to a temporary
-clone and uses one path source for both
-`scarlet` and `scarlet-abi`, then removes the temporary core, BSP and target.
+clone and uses one path source for both `scarlet` and `scarlet-abi`. Optional
+`--board-patch` files apply only to an isolated copy of `drivers/`; the
+generated project resolves the covered driver modules to that copy. Board patches
+cannot address the shared dependencies. The temporary core, board copy,
+BSP and target are removed after validation.
 It requires the existing offline Cargo cache and eight-payload
 `.scarlet/l4t` package at the pinned base revision. Its separate output is
 `projects/aarch64-switch-l4t-console/.scarlet/usb-xhci-candidate` by default
 (`--output` selects another directory). The eight boot payloads retain six
 existing files and replace `Image`/`uImage`; the manifest and build receipt
-record the base revision, every applied patch's SHA-256 and the retained
-kernel ELF's hash. The build receipt also records modified core-source hashes
-and board-module inputs. Earlier xHCI/GPIO candidates passed their builds and
-Cortex-A57 ISA audits; the combined regression candidate also passed both.
+record the base revision, every applied core/board patch's SHA-256 and the
+retained kernel ELF's hash. The build receipt also records modified core/board
+source hashes and original/effective board-module inputs. Earlier xHCI/GPIO
+candidates passed their builds and Cortex-A57 ISA audits; the combined
+regression candidate also passed both.
 
 The board driver can also be checked separately:
 
@@ -578,6 +582,73 @@ the production profiler/device, NCM parser/queue paths and xHCI TX/fairness
 methods. RX cache and TCP integration sites are source checks, while MMIO,
 DMA/cache and scheduling boundaries are modeled. These tests and the linked
 Cortex-A57 build do not establish physical timing or a throughput improvement.
+
+The diagnostic kernel's 2026-10-10 boot confirmed the same NIC at SuperSpeed
+with a 1Gbps link and read back `IMOD=0xfa0`. Two sequential off/on pairs of
+receiver-confirmed 8MiB transfers produced these median rates:
+
+| Profiling | Mac → Switch | Switch → Mac |
+|---|---:|---:|
+| Disabled | 70.92Mbps | 63.73Mbps |
+| Enabled | 70.28Mbps | 63.60Mbps |
+
+Type-C and mailbox CPU counters did not grow in any of the eight direction
+intervals. All four runs removed their helpers and verified profiling was
+disabled on cleanup. Frequency and background tasks were not controlled;
+two sequential pairs do not establish an instrumentation overhead bound.
+
+Across the two enabled receive runs, sampled TCP receive spans averaged
+141.4µs over 767 samples, nested inside 144.1µs network-dispatch spans over
+769 samples. NCM queue residence averaged 5.657ms per sampled packet;
+receive-buffer drain averaged 22.86µs over 624 samples. RX copy, invalidation
+and requeue spans averaged 3.041/1.631/4.824µs. These are sampled wall times,
+including preemption and lock waits, not CPU usage; overlapping spans and
+per-packet queue residence must not be summed. The global snapshot intervals
+also include diagnostic SSH and background traffic. RX error/drop, TX queue
+full and full xHCI event-budget counters did not increase, while NCM reached
+its receive-pass budget 173 times. None of these observations identifies one
+exclusive bottleneck.
+
+## Tegra interrupt moderation candidate
+
+The physical `IMOD` low bits `0xfa0` encode 4,000 × 250ns = 1ms. This is a
+minimum interval between controller interrupts, not a software sleep per
+packet. Pinned Switchroot Linux 4.9 explicitly sets 160 ticks (`0xa0`), or
+40µs, before enabling the interrupter: [runtime policy](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/usb/host/xhci.c#L644)
+and [IMOD register units](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/usb/host/xhci.h#L495).
+
+[The common-core patch](../patches/scarlet/tegra-xhci-interrupt-moderation.patch)
+adds an optional platform interval in nanoseconds. It programs only the low
+16 bits after controller reset and event-ring publication, before enabling
+interrupter 0, preserving the upper hardware counter. The existing generic
+and PCI bindings retain their previous behavior. [The board patch](../patches/tegra210-xusb/linux-imod-policy.patch)
+requests 40,000ns only from Tegra210. Both patches are required to activate
+the policy; the normal console project remains compatible with its pinned
+core API.
+
+Build the isolated candidate with the existing network corrections and
+diagnostics:
+
+```sh
+nix develop --command python3 scripts/build-patched-usb.py \
+  --core-patch patches/scarlet/tcp-registry-drop-order.patch \
+  --core-patch patches/scarlet/xhci-network-fairness.patch \
+  --core-patch patches/scarlet/tcp-rx-stats-lock-scope.patch \
+  --core-patch patches/scarlet/network-stage-profile.patch \
+  --core-patch patches/scarlet/tegra-xhci-interrupt-moderation.patch \
+  --board-patch patches/tegra210-xusb/linux-imod-policy.patch \
+  --output projects/aarch64-switch-l4t-console/.scarlet/usb-imod-candidate
+```
+
+`python3 tests/test-tegra-xhci-interrupt-moderation.py` passed 13 host cases:
+three baseline and ten patched cases executing extracted production binding,
+initialization and MMIO-update paths. They check interval conversion/range,
+upper-counter preservation, unchanged default traces and update ordering.
+Reset, DMA, IRQ and scheduling boundaries are modeled. The moderation
+candidate has not been measured on hardware; a fresh boot must confirm low
+bits `0xa0`, followed by repeated exact-byte transfers and IRQ/task CPU
+deltas to assess throughput and interrupt cost. The existing measurements
+do not establish that the 1ms policy caused the observed rates.
 
 ## Primary implementation references
 
