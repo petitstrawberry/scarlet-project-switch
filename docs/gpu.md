@@ -48,6 +48,17 @@ NVIDIA's redistribution license. The
 [shader pack](../shared/maxwell-shader-pack/README.md) records shader sources
 and generated Maxwell SASS provenance.
 
+PMU initialization retains its two-second bound and waits for a fresh message
+notification (`0x40`) plus a safe head/tail snapshot with the full 42-byte
+init payload available. It checks the header and the used command/message
+queue records before acknowledging the consumer. Linux's
+[Falcon message queue](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/falcon/msgq.c#L49)
+reads the payload size and advances by its four-byte alignment: 42 published
+bytes are sufficient, while the consumer advances 44 bytes. Both the padded
+DMEM read and that consumer position must fit SRAM. The pre-start clear of
+only notification bit `0x40` is a local stale-notification safeguard, not a
+Linux startup step or a proven requirement of the observed physical failure.
+
 ## Submission and completion
 
 The private graphics channel, RAMFC, USERD and runlist remain bound across
@@ -124,6 +135,26 @@ packages and checks a pixel before advertising the extended dialect.
 `gpu-info` queries the normal GPU ABI.
 Use [Switchvisor](switchvisor-usb-debug.md) for boot and runtime logs.
 
+An earlier direct Erista capture failed probing with `PMU init message
+truncated` before reading the init payload from DMEM and did not register
+`/dev/gpu0`. The old wait accepted any head/tail difference and then required
+44 available bytes. That capture did not record the pointers, so it cannot
+identify partial publication, pointer initialization or the 42/44 mismatch
+as the physical cause. The corrected handshake logs pre-start and accepted
+interrupt/head/tail values; failure records include DMEM size and available
+bytes, plus the payload if format/queue validation fails. Ten host cases of
+the actual parser/publication helper passed. The Cortex-A57 console candidate
+passed target build and artifact/ISA checks with no LSE instructions.
+
+One subsequent direct Erista boot recorded pre-start interrupt/head/tail
+values of zero, then accepted interrupt `0x40`, head `0x51d8`, tail `0x51ac`,
+payload 42 and consumer `0x51d8`. Authenticated FECS startup and GPU probes
+completed, `/dev/gpu0` was registered, and SWS enabled GPU composition.
+The user confirmed image and audio output through `yt-gui` → `video-player`.
+This establishes recovery on that observed boot; repeated boots and long-term
+stability remain unverified, and the earlier truncation's precise cause is
+still unproven.
+
 When investigating output, distinguish GPU readiness, SWS backend selection,
 render completion, DC presentation and the actual panel image. A successful
 probe alone does not establish application presentation or frame rate.
@@ -139,6 +170,7 @@ GUI for diagnostics; the normal Hekate entries do not enable it.
 - [Linux Tegra clocks](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/clk/tegra/clk-tegra-periph.c) and [MC reset client](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/memory/tegra/tegra210.c).
 - [Linux MC DMA unblock](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/memory/tegra/mc.c) and [Switchroot MC flush/release](https://github.com/CTCaer/switch-l4t-kernel-nvidia/blob/76e6d48970b451c242c20f298b8d63027836bb0b/drivers/platform/tegra/mc/mc.c).
 - [Linux GM20B GR initialization and firmware](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/engine/gr/gm20b.c).
+- [Linux Falcon init-message reception and aligned consumption](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/falcon/msgq.c#L145); its upstream notice is preserved in [the driver NOTICE](../drivers/gpu/nvidia-gm20b/NOTICE).
 - [Nouveau Tegra aperture selection](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgk20a.c), [page-table geometry](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgk104.c), and [TLB ordering](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/subdev/mmu/vmmgf100.c).
 - [nvgpu BAR1 binding](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/bus/bus_gm20b.c), [instance/PTE programming](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/gk20a/mm_gk20a.c), and [GM20B MMU setup](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/fb/fb_gm20b.c).
 - [Nouveau IOMMU address selector](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/gpu/drm/nouveau/nvkm/subdev/instmem/gk20a.c), [NVIDIA physical/IOMMU address selection](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/common/mm/nvgpu_mem.c), [selector bit 34](https://github.com/CTCaer/switch-l4t-kernel-nvgpu/blob/1ae0167d360287ca78f5a2572f0de42594140312/drivers/gpu/nvgpu/gk20a/mm_gk20a.c), and [TrustZone SMMU ownership](https://github.com/CTCaer/hekate/blob/v6.5.3/bdk/mem/smmu.c).

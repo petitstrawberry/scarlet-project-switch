@@ -36,7 +36,17 @@ mod sdmmc;
 #[cfg(target_os = "none")]
 pub use sdmmc::SdmmcPlatform;
 #[cfg(target_os = "none")]
+mod xusb;
+#[cfg(target_os = "none")]
+pub use xusb::XusbPlatform;
+#[cfg(target_os = "none")]
 mod runtime;
+#[cfg(any(target_os = "none", test))]
+mod gpio_irq;
+#[cfg(any(target_os = "none", test))]
+mod xusb_phy;
+#[cfg(any(target_os = "none", test))]
+mod xusb_car;
 #[cfg(target_os = "none")]
 pub use runtime::*;
 #[cfg(target_os = "none")]

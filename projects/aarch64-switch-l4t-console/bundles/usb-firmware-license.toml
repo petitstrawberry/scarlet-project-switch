@@ -1,0 +1,6 @@
+# XUSB firmware is embedded in the kernel. Ship its unmodified license with
+# both boot distributions, as required by NVIDIA's Open Source Exception.
+[[layers]]
+kind = "copy"
+source = "../../../drivers/usb/tegra210-xusb/firmware/LICENCE.nvidia"
+to = "/usr/share/licenses/tegra210-xusb/LICENCE.nvidia"

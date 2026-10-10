@@ -41,6 +41,8 @@ mod hardware;
 #[cfg(any(target_os = "none", test))]
 mod method;
 #[cfg(any(target_os = "none", test))]
+mod pmu_init;
+#[cfg(any(target_os = "none", test))]
 mod program;
 #[cfg(any(target_os = "none", test))]
 mod programmable_graphics;

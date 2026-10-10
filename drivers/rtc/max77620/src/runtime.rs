@@ -19,6 +19,14 @@ pub fn primary_pmic() -> Result<Arc<Max77620>, &'static str> {
     PMIC.lock().clone().ok_or(PROBE_DEFER)
 }
 impl Max77620 {
+    /// ODIN USB3 on PCIe lane 6 needs LDO1 (1.05 V). The other USB rails
+    /// are shared with the board and must already be valid; FPS-controlled
+    /// rails can be live even when the software mode is zero.
+    pub fn prepare_xusb_supplies(&self) -> Result<(), &'static str> {
+        let _lock = self.lock.lock();
+        super::xusb_supplies::prepare(self)
+    }
+
     /// Control SDMMC1's dedicated LDO2 IO rail. Card VDD remains owned by
     /// the board's PE4 fixed supply, so the host sequences these separately.
     pub fn set_sd_io_supply(&self, enabled: bool) -> Result<(), &'static str> {
@@ -94,6 +102,31 @@ impl Max77620 {
             return Err("touch LDO6 power-good not asserted");
         }
         Ok(())
+    }
+}
+impl super::xusb_supplies::Registers for Max77620 {
+    fn read(&self, register: u8) -> Result<u8, &'static str> {
+        self.byte(0x3c, register)
+    }
+    fn write(&self, register: u8, value: u8) -> Result<(), &'static str> {
+        self.write(0x3c, register, value)
+    }
+    fn wait_us(&self, micros: u64) {
+        delay_us(micros);
+    }
+    fn diagnose(&self, s: &super::xusb_supplies::Snapshot) {
+        scarlet::println!(
+            "max77620-xusb: SD PGSTATUS=0x{:02x}; SD2 VSEL/CNFG1/FPS={:02x?}; SD3 VSEL/CNFG1/FPS={:02x?}",
+            s.sd_pg,
+            s.sd2,
+            s.sd3
+        );
+        scarlet::println!(
+            "max77620-xusb: LDO7 VSEL+MODE/CNFG2/FPS={:02x?}; LDO1 VSEL+MODE/CNFG2/FPS={:02x?}; GPIO3 ALT/CNFG/FPS={:02x?}",
+            s.ldo7,
+            s.ldo1,
+            s.gpio3
+        );
     }
 }
 impl super::rtc::Registers for Max77620 {

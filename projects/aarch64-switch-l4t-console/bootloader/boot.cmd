@@ -115,6 +115,18 @@ fdt rm /host1x/dc@54200000 pinctrl-3
 fdt rm /host1x/dc@54200000 pinctrl-4
 fdt rm /host1x/dc@54200000 pinctrl-5
 fdt set /host1x/dc@54240000 status disabled
+# Physical USB belongs to Scarlet only in the direct SD entry. This opt-in
+# must precede BM92T/charger writes as well as XUSB MMIO. Switchvisor's guest
+# overlays disable these nodes and keep their controller ownership at EL2.
+if test "${scarlet_switchvisor_payload}" != 1; then
+    # This fixed ODIN host driver initializes its PHYs directly. Standard
+    # phys would make Scarlet's common pre-probe wait for an unused generic
+    # PHY provider. Retain the inspected ODIN phandles as private metadata.
+    fdt set /xusb@70090000 scarlet,usb-host-phys <0x55 0x58>
+    fdt rm /xusb@70090000 phys
+    fdt set /xusb@70090000 scarlet,usb-host
+    fdt set /i2c@7000c000/bm92t@18 scarlet,usb-host
+fi
 if test "${scarlet_switchvisor_payload}" = 1; then
     if test "${scarlet_switchvisor_net}" = 1; then
         if load mmc ${devnum}:${distro_bootpart} 0x8c000000 ${boot_dir}/usb-net.dtbo; then

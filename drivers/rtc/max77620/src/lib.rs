@@ -9,6 +9,7 @@ extern crate alloc;
 pub mod rtc;
 #[cfg(target_os = "none")]
 mod runtime;
+pub mod xusb_supplies;
 #[cfg(target_os = "none")]
 pub use runtime::*;
 #[cfg(not(target_os = "none"))]

@@ -12,6 +12,7 @@
 - [L4T boot contract](boot-architecture.md)
 - [CPU startup](cpu.md) and [CPU frequency control](cpufreq.md)
 - [Input and RTC](input.md)
+- [Physical USB host and USB-C ownership](usb.md)
 - [GM20B and SGFX](gpu.md)
 - [Display and scanout](display.md)
 - [H.264 video decoding](video.md)

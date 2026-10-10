@@ -1,0 +1,123 @@
+diff --git a/kernel/src/network/tcp.rs b/kernel/src/network/tcp.rs
+index 4ad883b03..c57bd32a8 100644
+--- a/kernel/src/network/tcp.rs
++++ b/kernel/src/network/tcp.rs
+@@ -2863,6 +2863,12 @@ impl TcpLayer {
+ 
+     /// Register a socket for a specific port
+     pub fn register_port(&self, port: u16, socket: Weak<TcpSocket>) {
++        // A successful Weak upgrade may become the last strong owner while
++        // another CPU closes the socket. Its destructor unregisters from this
++        // same map, so keep every upgrade alive until the map guard is gone.
++        // Declare these owners before the guard to cover early returns too.
++        let mut retained_sockets = Vec::new();
++        let candidate = socket.upgrade();
+         let mut map = self.port_map.write();
+         let entry = map.entry(port).or_default();
+         if entry.iter().any(|existing| existing.ptr_eq(&socket)) {
+@@ -2871,10 +2877,14 @@ impl TcpLayer {
+         if entry.iter().any(|existing| {
+             existing
+                 .upgrade()
+-                .map(|sock| sock.get_state() == TcpState::Listen)
++                .map(|sock| {
++                    let listening = sock.get_state() == TcpState::Listen;
++                    retained_sockets.push(sock);
++                    listening
++                })
+                 .unwrap_or(false)
+-                && socket
+-                    .upgrade()
++                && candidate
++                    .as_ref()
+                     .map(|sock| sock.get_state() == TcpState::Listen)
+                     .unwrap_or(false)
+         }) {
+@@ -2897,6 +2907,10 @@ impl TcpLayer {
+         }
+     }
+ 
++    fn registered_sockets(&self, port: u16) -> Option<Vec<Weak<TcpSocket>>> {
++        self.port_map.read().get(&port).cloned()
++    }
++
+     /// Find socket for a destination port
+     pub fn find_socket(
+         &self,
+@@ -2904,10 +2918,12 @@ impl TcpLayer {
+         src_ip: Ipv4Address,
+         src_port: u16,
+     ) -> Option<Arc<TcpSocket>> {
+-        let map = self.port_map.read();
+-        let sockets = map.get(&port)?;
++        // Snapshot only weak registrations under the map lock. An upgraded
++        // nonmatching socket can become the final owner and re-enter the map
++        // from Drop; neither inspection nor dropping may retain this guard.
++        let sockets = self.registered_sockets(port)?;
+         let mut listening = None;
+-        for weak in sockets {
++        for weak in &sockets {
+             if let Some(socket) = weak.upgrade() {
+                 if socket.matches_peer(src_ip, src_port) {
+                     return Some(socket);
+@@ -2921,9 +2937,8 @@ impl TcpLayer {
+     }
+ 
+     pub fn find_listening_socket(&self, port: u16) -> Option<Arc<TcpSocket>> {
+-        let map = self.port_map.read();
+-        let sockets = map.get(&port)?;
+-        for weak in sockets {
++        let sockets = self.registered_sockets(port)?;
++        for weak in &sockets {
+             if let Some(socket) = weak.upgrade() {
+                 if socket.get_state() == TcpState::Listen {
+                     return Some(socket);
+@@ -3062,6 +3077,48 @@ impl TcpLayer {
+ mod tests {
+     use super::*;
+ 
++    #[test_case]
++    fn tcp_registry_snapshot_releases_guard_before_last_owner_drop() {
++        let layer = TcpLayer::new();
++        let socket = TcpSocket::new(Arc::downgrade(&layer));
++        socket.local_port.store(22, Ordering::SeqCst);
++        layer.register_port(22, Arc::downgrade(&socket));
++
++        let registrations = layer.registered_sockets(22).unwrap();
++        assert_eq!(Arc::strong_count(&socket), 1);
++        let temporary_owner = registrations[0].upgrade().unwrap();
++        drop(socket);
++        // Check before Drop so a regression fails instead of hanging a test.
++        let guard = layer.port_map.try_write();
++        if guard.is_none() {
++            core::mem::forget(temporary_owner);
++            panic!("TCP registry snapshot retained its map guard");
++        }
++        drop(guard);
++        drop(temporary_owner);
++        assert!(layer.registered_sockets(22).is_none());
++    }
++
++    #[test_case]
++    fn tcp_registry_keeps_duplicate_and_listener_exclusion() {
++        let layer = TcpLayer::new();
++        let first = TcpSocket::new(Arc::downgrade(&layer));
++        let second = TcpSocket::new(Arc::downgrade(&layer));
++        first.local_port.store(22, Ordering::SeqCst);
++        second.local_port.store(22, Ordering::SeqCst);
++        first.set_state(TcpState::Listen);
++        second.set_state(TcpState::Listen);
++
++        layer.register_port(22, Arc::downgrade(&first));
++        layer.register_port(22, Arc::downgrade(&first));
++        layer.register_port(22, Arc::downgrade(&second));
++        assert_eq!(layer.registered_sockets(22).unwrap().len(), 1);
++        assert!(Arc::ptr_eq(
++            &layer.find_listening_socket(22).unwrap(),
++            &first
++        ));
++    }
++
+     #[test_case]
+     fn test_tcp_header_creation() {
+         let header = TcpHeader::new(8080, 80);

@@ -1,0 +1,8 @@
+[package]
+name = "scarlet-usb-probe-qa"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "6fa4a4ac2c4a1b05034057b16f614736a44344b2", default-features = false, features = ["network"] }

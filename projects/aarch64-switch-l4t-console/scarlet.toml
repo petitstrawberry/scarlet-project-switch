@@ -25,6 +25,7 @@ features = { linux-boot = true, limine = false, hypervisor = false, network = tr
 "scarlet-driver-max77620" = { path = "../../drivers/rtc/max77620", enabled = true }
 "scarlet-driver-tegra210-se-rng" = { path = "../../drivers/random/tegra210-se", enabled = true }
 "scarlet-driver-tegra210-sdhci" = { path = "../../drivers/mmc/tegra210-sdhci", enabled = true }
+"scarlet-driver-tegra210-xusb" = { path = "../../drivers/usb/tegra210-xusb", enabled = true }
 "scarlet-driver-stm-ftm4" = { path = "../../drivers/input/touchscreen/stm-ftm4", enabled = true }
 "scarlet-driver-joycon" = { path = "../../drivers/input/joycon", enabled = true }
 "scarlet-driver-switch-buttons" = { path = "../../drivers/input/switch-buttons", enabled = true }
@@ -50,6 +51,10 @@ subdir = "bundles/cli-utils"
 [[images.initramfs.layers]]
 kind = "bundle"
 path = "bundles/gpu-firmware.toml"
+
+[[images.initramfs.layers]]
+kind = "bundle"
+path = "bundles/usb-firmware-license.toml"
 
 [hooks.post-image]
 command = "tools/package-l4t.sh"
@@ -81,3 +86,7 @@ path = "bundles/gpu-firmware.toml"
 kind = "copy"
 source = "rootfs"
 to = "/"
+
+[[images.rootfs.layers]]
+kind = "bundle"
+path = "bundles/usb-firmware-license.toml"

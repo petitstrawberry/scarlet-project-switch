@@ -1,8 +1,8 @@
 # Sources and separately obtained components
 
 Project code is licensed under GPL-2.0 (see `LICENSE`), following Scarlet's
-external board projects. Firmware and tools imported into generated state
-retain their own licenses; this repository does not include their binaries.
+external board projects. Imported or vendored firmware and tools retain
+their own licenses; checked-in firmware has adjacent provenance and notices.
 
 - [Scarlet](https://github.com/petitstrawberry/Scarlet), kernel/runtime interfaces
   and Linux Image bootstrap; source revisions are pinned in
@@ -38,6 +38,14 @@ retain their own licenses; this repository does not include their binaries.
 - Switchroot's GPL-2.0 RT5639 codec, Icosa speaker EQ/limiter, Tegra ADMA,
   I2S and clock sequencing references are pinned in [speaker audio](docs/audio.md).
   Original codec/EQ authors: Realtek Semiconductor, NVIDIA and CTCaer.
+- Linux's GPL-2.0 Tegra210 XUSB host, PHY, clock, PMC, GPIO and pin-control
+  sources, and Switchroot's BM92T/BQ24193 sources supply the register and sequencing
+  references pinned in [USB host](docs/usb.md).
+- NVIDIA's unmodified Tegra210 XUSB firmware from linux-firmware revision
+  `afabaf773c4c2e2c841429933a6a084a5af4d14d` is embedded in the USB host
+  driver under its separate `LICENCE.nvidia`. Source paths, hashes and
+  distribution notices are in
+  [firmware provenance](drivers/usb/tegra210-xusb/firmware/README.md).
 
 The distributed Noble BL33 was inspected directly. The cited U-Boot source
 commit is supporting source evidence and does not assert binary reproducibility.

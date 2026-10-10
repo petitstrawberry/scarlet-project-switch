@@ -9,7 +9,7 @@ use scarlet::{
         manager::{DeviceManager, DriverPriority, PROBE_DEFER},
         platform::{
             PlatformDeviceDriver, PlatformDeviceInfo, PlatformProbeOptions,
-            resource::PlatformDeviceResourceType,
+            resource::{PlatformDeviceResource, PlatformDeviceResourceType},
         },
     },
     interrupt::{
@@ -93,6 +93,7 @@ pub(crate) struct Car {
 static CAR: IrqSpinLock<Option<Arc<Car>>> = IrqSpinLock::new(None);
 static PADS: IrqSpinLock<Option<Mmio>> = IrqSpinLock::new(None);
 static GPIO: IrqSpinLock<Option<Arc<TegraGpio>>> = IrqSpinLock::new(None);
+static TYPEC_PAD_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
 static PMC: IrqSpinLock<Option<Mmio>> = IrqSpinLock::new(None);
 static FAN: IrqSpinLock<Option<Mmio>> = IrqSpinLock::new(None);
 static UARTS: IrqSpinLock<Vec<(u32, Arc<TegraUart>)>> = IrqSpinLock::new(Vec::new());
@@ -178,6 +179,22 @@ pub fn nvdec_platform(provider: u32) -> Result<crate::NvdecPlatform, &'static st
     let mc = Mmio(scarlet::vm::ioremap(0x70019000, 0x1000)?);
     crate::NvdecPlatform::new(car, pmc, regs, mc)
 }
+/// XUSB host clocks and PMC commands share the existing peripheral CAR lock.
+/// XUSBA/SS and XUSBC/host are owned here; XUSBB/device remains separate.
+pub fn xusb_platform(provider: u32) -> Result<crate::XusbPlatform, &'static str> {
+    let car = car()?;
+    if car.phandle != provider {
+        return Err("unexpected XUSB clock provider");
+    }
+    let pmc = (*PMC.lock()).ok_or(PROBE_DEFER)?;
+    let host = Mmio::map(0x70090000, 0x8000)?;
+    let fpci = Mmio::map(0x70098000, 0x1000)?;
+    let ipfs = Mmio::map(0x70099000, 0x1000)?;
+    let mc = Mmio::map(0x70019000, 0x1000)?;
+    let padctl = Mmio::map(0x7009f000, 0x1000)?;
+    let fuse = Mmio::map(0x7000f800, 0x400)?;
+    crate::XusbPlatform::new(car, pmc, host, fpci, ipfs, mc, padctl, fuse)
+}
 pub fn gpio() -> Result<Arc<TegraGpio>, &'static str> {
     GPIO.lock().clone().ok_or(PROBE_DEFER)
 }
@@ -208,6 +225,59 @@ pub fn gpio_for(provider: u32) -> Result<Arc<TegraGpio>, &'static str> {
     }
     Ok(gpio)
 }
+
+/// Prepare Icosa's BM92T PK4 input before requesting its level-low IRQ.
+/// Linux pinctrl supplies this state; boot firmware is not required to do so.
+pub fn prepare_typec_interrupt_pad(gpio_provider: u32) -> Result<(), &'static str> {
+    let gpio = gpio_for(gpio_provider)?;
+    let global = Mmio::map(0x70000040, 4)?;
+    let pin = crate::gpio_irq::LevelLowPin::new(84).unwrap();
+    let (before, after, valid) = {
+        let pads = PADS.lock();
+        let pads = pads.as_ref().ok_or(PROBE_DEFER)?;
+        let _guard = gpio.irq_banks[2].register_lock.lock();
+        let before = (
+            pads.read(crate::gpio_irq::TYPEC_PAD_OFFSET),
+            global.read(0),
+            GpioInterruptSnapshot::from(pin.snapshot(&gpio.regs)),
+        );
+        let valid = crate::gpio_irq::configure_typec_input(&gpio.regs, pads);
+        let after = (
+            pads.read(crate::gpio_irq::TYPEC_PAD_OFFSET),
+            global.read(0),
+            GpioInterruptSnapshot::from(pin.snapshot(&gpio.regs)),
+        );
+        (before, after, valid)
+    };
+    // The global clamp is diagnostic only; bit 0 is never changed here.
+    // Drop MMIO locks before printing, and never repeat this at runtime.
+    if !TYPEC_PAD_DIAGNOSTICS.swap(true, Ordering::AcqRel) {
+        for (phase, (pad, global, regs)) in [("before", before), ("after", after)] {
+            scarlet::println!(
+                "tegra210-gpio: BM92T PK4 {} pad={:#010x} global={:#010x} input-high={}",
+                phase,
+                pad,
+                global,
+                regs.input & 0x10 != 0,
+            );
+            scarlet::println!(
+                "tegra210-gpio: BM92T PK4 {} CNF={:#x} OE={:#x} IN={:#x} STA={:#x} ENB={:#x} LVL={:#x}",
+                phase,
+                regs.cnf,
+                regs.oe,
+                regs.input,
+                regs.sta,
+                regs.enb,
+                regs.lvl,
+            );
+        }
+    }
+    if !valid {
+        return Err("BM92T PK4 input pad readback failed");
+    }
+    Ok(())
+}
+
 pub fn pad(offset: usize, value: u32) -> Result<(), &'static str> {
     if offset & 3 != 0 || offset >= 0x294 {
         return Err("invalid Tegra pinmux offset");
@@ -379,7 +449,143 @@ impl Car {
 pub struct TegraGpio {
     regs: Mmio,
     phandle: u32,
+    irq_banks: Vec<Arc<GpioBankInterrupt>>,
+    irq_registration: SpinLock<()>,
 }
+
+/// A GPIO level interrupt whose source stays masked while its worker drains
+/// the peripheral. The bank's parent IRQ remains available to sibling pins.
+pub struct GpioInterrupt {
+    regs: Mmio,
+    pin: u32,
+    registers: crate::gpio_irq::LevelLowPin,
+    interrupt_id: InterruptId,
+    register_lock: Arc<IrqSpinLock<()>>,
+    pending: AtomicBool,
+    waker: Arc<Waker>,
+}
+
+/// Read-only raw bank-port registers, sampled under the pin's MMIO lock.
+#[derive(Clone, Copy, Debug)]
+pub struct GpioInterruptSnapshot {
+    pub cnf: u32,
+    pub oe: u32,
+    pub input: u32,
+    pub sta: u32,
+    pub enb: u32,
+    pub lvl: u32,
+}
+
+impl From<[u32; 6]> for GpioInterruptSnapshot {
+    fn from([cnf, oe, input, sta, enb, lvl]: [u32; 6]) -> Self {
+        Self { cnf, oe, input, sta, enb, lvl }
+    }
+}
+
+impl GpioInterrupt {
+    pub fn interrupt_id(&self) -> InterruptId {
+        self.interrupt_id
+    }
+
+    pub fn pending(&self) -> bool {
+        self.pending.load(Ordering::Acquire)
+    }
+
+    pub fn snapshot(&self) -> GpioInterruptSnapshot {
+        let _guard = self.register_lock.lock();
+        self.registers.snapshot(&self.regs).into()
+    }
+
+    /// Consume the software latch before doing I2C work. IRQ delivery has
+    /// already masked the pin; rearm only after the peripheral is drained.
+    pub fn take_pending(&self) -> bool {
+        self.pending.swap(false, Ordering::AcqRel)
+    }
+
+    pub fn mask(&self) {
+        let _guard = self.register_lock.lock();
+        self.registers.mask(&self.regs);
+    }
+
+    /// Return true if work remains. A low line, including one asserted during
+    /// enabling, stays masked and wakes the worker instead of storming the GIC.
+    pub fn rearm(&self) -> bool {
+        let pending = {
+            let _guard = self.register_lock.lock();
+            let pending = self.pending.load(Ordering::Acquire);
+            if pending {
+                self.registers.mask(&self.regs);
+            } else if self.registers.rearm(&self.regs) {
+                self.pending.store(true, Ordering::Release);
+            }
+            self.pending.load(Ordering::Acquire)
+        };
+        if pending {
+            self.waker.wake_one();
+        }
+        pending
+    }
+}
+
+impl crate::gpio_irq::Registers for Mmio {
+    fn read(&self, offset: usize) -> u32 {
+        (*self).read(offset)
+    }
+    fn write(&self, offset: usize, value: u32) {
+        (*self).write(offset, value);
+    }
+}
+
+struct GpioBankInterrupt {
+    regs: Mmio,
+    bank: usize,
+    resource: PlatformDeviceResource,
+    interrupt_id: InterruptId,
+    registered: AtomicBool,
+    registration_failed: AtomicBool,
+    register_lock: Arc<IrqSpinLock<()>>,
+    pins: IrqSpinLock<Vec<Arc<GpioInterrupt>>>,
+}
+
+impl InterruptCapableDevice for GpioBankInterrupt {
+    fn handle_interrupt(&self) -> InterruptResult<()> {
+        self.claim_interrupt().map(|_| ())
+    }
+    fn interrupt_id(&self) -> Option<InterruptId> {
+        Some(self.interrupt_id)
+    }
+    fn claim_interrupt(&self) -> InterruptResult<InterruptClaim> {
+        // At most 32 pins share a bank. No allocation, logging or I2C runs in
+        // this top half; pin-level masking keeps unrelated users enabled.
+        let mut wakes: [Option<Arc<Waker>>; 32] = core::array::from_fn(|_| None);
+        let mut count = 0;
+        let stale;
+        {
+            let pins = self.pins.lock();
+            let _guard = self.register_lock.lock();
+            let registered = pins
+                .iter()
+                .fold(0, |mask, pin| mask | (1 << (pin.pin % 32)));
+            stale = crate::gpio_irq::quiesce_unregistered(&self.regs, self.bank, registered);
+            for pin in pins.iter() {
+                if pin.registers.claim(&pin.regs) {
+                    pin.pending.store(true, Ordering::Release);
+                    wakes[count] = Some(pin.waker.clone());
+                    count += 1;
+                }
+            }
+        }
+        for waker in wakes.into_iter().flatten() {
+            waker.wake_one();
+        }
+        Ok(if count == 0 && stale == 0 {
+            InterruptClaim::NotMine
+        } else {
+            InterruptClaim::Handled
+        })
+    }
+}
+
 impl TegraGpio {
     fn pin(pin: u32) -> Result<(usize, u32), &'static str> {
         if pin >= 246 {
@@ -414,10 +620,98 @@ impl TegraGpio {
         let (offset, mask) = Self::pin(pin)?;
         Ok(self.regs.read(offset + 0x30) & mask != 0)
     }
+
+    /// Install a level-low pin source and wake queue before enabling it. The
+    /// DT GPIO bank resources are resolved through the ordinary LIC/GIC path;
+    /// a consumer's GPIO pin number is never resolved as a GIC interrupt.
+    pub fn subscribe_low_irq(
+        &self,
+        pin: u32,
+        waker: Arc<Waker>,
+    ) -> Result<Arc<GpioInterrupt>, &'static str> {
+        let registers =
+            crate::gpio_irq::LevelLowPin::new(pin).ok_or("invalid Tegra GPIO IRQ pin")?;
+        let bank = self
+            .irq_banks
+            .get((pin / 32) as usize)
+            .ok_or("Tegra GPIO IRQ bank missing")?;
+        let _registration = self.irq_registration.lock();
+        if bank.registration_failed.load(Ordering::Acquire) {
+            return Err("Tegra GPIO bank IRQ registration previously failed");
+        }
+        let interrupt = Arc::new(GpioInterrupt {
+            regs: self.regs,
+            pin,
+            registers,
+            interrupt_id: bank.interrupt_id,
+            register_lock: bank.register_lock.clone(),
+            pending: AtomicBool::new(false),
+            waker,
+        });
+        {
+            let mut pins = bank.pins.lock();
+            if pins.iter().any(|existing| existing.pin == pin) {
+                return Err("Tegra GPIO IRQ pin already subscribed");
+            }
+            let _guard = bank.register_lock.lock();
+            registers.configure(&self.regs);
+            pins.push(interrupt.clone());
+        }
+        if !bank.registered.load(Ordering::Acquire) {
+            if register_and_enable_platform_irq_device(
+                &bank.resource,
+                bank.clone(),
+                scarlet::arch::get_cpu().get_cpuid() as u32,
+            )
+            .is_err()
+            {
+                // The common helper registers the source before enabling the
+                // parent. It has no unregister API: do not append duplicate
+                // sources on a later retry after a controller-enable failure.
+                bank.registration_failed.store(true, Ordering::Release);
+                bank.pins.lock().retain(|existing| existing.pin != pin);
+                return Err("Tegra GPIO bank IRQ registration failed");
+            }
+            bank.registered.store(true, Ordering::Release);
+        }
+        interrupt.rearm();
+        Ok(interrupt)
+    }
 }
 
-struct TegraI2c {
+struct I2cAccess {
     regs: Mmio,
+    last_timeout: SpinLock<Option<packet::TimeoutSnapshot>>,
+}
+impl Registers for I2cAccess {
+    fn read(&self, offset: usize) -> u32 {
+        self.regs.read(offset)
+    }
+    fn write(&self, offset: usize, value: u32) {
+        self.regs.write(offset, value);
+    }
+    fn now_ns(&self) -> u64 {
+        scarlet::time::current_time_ns()
+    }
+    fn timeout(&self, snapshot: packet::TimeoutSnapshot) {
+        *self.last_timeout.lock() = Some(snapshot);
+    }
+}
+struct I2cResetAccess(Mmio);
+impl packet::ResetRegisters for I2cResetAccess {
+    fn read(&self, offset: usize) -> u32 {
+        self.0.read(offset)
+    }
+    fn write(&self, offset: usize, value: u32) {
+        self.0.write(offset, value);
+    }
+    fn delay_us(&self, us: u64) {
+        delay_us(us);
+    }
+}
+struct TegraI2c {
+    regs: I2cAccess,
+    car: Arc<Car>,
     number: u32,
     speed_hz: u32,
     lock: SpinLock<()>,
@@ -441,6 +735,7 @@ impl I2cBus for TegraI2c {
             return Err(I2cError::InvalidArg);
         }
         let _lock = self.lock.lock();
+        *self.regs.last_timeout.lock() = None;
         let mut address = 0;
         let mut segment = 0;
         let mut reading = false;
@@ -468,12 +763,13 @@ impl I2cBus for TegraI2c {
             }
             Ok(())
         })();
+        let mut report_error = false;
         if let Err(error) = result {
             let count = self.errors.fetch_add(1, Ordering::Relaxed) + 1;
             let now = scarlet::time::current_time_ns();
-            if count == 1
-                || now.saturating_sub(self.last_error_ns.load(Ordering::Relaxed)) >= 1_000_000_000
-            {
+            report_error = count == 1
+                || now.saturating_sub(self.last_error_ns.load(Ordering::Relaxed)) >= 1_000_000_000;
+            if report_error {
                 self.last_error_ns.store(now, Ordering::Relaxed);
                 scarlet::println!(
                     "tegra210-i2c: bus {} addr {:#x} segment {} {} len {}: {:?}; status={:#x} packet={:#x} fifo={:#x} errors={}",
@@ -488,6 +784,23 @@ impl I2cBus for TegraI2c {
                     self.regs.read(0x60),
                     count
                 );
+                // Captured at the failed wait, before finish or controller
+                // recovery can erase the stage-specific hardware state.
+                let snapshot = *self.regs.last_timeout.lock();
+                if let Some(snapshot) = snapshot {
+                    scarlet::println!(
+                        "tegra210-i2c: bus {} timeout stage={:?} CNFG={:#x} LOAD={:#x} FIFOCTL={:#x} STATUS={:#x} INT={:#x} PACKET={:#x} FIFO={:#x}",
+                        self.number,
+                        snapshot.stage,
+                        snapshot.cnfg,
+                        snapshot.config_load,
+                        snapshot.fifo_control,
+                        snapshot.normal_status,
+                        snapshot.interrupt_status,
+                        snapshot.packet_status,
+                        snapshot.fifo_status,
+                    );
+                }
             }
             packet::finish(&self.regs);
         }
@@ -495,7 +808,28 @@ impl I2cBus for TegraI2c {
             result,
             Err(packet::Error::Timeout | packet::Error::Bus | packet::Error::ArbitrationLost)
         ) {
-            let _ = packet::recover(&self.regs);
+            // The bus lock remains held. Reset only this I2C controller and
+            // restore its configuration; never replay a failed slave write.
+            let recovery = {
+                let _car = self.car.lock.lock();
+                packet::reinitialize(&self.regs, &I2cResetAccess(self.car.regs), self.number)
+            }
+            .and_then(|()| {
+                if matches!(result, Err(packet::Error::ArbitrationLost)) {
+                    packet::recover(&self.regs)
+                } else {
+                    Ok(())
+                }
+            });
+            if let Err(error) = recovery
+                && report_error
+            {
+                scarlet::println!(
+                    "tegra210-i2c: bus {} controller recovery failed: {:?}",
+                    self.number,
+                    error,
+                );
+            }
         }
         result.map_err(|e| match e {
             packet::Error::Nack => I2cError::Nack,
@@ -862,9 +1196,48 @@ fn probe_pads(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
 }
 fn probe_gpio(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
     let regs = map_resource(d, 0x6000d000, 0x800)?;
+    // Tegra210 describes one parent interrupt per 32-pin bank, in bank order.
+    // On Icosa, PK4 (GPIO84) uses bank 2's SPI34, not GIC interrupt 84.
+    let resources: Vec<_> = d
+        .get_resources()
+        .iter()
+        .filter(|resource| resource.res_type == PlatformDeviceResourceType::IRQ)
+        .collect();
+    if resources.len() != 8 {
+        return Err("Tegra210 GPIO requires eight bank IRQ resources");
+    }
+    let mut irq_banks = Vec::with_capacity(resources.len());
+    for (bank, resource) in resources.into_iter().enumerate() {
+        let interrupt_id =
+            resolve_platform_irq(resource).map_err(|_| "Tegra GPIO bank IRQ resolution failed")?;
+        irq_banks.push(Arc::new(GpioBankInterrupt {
+            regs,
+            bank,
+            resource: PlatformDeviceResource {
+                res_type: PlatformDeviceResourceType::IRQ,
+                start: resource.start,
+                end: resource.end,
+                irq_metadata: resource.irq_metadata,
+                irq_parent: resource.irq_parent,
+            },
+            interrupt_id,
+            registered: AtomicBool::new(false),
+            registration_failed: AtomicBool::new(false),
+            register_lock: Arc::new(IrqSpinLock::new(())),
+            pins: IrqSpinLock::new(Vec::new()),
+        }));
+    }
+    // Take interrupt-enable ownership before any bank summary is registered.
+    // Linux gpio-tegra.c does this for all banks; firmware pin directions,
+    // outputs, pulls and trigger encodings are independent and stay intact.
+    for bank in 0..irq_banks.len() {
+        crate::gpio_irq::initialize_bank(&regs, bank);
+    }
     *GPIO.lock() = Some(Arc::new(TegraGpio {
         regs,
         phandle: phandle(d)?,
+        irq_banks,
+        irq_registration: SpinLock::new(()),
     }));
     Ok(())
 }
@@ -906,11 +1279,14 @@ fn probe_i2c(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
         pad(0xd4, (1 << 6) | 1)?;
         pad(0xd8, (1 << 6) | 1)?;
     }
-    let regs = map_resource(d, addr, 0x90)?;
+    let regs = I2cAccess {
+        regs: map_resource(d, addr, 0x90)?,
+        last_timeout: SpinLock::new(None),
+    };
     // Hekate uses the oscillator source divided by four for I2C1 (100 kHz)
     // and no source division for I2C3/5 (400 kHz).
     car.enable(reset, source, (6 << 29) | source_divider);
-    regs.write(0x6c, (5 << 16) | 1);
+    regs.write_flush(0x6c, (5 << 16) | 1);
     // Linux initializes/registers the controller before powering its clients.
     // Bus clear belongs to failed transfers: requiring it here can prevent a
     // powered-off touch client from ever reaching its own power-on sequence.
@@ -920,6 +1296,7 @@ fn probe_i2c(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
         id,
         Arc::new(TegraI2c {
             regs,
+            car,
             number,
             speed_hz,
             lock: SpinLock::new(()),

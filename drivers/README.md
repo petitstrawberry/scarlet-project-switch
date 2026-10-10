@@ -11,6 +11,7 @@ The console manifest links these external driver modules into Scarlet:
 | `gpu/nvidia-gm20b` | GPU power, firmware, memory, validated execution and SGFX resources |
 | `display/tegra210-dc` | Inherited panel-mode adoption and scanout |
 | `mmc/tegra210-sdhci` | Removable SD card host |
+| `usb/tegra210-xusb` | Physical USB host, Falcon firmware and USB-C role policy |
 | `video/tegra210-nvdec` | Hardware H.264 decoding |
 | `audio/tegra210` | RT5639 speaker playback |
 | `power/switch-power` | Battery and input-power telemetry |

@@ -307,6 +307,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "scarlet-driver-tegra210-xusb"
+version = "0.1.0"
+dependencies = [
+ "scarlet",
+ "scarlet-driver-max77620",
+ "scarlet-driver-tegra210",
+]
+
+[[package]]
 name = "scarlet-modules"
 version = "0.1.0"
 dependencies = [
@@ -324,6 +333,7 @@ dependencies = [
  "scarlet-driver-tegra210-nvdec",
  "scarlet-driver-tegra210-sdhci",
  "scarlet-driver-tegra210-se-rng",
+ "scarlet-driver-tegra210-xusb",
 ]
 
 [[package]]

@@ -11,6 +11,7 @@ use crate::{
     context::Context,
     firmware::{Firmware, word},
     gmmu::{clean, pages},
+    pmu_init,
 };
 
 const PMU: usize = 0x10a000;
@@ -629,44 +630,95 @@ impl Gr {
         let mut args = [0; 44];
         args[24] = 1;
         self.dmem_write(PMU, dmem - 44, &args, dmem)?;
+        scarlet::println!(
+            "gm20b: PMU init before start intr={:#x} head={:#x} tail={:#x}",
+            self.read(PMU + 0x008),
+            self.read(PMU + 0x4c8),
+            self.read(PMU + 0x4cc)
+        );
+        // While the ACR loader is halted, clear only the message bit as a
+        // fresh-publication guard. The RTOS must notify after it starts.
+        self.write(PMU + 0x004, pmu_init::MESSAGE_PENDING);
         self.start(PMU)?;
-        self.wait("PMU init message", || {
-            Ok(self.read(PMU + 0x4c8) != self.read(PMU + 0x4cc))
-        })?;
-        let offset = self.read(PMU + 0x4cc);
-        let head = self.read(PMU + 0x4c8);
-        if head.checked_sub(offset).is_none_or(|size| size < 44) {
-            return Err("PMU init message truncated");
+        let mut interrupt = 0;
+        let mut head = 0;
+        let mut tail = 0;
+        let mut published = None;
+        let ready = self.wait("PMU init message", || {
+            interrupt = self.read(PMU + 0x008);
+            head = self.read(PMU + 0x4c8);
+            tail = self.read(PMU + 0x4cc);
+            published = pmu_init::published(interrupt, head, tail, dmem)?;
+            Ok(published.is_some())
+        });
+        if let Err(error) = ready {
+            self.diagnose_pmu_init(error, interrupt, head, tail, dmem, None);
+            return Err(error);
         }
-        let mut init = [0; 42];
-        self.dmem_read(offset, &mut init, dmem)?;
-        if init[0] != 7 || init[1] != 42 || init[4] != 0 {
-            return Err("PMU init message format invalid");
+        let published = published.ok_or("PMU init publication missing")?;
+        arch::io_mb();
+        let mut init = [0; pmu_init::PAYLOAD_BYTES];
+        if let Err(error) = self.dmem_read(published.offset, &mut init, dmem) {
+            self.diagnose_pmu_init(error, interrupt, head, tail, dmem, None);
+            return Err(error);
         }
-        self.write(PMU + 0x4cc, offset + 44);
-        let queue = |index: usize, head_reg, tail_reg, stride| -> Result<Queue, &'static str> {
-            let offset = 8 + index * 6;
-            let size = u16::from_le_bytes(init[offset..offset + 2].try_into().unwrap()) as u32;
-            let base = u16::from_le_bytes(init[offset + 2..offset + 4].try_into().unwrap()) as u32;
-            let id = init[offset + 4] as usize;
-            if id >= 4 || size < 32 || !base.is_multiple_of(4) || base + size > dmem {
-                return Err("PMU init queue geometry invalid");
+        let validated = match published.validate(&init, dmem) {
+            Ok(validated) => validated,
+            Err(error) => {
+                self.diagnose_pmu_init(error, interrupt, head, tail, dmem, Some(&init));
+                return Err(error);
             }
-            Ok(Queue {
-                offset: base,
-                size,
-                head: PMU + head_reg + id * stride,
-                tail: PMU + tail_reg + id * stride,
-            })
         };
-        let command = queue(0, 0x4a0, 0x4b0, 4)?;
-        let message = queue(4, 0x4c8, 0x4cc, 0)?;
+        // recv_initmsg reads the 42-byte firmware payload; the consumer moves
+        // by ALIGN(42, 4). Do not acknowledge malformed queue geometry.
+        self.write(PMU + 0x4cc, validated.next_tail);
+        self.write(PMU + 0x004, pmu_init::MESSAGE_PENDING);
+        let queue = |geometry: pmu_init::QueueGeometry, head_reg, tail_reg, stride| Queue {
+            offset: geometry.offset,
+            size: geometry.size,
+            head: PMU + head_reg + geometry.id * stride,
+            tail: PMU + tail_reg + geometry.id * stride,
+        };
+        let command = queue(validated.command, 0x4a0, 0x4b0, 4);
+        let message = queue(validated.message, 0x4c8, 0x4cc, 0);
+        scarlet::println!(
+            "gm20b: PMU init intr={:#x} head={:#x} tail={:#x} dmem={} payload={} consumer={:#x}",
+            interrupt,
+            head,
+            tail,
+            dmem,
+            pmu_init::PAYLOAD_BYTES,
+            validated.next_tail
+        );
         scarlet::println!("gm20b: PMU queues ready; initializing WPR");
         self.command(command, message, dmem, 0, 1, 1)?;
         scarlet::println!("gm20b: PMU WPR ready; bootstrapping FECS");
         self.command(command, message, dmem, 1, 2, 2)?;
         scarlet::println!("gm20b: PMU authenticated FECS bootstrap completed");
         Ok(())
+    }
+
+    fn diagnose_pmu_init(
+        &self,
+        error: &str,
+        interrupt: u32,
+        head: u32,
+        tail: u32,
+        dmem: u32,
+        init: Option<&[u8; pmu_init::PAYLOAD_BYTES]>,
+    ) {
+        scarlet::println!(
+            "gm20b: PMU init failed reason={} intr={:#x} head={:#x} tail={:#x} dmem={} available={:?}",
+            error,
+            interrupt,
+            head,
+            tail,
+            dmem,
+            head.checked_sub(tail)
+        );
+        if let Some(init) = init {
+            scarlet::println!("gm20b: PMU init payload={:02x?}", init);
+        }
     }
 
     fn gr_registers(&self) -> Result<(), &'static str> {

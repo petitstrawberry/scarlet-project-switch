@@ -82,6 +82,24 @@ Scheduling, composition and audio servicing can still limit playback under
 load. Check colors, cropping, seeking, overlays and audio separately from
 decoder frame hashes.
 
+In an earlier direct Erista capture, `/dev/video0` reported firmware running,
+2,312 completed frames and no decoder error. That boot separately failed
+GM20B probing with `PMU init message truncated` and had no `/dev/gpu0`.
+Native NV12 presentation requires `/dev/gpu0`/GM20B registration for shared-image
+import, sampling and window composition, so that decoder count alone did not
+establish successful display.
+
+On one subsequent boot with the PMU startup correction, `/dev/gpu0` was
+registered and GPU composition was enabled. NVDEC logged 1920 × 1080 decode
+with 128 samples, and the user confirmed both image and audio output through
+`yt-gui` → `video-player`. An optional `/dev/video0` status open returned
+`-1` during the active session, so no newer status snapshot was obtained.
+Repeated-boot reliability and long-term playback stability remain unverified;
+see [GPU diagnostics](gpu.md#diagnostics).
+
+Read `/dev/video0` status once with a bounded diagnostic reader. It returns
+status on each read without EOF; `cat /dev/video0` therefore keeps reading.
+
 ## References
 
 - Linux v6.12, `adc218676eef25575469234709c2d87185ca223a`: Tegra Falcon/NVDEC
