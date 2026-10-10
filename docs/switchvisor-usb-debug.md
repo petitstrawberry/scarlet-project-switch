@@ -130,6 +130,22 @@ The installation receipt is written to the project's generated state.
 For the first launch, put the Switch in RCM, then use the Hekate payload that
 already boots the existing Scarlet entry:
 
+On macOS, run the complete launch and console sequence in the Nix shell:
+
+```sh
+scripts/start-switchvisor.py /path/to/hekate.bin
+```
+
+The launcher selects `SCR-SWV`, waits up to 60 seconds for the guest CDC port,
+deploys the existing guest bundle, and opens minicom at 115200 baud. Capture
+starts when minicom opens, after deployment, and is saved under
+`projects/aarch64-switch-l4t-console/.scarlet/logs/`. Exit with **Ctrl-A, X**.
+Use `--console /dev/cu.usbmodem...` if the guest port has another name;
+`--bundle`, `--log`, and `--timeout` override their defaults. Build and install
+the SD package first using the steps above.
+
+The equivalent individual commands are:
+
 ```sh
 nxboot --hekate id SCR-SWV /path/to/hekate.bin
 switchvisorctl deploy \
