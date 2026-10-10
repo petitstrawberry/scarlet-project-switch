@@ -830,8 +830,31 @@ counts exclude creation of Ethernet frames and RX frame copies.
 Build using the hotpath patch list with `ncm-dma-batching.patch` last, retaining
 `linux-imod-policy.patch`, and output
 `.scarlet/usb-ncm-dma-candidate`. Evidence is under
-`.cache/network-perf/ncm-tx-batch/`. Physical throughput and stability of this
-new DMA candidate are not yet verified.
+`.cache/network-perf/ncm-tx-batch/`.
+
+The physical candidate `21e686f` completed one 8 MiB transfer per direction
+with profiling disabled: **134.87 Mbps Mac→Switch / 116.44 Mbps Switch→Mac**.
+Both exact byte receipts passed and the reverse payload was content-checked.
+Compared with the preceding 135.57/106.61 Mbps observation, receive throughput
+is effectively unchanged; the receive bottleneck is **not resolved**. These
+are single observations across boots, not a controlled A/B speedup claim.
+The boot capture reports four CPUs online, SuperSpeed, 1 Gbps link, and
+`IMOD=0xa0`. Type-C task CPU time did not advance in either measured interval.
+
+One separate bounded diagnostic pair enabled the existing sampled stage
+counters. For Mac→Switch the sampled means were 62.42 µs in TCP receive,
+66.86 µs in enclosing stack dispatch, 8.79 µs in NCM parsing, and 7.61 µs
+in RX requeue; packet queue wait averaged 2.10 ms. These are wall times
+including preemption, with overlapping stages and background/SSH traffic;
+they must not be summed or interpreted as exclusive CPU cost. Whole-NTB RX
+copy and intermediate TX copy counters remained zero; RX errors, RX queue
+drops, and TX queue-full counts were zero in both diagnostic directions.
+During the receive case, 6341 queued TX frames used 2742 NTB builds, confirming
+aggregation on this hardware. The synchronous per-packet TCP ACK send path
+is a remaining investigation target, not yet an isolated measured cause.
+Profiling was disabled afterward and owned remote helpers/shells were removed.
+See `physical-summary.json`, `verification-off/`, and `stage-diagnostic/`
+under the evidence directory. Long-running stability is not established.
 
 ## Primary implementation references
 
