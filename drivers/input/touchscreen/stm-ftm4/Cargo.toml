@@ -5,6 +5,6 @@ edition = "2024"
 license = "GPL-2.0-only"
 
 [target.'cfg(target_os = "none")'.dependencies]
-scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "2e385418021669a2315fbe4a562df4bf1903b921", default-features = false, features = ["network"] }
+scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "42e8744ab916c5afbc1f65154bc235393bd2f8b6", default-features = false, features = ["network"] }
 scarlet-driver-tegra210 = { path = "../../../soc/tegra210" }
 scarlet-driver-max77620 = { path = "../../../rtc/max77620" }

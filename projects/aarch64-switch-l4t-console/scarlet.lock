@@ -387,7 +387,7 @@ type = "path"
 path = "../../scripts/install-gm20b-firmware.sh"
 
 [sections.rootfs]
-hash = "sha256:f3da6fe1f27e1ff171cd45df31d510d0e22d04f566d5678340b455d1f63eb446"
+hash = "sha256:4e392d7f9fdb73bf566789ed8c2fd549e23fe178c47b5339f5a377379611d3ce"
 
 [[sections.rootfs.layers]]
 kind = "script"
@@ -812,7 +812,7 @@ kind = "cargo"
 package = "scarlet-std-bin"
 bin = "scarlet-shell"
 to = "/bin/scarlet-shell"
-hash = "sha256:ac0326319f268049b24c3872a04ac9773764935fcc0f0b7d38d98df6edfb3c2e"
+hash = "sha256:168508350177aaa1186543999020edb6dee24ccd7b39863d3ced4119f12507b0"
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -834,7 +834,7 @@ kind = "cargo"
 package = "scarlet-std-bin"
 bin = "sws"
 to = "/bin/sws"
-hash = "sha256:1f5d5bb04a2d641da86d678a1599360c1bee02d2060e92057703aa71519b849d"
+hash = "sha256:b9efd035e2366d9a7eeb5b00b0b301d80852c109c783320e93c50f58c2d017db"
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -998,7 +998,7 @@ path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
 kind = "cargo"
 bin = "sgfx-cube"
 to = "/bin/sgfx-cube"
-hash = "sha256:6b74cef136d65e446a832d30af142985c0401764e23f910e4f93c3dc6710d344"
+hash = "sha256:3ce70631d9b2b1b8cc19654436f1de98efbc43610ff49019af93b03e4df64201"
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -1008,7 +1008,7 @@ path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
 kind = "cargo"
 bin = "sgfx-texture"
 to = "/bin/sgfx-texture"
-hash = "sha256:98835d5e00176157621bb5c951c042b77b32466ffb0f071a1c1f6ea5d52cda08"
+hash = "sha256:c7e3909114e8a8927116501db67f375df8eb0b9e5e25abcf13a243dc407bdfc5"
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -1018,7 +1018,7 @@ path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
 kind = "cargo"
 bin = "sgfx-showcase"
 to = "/bin/sgfx-showcase"
-hash = "sha256:356eda9f6b561539d6500e1eec97cb621b13a9badb16fc5fd3c6b5a6a02ad6f5"
+hash = "sha256:f363894355ff47e311de360c836ddbd080ca2e24f63c380382b897a034882521"
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -1256,6 +1256,12 @@ type = "path"
 path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
 
 [[sections.rootfs.layers]]
+kind = "app"
+source = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/app-demo/app.toml"
+to = "/applications/app-demo.app"
+hash = "sha256:2a8313b280f6731983da7d5ce906a936d1fdf3ff88598a65ca36c90a64d285d5"
+
+[[sections.rootfs.layers]]
 kind = "archive"
 to = "/systems/linux-aarch64"
 format = "tar-zst"
@@ -1438,7 +1444,7 @@ path = ".scarlet/cache/git/1d707eff8bef4cad/bundle/build-aarch64.sh"
 [[sections.rootfs.layers]]
 kind = "script"
 to = "/"
-hash = "sha256:4c6694b5b6c54c31588d7eef423f3d5ef485876289dd5b72cf943b27a9dd2926"
+hash = "sha256:be0c6114954741578b82f4ca8a265211b2ad452d2bc2e712068ac197c22def5e"
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -1459,8 +1465,8 @@ sha256 = "sha256:bcd6c090278c3ff8ce20be4f225a33cd0b0837cb90f37f1240444bc22b7dc32
 [[sections.rootfs.layers]]
 kind = "cargo"
 git = "https://github.com/petitstrawberry/Scarlet"
-git_ref = "616f6ad06643587f7c5270a692131d4cfaabfa6a"
-resolved_rev = "616f6ad06643587f7c5270a692131d4cfaabfa6a"
+git_ref = "42e8744ab916c5afbc1f65154bc235393bd2f8b6"
+resolved_rev = "42e8744ab916c5afbc1f65154bc235393bd2f8b6"
 package = "video_player"
 bin = "video-player"
 subdir = "user/video_player"
@@ -1475,12 +1481,12 @@ hash = "sha256:aeeec413c2d6e3c27a4cccef9dbb1164f47ea8a4848d1380e43b26082f32a615"
 [sections.rootfs.layers.source]
 type = "git"
 url = "https://github.com/petitstrawberry/Scarlet"
-rev = "616f6ad06643587f7c5270a692131d4cfaabfa6a"
+rev = "42e8744ab916c5afbc1f65154bc235393bd2f8b6"
 
 [[sections.rootfs.layers]]
 kind = "script"
 to = "/"
-hash = "sha256:1fb836536ca926aff2e9f952b76af427bcbad06e2e79a99d5fddada6bdd8f6f5"
+hash = "sha256:4e38f87524dddfb5e005217b021418e76f86a4407f00fe1b7e755c4a4dfb4ab7"
 
 [sections.rootfs.layers.source]
 type = "path"

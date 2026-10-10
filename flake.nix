@@ -103,6 +103,7 @@
             buildAndTestSubdir = "cargo-scarlet";
             cargoLock.lockFile = "${scarlet-sdk}/Cargo.lock";
             nativeBuildInputs = [ pkgs.curl ];
+            nativeCheckInputs = [ pkgs.git ];
           };
         in {
           default = pkgs.mkShell {
