@@ -400,6 +400,15 @@ path = "../../scripts/install-sgfx-maxwell.sh"
 
 [[sections.rootfs.layers]]
 kind = "script"
+to = "/lib/sgfx"
+hash = ""
+
+[sections.rootfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/3a6ec0c32bdfd41b/tools/sgfx/install-driver.sh"
+
+[[sections.rootfs.layers]]
+kind = "script"
 to = "/etc/ssl/certs/ca-certificates.crt"
 hash = "sha256:2404c5ebc7d236b368d6a2f00b9ac5e01d6e55a75cdf44e4839f5876f45c249b"
 
@@ -1242,7 +1251,7 @@ path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
 kind = "app"
 source = ".scarlet/cache/git/33c416af7493b416/platforms/scarlet/app.toml"
 to = "/applications/cadence.app"
-hash = "sha256:d9789c975b0edd1c1446a029166148abac7882c73eeb4a4d68ff9419def95b1c"
+hash = ""
 
 [[sections.rootfs.layers]]
 kind = "cargo"
@@ -1259,31 +1268,19 @@ path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
 kind = "app"
 source = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/app-demo/app.toml"
 to = "/applications/app-demo.app"
-hash = "sha256:2a8313b280f6731983da7d5ce906a936d1fdf3ff88598a65ca36c90a64d285d5"
+hash = ""
 
 [[sections.rootfs.layers]]
 kind = "archive"
 to = "/systems/linux-aarch64"
 format = "tar-zst"
 strip_components = 1
-hash = "sha256:4d94a1870a9be510987c61eb7371d35a7d31415ca49a56ecb8df74791a4e2eb0"
+hash = "sha256:55a133c3e3f03337f6e0baf6b59194bfe0eb19a340d72bc94224d387e498b62b"
 
 [sections.rootfs.layers.source]
 type = "archive"
-url = "https://github.com/petitstrawberry/scarlet-bundle-linux/releases/download/v0.1.0/rootfs-aarch64-v0.1.0.tar.zst"
-sha256 = "sha256:4d94a1870a9be510987c61eb7371d35a7d31415ca49a56ecb8df74791a4e2eb0"
-
-[[sections.rootfs.layers]]
-kind = "archive"
-to = "/systems/linux-aarch64"
-format = "tar-zst"
-strip_components = 1
-hash = "sha256:727f20be6a009329e0be7c627f4dd07904588825077e4c431c943d9555499c26"
-
-[sections.rootfs.layers.source]
-type = "archive"
-url = "https://github.com/petitstrawberry/scarlet-bundle-linux/releases/download/v0.1.0/mozc-aarch64-v0.1.0.tar.zst"
-sha256 = "sha256:727f20be6a009329e0be7c627f4dd07904588825077e4c431c943d9555499c26"
+url = "https://github.com/petitstrawberry/scarlet-bundle-debian/releases/download/v0.3.26/rootfs-aarch64-base-v0.3.26.tar.zst"
+sha256 = "sha256:55a133c3e3f03337f6e0baf6b59194bfe0eb19a340d72bc94224d387e498b62b"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
@@ -1465,8 +1462,8 @@ sha256 = "sha256:bcd6c090278c3ff8ce20be4f225a33cd0b0837cb90f37f1240444bc22b7dc32
 [[sections.rootfs.layers]]
 kind = "cargo"
 git = "https://github.com/petitstrawberry/Scarlet"
-git_ref = "42e8744ab916c5afbc1f65154bc235393bd2f8b6"
-resolved_rev = "42e8744ab916c5afbc1f65154bc235393bd2f8b6"
+git_ref = "6fa4a4ac2c4a1b05034057b16f614736a44344b2"
+resolved_rev = "6fa4a4ac2c4a1b05034057b16f614736a44344b2"
 package = "video_player"
 bin = "video-player"
 subdir = "user/video_player"
@@ -1476,12 +1473,12 @@ features = [
 ]
 default-features = false
 to = "/bin/video-player"
-hash = "sha256:aeeec413c2d6e3c27a4cccef9dbb1164f47ea8a4848d1380e43b26082f32a615"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "git"
 url = "https://github.com/petitstrawberry/Scarlet"
-rev = "42e8744ab916c5afbc1f65154bc235393bd2f8b6"
+rev = "6fa4a4ac2c4a1b05034057b16f614736a44344b2"
 
 [[sections.rootfs.layers]]
 kind = "script"

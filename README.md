@@ -8,6 +8,8 @@ boot stack.
 The console project starts Scarlet Desktop in game-console mode, with
 attached Joy-Con and touchscreen input, GM20B graphics, H.264 video decoding
 and speaker playback. It boots an ext2 root filesystem from the SD card.
+The upstream `full` bundle includes Debian trixie userspace for Linux ABI
+applications, including the shared graphics runtime used by OpenTTD.
 Switchvisor provides an optional USB console, guest-image upload and network
 connection.
 

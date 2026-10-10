@@ -11,7 +11,7 @@ path = "bsp"
 package = "scarlet"
 
 [bsp.kernel]
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "42e8744ab916c5afbc1f65154bc235393bd2f8b6" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "6fa4a4ac2c4a1b05034057b16f614736a44344b2" }
 features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true }
 
 [modules]
@@ -39,12 +39,12 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "42e8744ab916c5afbc1f65154bc235393bd2f8b6" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "6fa4a4ac2c4a1b05034057b16f614736a44344b2" }
 subdir = "bundles/base"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "42e8744ab916c5afbc1f65154bc235393bd2f8b6" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "6fa4a4ac2c4a1b05034057b16f614736a44344b2" }
 subdir = "bundles/cli-utils"
 
 [[images.initramfs.layers]]
@@ -66,7 +66,7 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.rootfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "42e8744ab916c5afbc1f65154bc235393bd2f8b6" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "6fa4a4ac2c4a1b05034057b16f614736a44344b2" }
 subdir = "bundles/full"
 
 [[images.rootfs.layers]]
