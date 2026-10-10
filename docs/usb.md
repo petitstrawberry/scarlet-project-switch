@@ -611,9 +611,10 @@ exclusive bottleneck.
 
 ## Tegra interrupt moderation candidate
 
-The physical `IMOD` low bits `0xfa0` encode 4,000 × 250ns = 1ms. This is a
-minimum interval between controller interrupts, not a software sleep per
-packet. Pinned Switchroot Linux 4.9 explicitly sets 160 ticks (`0xa0`), or
+The earlier diagnostic boot's `IMOD` low bits `0xfa0` encode
+4,000 × 250ns = 1ms. This is a minimum interval between controller interrupts,
+not a software sleep per packet. Pinned Switchroot Linux 4.9 explicitly sets
+160 ticks (`0xa0`), or
 40µs, before enabling the interrupter: [runtime policy](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/usb/host/xhci.c#L644)
 and [IMOD register units](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/usb/host/xhci.h#L495).
 
@@ -644,11 +645,29 @@ nix develop --command python3 scripts/build-patched-usb.py \
 three baseline and ten patched cases executing extracted production binding,
 initialization and MMIO-update paths. They check interval conversion/range,
 upper-counter preservation, unchanged default traces and update ordering.
-Reset, DMA, IRQ and scheduling boundaries are modeled. The moderation
-candidate has not been measured on hardware; a fresh boot must confirm low
-bits `0xa0`, followed by repeated exact-byte transfers and IRQ/task CPU
-deltas to assess throughput and interrupt cost. The existing measurements
-do not establish that the 1ms policy caused the observed rates.
+Reset, DMA, IRQ and scheduling boundaries are modeled.
+
+The moderation candidate's fresh physical boot confirmed `IMOD` low bits
+`0xa0`, the NIC's SuperSpeed enumeration and 1Gbps link, and `/dev/gpu0`.
+Four receiver-confirmed 8MiB runs, comprising two off/on pairs, passed and
+removed their helpers with profiling disabled on cleanup. Their median
+receive/send rates did not demonstrate a throughput improvement:
+
+| Controller interval | Profiling | Mac → Switch | Switch → Mac |
+|---|---|---:|---:|
+| Earlier 1ms | Disabled | 70.92Mbps | 63.73Mbps |
+| Candidate 40µs | Disabled | 69.34Mbps | 63.52Mbps |
+| Earlier 1ms | Enabled | 70.28Mbps | 63.60Mbps |
+| Candidate 40µs | Enabled | 70.93Mbps | 64.47Mbps |
+
+Type-C and mailbox CPU counters stayed unchanged in all eight new direction
+intervals; xHCI and NCM counters grew. CPU-frequency snapshots before and
+after the runs reported 1,017,600kHz, which does not establish a fixed clock
+throughout the transfers. Background work and clock behavior were not
+controlled across boots. The earlier measurements have no matching IRQ
+brackets, so they cannot establish a change in interrupt cost. The candidate
+matches the pinned Linux policy; it is not a demonstrated performance fix
+and does not identify the cause of the remaining low throughput.
 
 ## Primary implementation references
 
