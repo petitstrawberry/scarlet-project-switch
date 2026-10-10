@@ -345,6 +345,31 @@ the last-owner failure, and 26 filtered Cortex-A57 QEMU TCP cases passed,
 including two new registry regressions. These are not a reproduction of the
 reported physical freeze; the combined candidate passed build validation.
 
+Two additional common-core patches address bounded network service and lock
+scope. [The xHCI fairness patch](../patches/scarlet/xhci-network-fairness.patch)
+serves queued NCM transmit work before deferring another full receive-event
+pass. The existing limits remain 256 events per pass, 32 transmit attempts and
+eight in-flight transfers per NIC. Interrupt masking and deferred interrupt
+token ownership are unchanged. [The TCP statistics patch](../patches/scarlet/tcp-rx-stats-lock-scope.patch)
+releases the statistics guard immediately after updating its counters, before
+socket lookup, payload processing and ACK transmission. These changes do not
+add periodic packet polling or change TCP protocol/window behavior.
+
+Run the focused regressions from the repository root:
+
+```sh
+python3 tests/test-xhci-network-fairness.py
+python3 tests/test-tcp-rx-stats.py
+```
+
+The tests extract the production method bodies from the pinned core and
+reproduce the old paths before checking the patches. MMIO, DMA, locks and
+IRQ boundaries are modeled; the tests establish control flow and guard
+lifetime, not physical throughput. Measure finite raw TCP transfers in both
+directions with receiver-confirmed byte counts, alongside task CPU time and
+IRQ counters. SSH encryption, terminal forwarding and storage add costs and
+should be measured separately.
+
 The current candidate's fresh kernel snapshot matches its installed boot
 fingerprints and includes the new PK4 diagnostics. It reached Host data role
 as a PD power sink at 15 V, with charging ramped to 1,200 mA. Keyboard
@@ -375,7 +400,9 @@ normal package/cache has been prepared, run from the repository root:
 ```sh
 nix develop --command python3 scripts/build-patched-usb.py \
   --core-patch patches/scarlet/tcp-registry-drop-order.patch \
-  --output projects/aarch64-switch-l4t-console/.scarlet/usb-irq-regression-candidate
+  --core-patch patches/scarlet/xhci-network-fairness.patch \
+  --core-patch patches/scarlet/tcp-rx-stats-lock-scope.patch \
+  --output projects/aarch64-switch-l4t-console/.scarlet/usb-network-candidate
 ```
 
 [The candidate builder](../scripts/build-patched-usb.py) leaves the shared

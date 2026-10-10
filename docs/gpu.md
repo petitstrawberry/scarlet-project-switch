@@ -87,6 +87,23 @@ stack. Hardware methods and GPU addresses are generated inside the kernel.
 Invalid commands are rejected before DMA; hardware faults isolate
 the engine and retain allocations whose ownership is uncertain.
 
+Performance traces need to separate admission from execution. Admission
+copies the merged declared buffer ranges into immutable CPU snapshots and
+validates them while holding the pending-queue lock. Execution copies those
+snapshots into private GPU backing and cleans the copied ranges. Pinning a
+generic buffer keeps its memory alive but does not make application writes
+immutable; removing either copy requires preserving the bytes that were
+validated through GPU retirement.
+
+ScarletUI's `encode_submit_us` includes lowering and submission backpressure;
+`wait_us` includes queued CPU work, dispatch and GPU completion. Driver
+`upload_us` also includes hardware-state lock wait, and `execute_us` includes
+lowering and cache/readback work. These wall times are not pure GPU time.
+For Boxcraft's canonical terrain draws, the declared vertex span is the live
+nonindexed vertex count times 40 bytes, even when ScarletUI reuses an uploaded
+mesh. Measure snapshot bytes, validation, queue delay and copy/cache stages
+separately before attributing a frame-time spike to one of them.
+
 ## Images and supported operations
 
 The fixed pipelines provide clear, indexed and nonindexed triangle draws,
