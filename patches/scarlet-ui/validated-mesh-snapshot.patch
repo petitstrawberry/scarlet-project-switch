@@ -1,0 +1,331 @@
+diff --git a/crates/scarlet-ui-renderer-sgfx/src/lowering.rs b/crates/scarlet-ui-renderer-sgfx/src/lowering.rs
+index 4a03c5d..e7caf6e 100644
+--- a/crates/scarlet-ui-renderer-sgfx/src/lowering.rs
++++ b/crates/scarlet-ui-renderer-sgfx/src/lowering.rs
+@@ -2,7 +2,7 @@
+ mod retained;
+ 
+ use alloc::rc::Rc;
+-use alloc::sync::Arc;
++use alloc::sync::{Arc, Weak};
+ use alloc::vec::Vec;
+ 
+ use scarlet_ui_core::buffer::Buffer;
+@@ -309,6 +309,8 @@ struct CanvasTarget {
+ struct CanvasMesh {
+     handle_id: u64,
+     revision: u64,
++    // CPU validation is tied to the exact immutable allocation, not its public key.
++    validated_snapshot: Weak<SgfxMesh>,
+     buffer: BufferId,
+     vertex_count: u32,
+     capacity_vertices: u32,
+@@ -433,6 +435,8 @@ pub struct SgfxPaintEncoder {
+     canvas_dummy_buffer: BufferId,
+     canvas_targets: Vec<CanvasTarget>,
+     canvas_meshes: Vec<CanvasMesh>,
++    #[cfg(test)]
++    canvas_mesh_validation_count: usize,
+     canvas_textures: Vec<CanvasTexture>,
+     free_external_textures: Vec<(TextureId, TextureFormat, u32, u32)>,
+     frame_serial: u64,
+@@ -597,6 +601,8 @@ impl SgfxPaintEncoder {
+             canvas_dummy_buffer,
+             canvas_targets: Vec::new(),
+             canvas_meshes: Vec::new(),
++            #[cfg(test)]
++            canvas_mesh_validation_count: 0,
+             canvas_textures: Vec::new(),
+             free_external_textures: Vec::new(),
+             frame_serial: 0,
+@@ -1659,10 +1665,26 @@ impl SgfxPaintEncoder {
+         }
+     }
+ 
+-    fn canvas_mesh(&mut self, mesh: &SgfxMesh) -> Result<usize> {
++    fn canvas_mesh(&mut self, mesh: &Arc<SgfxMesh>) -> Result<usize> {
++        let existing = self
++            .canvas_meshes
++            .iter()
++            .position(|cached| cached.handle_id == mesh.handle.id());
++        if let Some(index) = existing {
++            let cached = &self.canvas_meshes[index];
++            if cached.revision == mesh.revision
++                && cached.validated_snapshot.ptr_eq(&Arc::downgrade(mesh))
++            {
++                return Ok(index);
++            }
++        }
+         if mesh.vertices.is_empty() || !mesh.vertices.len().is_multiple_of(3) {
+             return Err(Error::FrameTooComplex);
+         }
++        #[cfg(test)]
++        {
++            self.canvas_mesh_validation_count += 1;
++        }
+         if !mesh.vertices.iter().all(|vertex| {
+             vertex.position.iter().all(|value| value.is_finite())
+                 && vertex.color.iter().all(|value| value.is_finite())
+@@ -1672,11 +1694,7 @@ impl SgfxPaintEncoder {
+         }
+         let vertex_count =
+             u32::try_from(mesh.vertices.len()).map_err(|_| Error::FrameTooComplex)?;
+-        if let Some(index) = self
+-            .canvas_meshes
+-            .iter()
+-            .position(|cached| cached.handle_id == mesh.handle.id())
+-        {
++        if let Some(index) = existing {
+             let action = canvas_mesh_cache_action(
+                 self.canvas_meshes[index].revision,
+                 self.canvas_meshes[index].capacity_vertices,
+@@ -1684,6 +1702,7 @@ impl SgfxPaintEncoder {
+                 vertex_count,
+             )?;
+             if action == CanvasMeshCacheAction::Reuse {
++                self.canvas_meshes[index].validated_snapshot = Arc::downgrade(mesh);
+                 return Ok(index);
+             }
+             if let CanvasMeshCacheAction::Reallocate(capacity_vertices) = action {
+@@ -1702,6 +1721,7 @@ impl SgfxPaintEncoder {
+             }
+             self.canvas_meshes[index].revision = mesh.revision;
+             self.canvas_meshes[index].vertex_count = vertex_count;
++            self.canvas_meshes[index].validated_snapshot = Arc::downgrade(mesh);
+             self.canvas_meshes[index].uploaded = false;
+             return Ok(index);
+         }
+@@ -1723,6 +1743,7 @@ impl SgfxPaintEncoder {
+         self.canvas_meshes.push(CanvasMesh {
+             handle_id: mesh.handle.id(),
+             revision: mesh.revision,
++            validated_snapshot: Arc::downgrade(mesh),
+             buffer,
+             vertex_count,
+             capacity_vertices,
+@@ -4374,6 +4395,225 @@ mod tests {
+         assert!(!canvas_pass_reaches_frame_end(&too_many_meshes, 0, 0));
+     }
+ 
++    #[test]
++    fn repeated_large_canvas_snapshot_validates_once() {
++        let mut encoder = SgfxPaintEncoder::new(32, 32, false).unwrap();
++        let mut executor = RecordingExecutor::default();
++        let mesh = SgfxMesh::with_handle(SgfxMeshHandle::new(), 1, triangle(0.0).repeat(20_000));
++        let frame = SgfxCanvasFrame::new(1, UiColor::BLACK)
++            .draw(SgfxCanvasDraw::new(mesh, Transform::identity().columns()));
++        let target = encoder.canvas_target(1, 32, 32, false).unwrap();
++        for _ in 0..8 {
++            encoder
++                .render_canvas(&mut executor, target, &frame)
++                .unwrap();
++        }
++        assert_eq!(encoder.canvas_mesh_validation_count, 1);
++        assert_eq!(executor.buffer_write_sizes, [2_400_000]);
++        assert_eq!(executor.draw_vertices, [60_000; 8]);
++    }
++
++    #[test]
++    fn distinct_canvas_snapshots_with_the_same_key_still_validate() {
++        let mut encoder = SgfxPaintEncoder::new(32, 32, false).unwrap();
++        let handle = SgfxMeshHandle::new();
++        let mesh = SgfxMesh::with_handle(handle, 1, triangle(0.0));
++        let index = encoder.canvas_mesh(&mesh).unwrap();
++        encoder.canvas_meshes[index].uploaded = true;
++        let buffer = encoder.canvas_meshes[index].buffer;
++        // Preserve the existing same-revision rule: the first GPU contents/count win.
++        let alias = SgfxMesh::with_handle(handle, 1, triangle(1.0).repeat(2));
++        assert_eq!(encoder.canvas_mesh(&alias).unwrap(), index);
++        assert_eq!(encoder.canvas_mesh_validation_count, 2);
++        assert_eq!(encoder.canvas_meshes[index].buffer, buffer);
++        assert_eq!(encoder.canvas_meshes[index].vertex_count, 3);
++        assert!(encoder.canvas_meshes[index].uploaded);
++        assert_eq!(encoder.canvas_mesh(&alias).unwrap(), index);
++        assert_eq!(encoder.canvas_mesh_validation_count, 2);
++
++        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
++            for component in 0..10 {
++                let mut vertices = triangle(0.0);
++                match component {
++                    0..=3 => vertices[0].position[component] = value,
++                    4..=7 => vertices[0].color[component - 4] = value,
++                    _ => vertices[0].tex_coord[component - 8] = value,
++                }
++                let invalid = SgfxMesh::with_handle(handle, 1, vertices);
++                for _ in 0..2 {
++                    assert!(matches!(
++                        encoder.canvas_mesh(&invalid),
++                        Err(Error::InvalidFrame)
++                    ));
++                }
++                let count = encoder.canvas_mesh_validation_count;
++                assert_eq!(encoder.canvas_mesh(&alias).unwrap(), index);
++                assert_eq!(encoder.canvas_mesh_validation_count, count);
++            }
++        }
++        for vertices in [Vec::new(), triangle(0.0)[..2].to_vec()] {
++            let invalid = SgfxMesh::with_handle(handle, 1, vertices);
++            assert!(matches!(
++                encoder.canvas_mesh(&invalid),
++                Err(Error::FrameTooComplex)
++            ));
++        }
++        let count = encoder.canvas_mesh_validation_count;
++        assert_eq!(encoder.canvas_mesh(&alias).unwrap(), index);
++        assert_eq!(encoder.canvas_mesh_validation_count, count);
++        assert_eq!(encoder.canvas_meshes[index].buffer, buffer);
++        assert_eq!(encoder.canvas_meshes[index].vertex_count, 3);
++        assert!(encoder.canvas_meshes[index].uploaded);
++    }
++
++    #[test]
++    fn validated_canvas_snapshot_does_not_retain_mesh_or_vertices() {
++        let mut encoder = SgfxPaintEncoder::new(32, 32, false).unwrap();
++        let mesh = SgfxMesh::new(triangle(0.0));
++        let vertices = Arc::downgrade(&mesh.vertices);
++        let index = encoder.canvas_mesh(&mesh).unwrap();
++        assert_eq!(Arc::strong_count(&mesh), 1);
++        assert!(
++            encoder.canvas_meshes[index]
++                .validated_snapshot
++                .upgrade()
++                .is_some()
++        );
++        drop(mesh);
++        assert!(
++            encoder.canvas_meshes[index]
++                .validated_snapshot
++                .upgrade()
++                .is_none()
++        );
++        assert!(vertices.upgrade().is_none());
++    }
++
++    #[test]
++    fn canvas_snapshot_revisions_preserve_grow_and_shrink_behavior() {
++        let mut encoder = SgfxPaintEncoder::new(32, 32, false).unwrap();
++        let handle = SgfxMeshHandle::new();
++        let small = SgfxMesh::with_handle(handle, 1, triangle(0.0));
++        let index = encoder.canvas_mesh(&small).unwrap();
++        encoder.canvas_meshes[index].uploaded = true;
++        let original_buffer = encoder.canvas_meshes[index].buffer;
++        let grown = SgfxMesh::with_handle(handle, 2, triangle(1.0).repeat(2));
++        assert_eq!(encoder.canvas_mesh(&grown).unwrap(), index);
++        assert_ne!(encoder.canvas_meshes[index].buffer, original_buffer);
++        assert_eq!(encoder.canvas_meshes[index].capacity_vertices, 8);
++        assert_eq!(encoder.canvas_meshes[index].vertex_count, 6);
++        assert!(!encoder.canvas_meshes[index].uploaded);
++        encoder.canvas_meshes[index].uploaded = true;
++        let grown_buffer = encoder.canvas_meshes[index].buffer;
++        let shrunk = SgfxMesh::with_handle(handle, 3, triangle(2.0));
++        assert_eq!(encoder.canvas_mesh(&shrunk).unwrap(), index);
++        assert_eq!(encoder.canvas_meshes[index].buffer, grown_buffer);
++        assert_eq!(encoder.canvas_meshes[index].capacity_vertices, 8);
++        assert_eq!(encoder.canvas_meshes[index].vertex_count, 3);
++        assert!(!encoder.canvas_meshes[index].uploaded);
++        assert_eq!(encoder.canvas_mesh_validation_count, 3);
++        assert_eq!(encoder.canvas_mesh(&shrunk).unwrap(), index);
++        assert_eq!(encoder.canvas_mesh_validation_count, 3);
++    }
++
++    #[test]
++    fn failed_canvas_buffer_growth_does_not_commit_validation_snapshot() {
++        let mut encoder = SgfxPaintEncoder::new(32, 32, false).unwrap();
++        let handle = SgfxMeshHandle::new();
++        let mesh = SgfxMesh::with_handle(handle, 1, triangle(0.0));
++        let index = encoder.canvas_mesh(&mesh).unwrap();
++        encoder.canvas_meshes[index].uploaded = true;
++        let buffer = encoder.canvas_meshes[index].buffer;
++        let mut extra_buffers = Vec::new();
++        while let Ok(buffer) = encoder
++            .table
++            .define_buffer(BufferDesc::new(4, BufferUsage::COPY_DST).unwrap())
++        {
++            extra_buffers.push(buffer.id());
++        }
++        let grown = SgfxMesh::with_handle(handle, 2, triangle(1.0).repeat(2));
++        for _ in 0..2 {
++            assert!(matches!(
++                encoder.canvas_mesh(&grown),
++                Err(Error::Sgfx(Stage::DefineResources))
++            ));
++            let cached = &encoder.canvas_meshes[index];
++            assert_eq!(cached.revision, 1);
++            assert_eq!(cached.buffer, buffer);
++            assert_eq!(cached.vertex_count, 3);
++            assert!(cached.uploaded);
++            assert!(cached.validated_snapshot.ptr_eq(&Arc::downgrade(&mesh)));
++        }
++        assert_eq!(encoder.canvas_mesh_validation_count, 3);
++        encoder
++            .table
++            .release_buffer(extra_buffers.pop().unwrap())
++            .unwrap();
++        assert_eq!(encoder.canvas_mesh(&grown).unwrap(), index);
++        assert_eq!(encoder.canvas_mesh_validation_count, 4);
++        assert_eq!(encoder.canvas_meshes[index].revision, 2);
++        assert_eq!(encoder.canvas_meshes[index].vertex_count, 6);
++        assert!(!encoder.canvas_meshes[index].uploaded);
++        assert_eq!(encoder.canvas_mesh(&grown).unwrap(), index);
++        assert_eq!(encoder.canvas_mesh_validation_count, 4);
++    }
++
++    #[test]
++    fn failed_canvas_upload_retries_without_revalidating_snapshot() {
++        struct FailOnceMeshExecutor {
++            failed: bool,
++            buffer_write_sizes: Vec<usize>,
++        }
++        impl CommandExecutor for FailOnceMeshExecutor {
++            type Error = &'static str;
++
++            fn execute<'r, 'data>(
++                &mut self,
++                commands: &CommandBuffer<'r, 'data>,
++            ) -> core::result::Result<(), Self::Error> {
++                for command in commands.commands() {
++                    if let Command::WriteBuffer { data, .. } = command {
++                        self.buffer_write_sizes.push(data.len());
++                    }
++                }
++                if !self.failed {
++                    self.failed = true;
++                    Err("injected mesh upload failure")
++                } else {
++                    Ok(())
++                }
++            }
++        }
++        let mut encoder = SgfxPaintEncoder::new(32, 32, false).unwrap();
++        let mesh = SgfxMesh::new(triangle(0.0));
++        let frame = SgfxCanvasFrame::new(1, UiColor::BLACK)
++            .draw(SgfxCanvasDraw::new(mesh, Transform::identity().columns()));
++        let target = encoder.canvas_target(1, 32, 32, false).unwrap();
++        let mut executor = FailOnceMeshExecutor {
++            failed: false,
++            buffer_write_sizes: Vec::new(),
++        };
++        assert!(matches!(
++            encoder.render_canvas(&mut executor, target, &frame),
++            Err(FrameError::Execution("injected mesh upload failure"))
++        ));
++        assert!(!encoder.canvas_meshes[0].uploaded);
++        assert_eq!(encoder.canvas_mesh_validation_count, 1);
++        encoder.discard_frame();
++        encoder
++            .render_canvas(&mut executor, target, &frame)
++            .unwrap();
++        assert!(encoder.canvas_meshes[0].uploaded);
++        assert_eq!(encoder.canvas_mesh_validation_count, 1);
++        assert_eq!(executor.buffer_write_sizes, [120, 120]);
++        encoder.discard_frame();
++        encoder
++            .render_canvas(&mut executor, target, &frame)
++            .unwrap();
++        assert_eq!(encoder.canvas_mesh_validation_count, 1);
++        assert_eq!(executor.buffer_write_sizes, [120, 120]);
++    }
++
+     #[test]
+     fn large_canvas_mesh_remains_one_persistent_buffer_and_one_logical_draw() {
+         let mut encoder = SgfxPaintEncoder::new(32, 32, false).unwrap();
