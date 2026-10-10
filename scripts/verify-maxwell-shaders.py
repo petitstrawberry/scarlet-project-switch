@@ -9,7 +9,7 @@ import struct
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = ROOT / "shared/maxwell-shader-pack/artifacts/gm20b"
 MESA_SHA = "e881540692daac6532cefec76699f7a025563767"
-METADATA_SHA = "0fd59dd61d6f54645f7adef64f2805954c08b39d46d799243be350a6993883b1"
+METADATA_SHA = "b81ed4d4e55e20ce8ce55092f71087412246879a2763595981d106a3cda89395"
 
 
 def main():
@@ -31,7 +31,7 @@ def main():
     metadata = json.loads(metadata_bytes)
     assert metadata["mesa_sha"] == MESA_SHA
     assert metadata["chipset"] == 0x12B
-    assert metadata["uniform_bytes"] == 160
+    assert metadata["uniform_bytes"] == 192
     assert len(metadata["variants"]) == 15
     names = set()
     for variant in metadata["variants"]:

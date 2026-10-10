@@ -3,7 +3,7 @@
 #![no_std]
 pub const MESA_SHA: &str = "e881540692daac6532cefec76699f7a025563767";
 pub const MESA_METADATA_SHA256: &str =
-    "0fd59dd61d6f54645f7adef64f2805954c08b39d46d799243be350a6993883b1";
+    "b81ed4d4e55e20ce8ce55092f71087412246879a2763595981d106a3cda89395";
 pub const SHADER_ALIGNMENT: usize = 4096;
 pub const SHADER_SIZE: usize = 4096;
 pub const PACK_SIZE: usize = 15 * SHADER_ALIGNMENT;

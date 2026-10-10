@@ -1626,7 +1626,7 @@ fn validate(
                             layout.planes[1].row_pitch / 2
                         };
                         w[71] = d.height.div_ceil(2);
-                        w[72..92].copy_from_slice(&ycbcr_uniforms(d, *color));
+                        w[72..96].copy_from_slice(&ycbcr_uniforms(d, *color));
                     }
                     if t.0.va == target.0.va {
                         return Err("sampled/render target alias forbidden");
@@ -2076,45 +2076,32 @@ fn rectangle(rect: &[u32], width: u32, height: u32) -> Result<(), &'static str> 
 }
 
 /// UV transforms and encoded RGB conversion, derived only from validated metadata.
-pub(super) fn ycbcr_uniforms(d: SharedImageDescriptor, c: ImageColor) -> [u32; 20] {
+pub(super) fn ycbcr_uniforms(d: SharedImageDescriptor, c: ImageColor) -> [u32; 24] {
     // A tiled TIC derives its pitch from its width. NVDEC may pad rows more
     // than texture alignment requires, so describe the full stored row.
-    let w = if d.modifier == 0 {
-        d.width
-    } else {
-        d.planes[0].row_pitch
-    } as f32;
-    let cw = if d.modifier == 0 {
-        d.width.div_ceil(2) * 2
-    } else {
-        d.planes[1].row_pitch
-    } as f32;
-    let h = d.height as f32;
-    let ch = d.height.div_ceil(2) as f32 * 2.0;
+    let extent = [
+        if d.modifier == 0 {
+            d.width
+        } else {
+            d.planes[0].row_pitch
+        },
+        d.height,
+        if d.modifier == 0 {
+            d.width.div_ceil(2)
+        } else {
+            d.planes[1].row_pitch / 2
+        },
+        d.height.div_ceil(2),
+    ];
     let r = d.visible;
-    let mut out = [0f32; 20];
-    out[..8].copy_from_slice(&[
-        r.width as f32 / w,
-        r.height as f32 / h,
-        r.x as f32 / w,
-        r.y as f32 / h,
-        r.width as f32 / cw,
-        r.height as f32 / ch,
-        (r.x as f32
-            + if c.chroma_x == CHROMA_COSITED {
-                0.5
-            } else {
-                0.0
-            })
-            / cw,
-        (r.y as f32
-            + if c.chroma_y == CHROMA_COSITED {
-                0.5
-            } else {
-                0.0
-            })
-            / ch,
-    ]);
+    let (transforms, chroma_bounds) = crate::ycbcr::sampling(
+        extent,
+        [r.x, r.y, r.width, r.height],
+        [c.chroma_x == CHROMA_COSITED, c.chroma_y == CHROMA_COSITED],
+    );
+    let mut out = [0f32; 24];
+    out[..8].copy_from_slice(&transforms);
+    out[20..24].copy_from_slice(&chroma_bounds);
     let (kr, kb) = if c.matrix == COLOR_MATRIX_BT709 {
         (0.2126, 0.0722)
     } else {

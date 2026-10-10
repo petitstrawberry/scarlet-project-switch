@@ -11,9 +11,11 @@ Meson integration patch are under `artifacts/gm20b`. Derived material retains
 the upstream copyright/permission notices in `NOTICE`.
 
 There are seven vertex programs and eight fragment programs, including NV12
-sampling with uniform or vertex color. Uniform CB0 is 160 bytes: a column-major
+sampling with uniform or vertex color. Uniform CB0 is 192 bytes: a column-major
 mat4, RGBA color, two plane coordinate transforms, and three YCbCr conversion
-rows. Existing RGB programs use only the first 80 bytes. Driver CB15 contains
+rows and two visible texel-center clamp rectangles. Each plane is clamped
+before filtering, so NVDEC stride padding cannot bleed into cropped edges.
+Existing RGB programs use only the first 80 bytes. Driver CB15 contains
 the Y/RGB texture handle at byte `0x20` and UV handle at `0x24`. The texture
 descriptor table permits indices 0 and 1; both handles use sampler 0.
 Each program occupies a zeroed 4-KiB slot;
@@ -52,7 +54,11 @@ The kernel keeps the pack in GPU-owned memory. Userspace submits logical
 pipeline identities and capability-authorized resource references; it cannot
 replace SASS or submit arbitrary PGRAPH methods.
 
-Before exposing the GPU, the kernel additionally reads back 12 NV12 draws:
+Before exposing the GPU, the kernel additionally checks 60 pixels from 12 NV12 draws:
 linear and 2-GOB block-linear storage, both fragment programs, BT.601/BT.709,
 limited/full range, and cropped images with poisoned row padding. These use
-CPU-produced planes and do not depend on NVDEC. All 12 passed on Switch.
+CPU-produced planes and do not depend on NVDEC. Each draw uses interpolated UVs
+and linear filtering; its four corners and center must match the reference
+color. The user reported no visible issue during video playback after a normal
+SD boot with the edge fix (2026-10-10). UART readback results for the expanded
+checks were not captured.

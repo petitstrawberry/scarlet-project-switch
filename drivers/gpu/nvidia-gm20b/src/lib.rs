@@ -50,6 +50,8 @@ mod programmable_graphics;
 mod runtime;
 #[cfg(target_os = "none")]
 mod utilization;
+#[cfg(any(target_os = "none", test))]
+mod ycbcr;
 #[cfg(target_os = "none")]
 pub use runtime::force_link;
 #[cfg(not(target_os = "none"))]

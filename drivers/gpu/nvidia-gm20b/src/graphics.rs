@@ -656,9 +656,31 @@ impl Graphics {
                 };
                 for (i, p) in [[-1f32, -1.], [3., -1.], [-1., 3.]].into_iter().enumerate() {
                     let values = if vertex_color {
-                        [p[0], p[1], 0., 1., 1., 1., 1., 1., 0.5, 0.5]
+                        [
+                            p[0],
+                            p[1],
+                            0.,
+                            1.,
+                            1.,
+                            1.,
+                            1.,
+                            1.,
+                            (p[0] + 1.) * 0.5,
+                            (p[1] + 1.) * 0.5,
+                        ]
                     } else {
-                        [p[0], p[1], 0.5, 0.5, 0., 0., 0., 0., 0., 0.]
+                        [
+                            p[0],
+                            p[1],
+                            (p[0] + 1.) * 0.5,
+                            (p[1] + 1.) * 0.5,
+                            0.,
+                            0.,
+                            0.,
+                            0.,
+                            0.,
+                            0.,
+                        ]
                     };
                     for (j, value) in values[..variant.stride() as usize / 4].iter().enumerate() {
                         store(
@@ -742,6 +764,7 @@ impl Graphics {
                         ..ImageColor::default()
                     };
                     let mut draw = probe_draw(variant);
+                    draw[22] = 1 << 1; // Linear filtering exposes poisoned crop edges.
                     draw[6] = base;
                     draw[29..32].copy_from_slice(&[16, 16, 64]);
                     draw[48..52].fill(1f32.to_bits());
@@ -756,34 +779,38 @@ impl Graphics {
                         if tiled { 32 } else { 16 },
                         16,
                     ]);
-                    draw[72..92].copy_from_slice(&crate::executor::ycbcr_uniforms(d, color));
+                    draw[72..96].copy_from_slice(&crate::executor::ycbcr_uniforms(d, color));
                     self.execute(fifo, gr, &[probe_clear(), draw])
                         .map_err(proof_error)?;
                     arch::invalidate_dcache_to_poc_range(self.image.as_vaddr(), 4096);
-                    let pixel = self.pixel(8, 8);
-                    let rgb = [(pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8];
-                    if pixel >> 24 != 255
-                        || rgb
-                            .into_iter()
-                            .zip(expected)
-                            .any(|(a, b)| a.abs_diff(b) > 2)
-                    {
-                        scarlet::println!(
-                            "gm20b: NV12 proof failed tiled={} vertex_color={} matrix={} range={} pixel={:#010x}",
-                            tiled,
-                            vertex_color,
-                            matrix,
-                            range,
-                            pixel
-                        );
-                        return Err("SGFX NV12 color/crop readback mismatch");
+                    for (x, y) in [(0, 0), (15, 0), (0, 15), (15, 15), (8, 8)] {
+                        let pixel = self.pixel(x, y);
+                        let rgb = [(pixel >> 16) as u8, (pixel >> 8) as u8, pixel as u8];
+                        if pixel >> 24 != 255
+                            || rgb
+                                .into_iter()
+                                .zip(expected)
+                                .any(|(a, b)| a.abs_diff(b) > 2)
+                        {
+                            scarlet::println!(
+                                "gm20b: NV12 proof failed tiled={} vertex_color={} matrix={} range={} x={} y={} pixel={:#010x}",
+                                tiled,
+                                vertex_color,
+                                matrix,
+                                range,
+                                x,
+                                y,
+                                pixel
+                            );
+                            return Err("SGFX NV12 color/crop/edge readback mismatch");
+                        }
+                        checks += 1;
                     }
-                    checks += 1;
                 }
             }
         }
         scarlet::println!(
-            "gm20b: SGFX NV12 {} linear/tiled color/crop readbacks passed",
+            "gm20b: SGFX NV12 {} linear/tiled color/crop/edge readbacks passed",
             checks
         );
         Ok(())
@@ -1158,7 +1185,7 @@ fn proof_error(error: GpuBackendSubmitError) -> &'static str {
 
 struct Push {
     words: Vec<u32>,
-    uniforms: Option<[u32; 40]>,
+    uniforms: Option<[u32; 48]>,
     uniform_next: usize,
     tic: Option<[u32; 16]>,
     tsc: Option<[u32; 8]>,
@@ -1458,9 +1485,22 @@ impl Push {
         } else {
             self.disable_depth()?;
         }
-        let mut uniforms = [0u32; 40];
+        let mut uniforms = [0u32; 48];
         uniforms[..20].copy_from_slice(&w[32..52]);
-        uniforms[20..].copy_from_slice(&w[72..92]);
+        uniforms[20..40].copy_from_slice(&w[72..92]);
+        if w[64] != 0 {
+            // Clamp to visible texel centers, not the padded TIC dimensions.
+            uniforms[40..44].copy_from_slice(
+                &crate::ycbcr::luma_bounds(
+                    <[u32; 4]>::try_from(&w[72..76])
+                        .unwrap()
+                        .map(f32::from_bits),
+                    [w[65], w[66]],
+                )
+                .map(f32::to_bits),
+            );
+            uniforms[44..48].copy_from_slice(&w[92..96]);
+        }
         let uniforms_changed = self.uniforms != Some(uniforms);
         if uniforms_changed {
             // Bind a fresh fixed-size CB0 instead of stalling every draw to

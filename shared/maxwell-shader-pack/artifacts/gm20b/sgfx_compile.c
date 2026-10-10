@@ -121,6 +121,15 @@ build_fs(const char *name, enum fs_kind kind)
                                   nir_channels(b, y_transform, 12));
       nir_def *uv_coord = nir_fadd(b, nir_fmul(b, uv, nir_channels(b, uv_transform, 3)),
                                    nir_channels(b, uv_transform, 12));
+      /* Clamp each plane to visible texel centers before linear filtering.
+       * The TIC can include NVDEC's padded stride, so sampler clamp alone
+       * does not stop the rightmost chroma sample from reading padding. */
+      nir_def *y_bounds = load_const(b, 40, 4);
+      nir_def *uv_bounds = load_const(b, 44, 4);
+      y_coord = nir_fmin(b, nir_fmax(b, y_coord, nir_channels(b, y_bounds, 3)),
+                            nir_channels(b, y_bounds, 12));
+      uv_coord = nir_fmin(b, nir_fmax(b, uv_coord, nir_channels(b, uv_bounds, 3)),
+                             nir_channels(b, uv_bounds, 12));
       nir_def *y = sample_texture(b, y_coord, 0);
       nir_def *cbcr = sample_texture(b, uv_coord, 1);
       nir_def *yuv = nir_vec4(b, nir_channel(b, y, 0), nir_channel(b, cbcr, 0),
@@ -323,7 +332,7 @@ main(int argc, char **argv)
    FILE *f = fopen(path, "w"); if (!f) { perror(path); return 2; }
    fprintf(f, "{\n  \"schema_version\":1,\n"
               "  \"mesa_sha\":\"e881540692daac6532cefec76699f7a025563767\",\n"
-              "  \"chipset\":299,\n  \"uniform_bytes\":160,\n  \"variants\":[\n");
+              "  \"chipset\":299,\n  \"uniform_bytes\":192,\n  \"variants\":[\n");
 #define VS(name, p2, color, c3, uv) compile_one(argv[1], f, name, build_vs(name, p2, color, c3, uv), false)
 #define FS(name, kind, last) compile_one(argv[1], f, name, build_fs(name, kind), last)
    VS("vs_stride16_pos2", true, false, false, false);

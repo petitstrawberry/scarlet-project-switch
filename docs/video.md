@@ -62,6 +62,8 @@ It supports linear NV12 and NVIDIA uncompressed kind `0xfe`, two-GOB NV12
 (modifier `0x03000000000fe011`), including separate plane buffers. SGFX's
 sampled-only NV12 texture applies explicit BT.601/BT.709, full/limited range,
 chroma siting, crop and scaling during the ordinary window composition pass.
+Each plane's sampling coordinates are clamped to the first and last visible
+texel centers before filtering, so padded rows cannot bleed into the image edges.
 The video client reads H.264 VUI color metadata; unsupported HDR/conversions
 are rejected rather than silently treated as BT.601.
 
@@ -71,8 +73,8 @@ are painted in order into the existing BGRA window target. The compositor and
 Tegra DC continue normal BGRA presentation; no direct YUV scanout was added.
 The same image contract can support such a display consumer later.
 
-The Switch project's userspace Cargo configuration patches the coordinated
-Scarlet, SGFX, ScarletUI and Chromebook libraries to local checkouts.
+The Switch project resolves its coordinated Scarlet, SGFX, ScarletUI and
+Chromebook dependencies from the pinned sources in its build manifests.
 Keep their shared-image interfaces compatible when updating dependencies.
 
 ## Limitations
