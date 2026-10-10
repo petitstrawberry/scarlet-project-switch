@@ -37,7 +37,7 @@ use scarlet::{
 };
 use scarlet_driver_tegra210::{cell, delay_us};
 
-use crate::block_linear;
+use crate::{backlight::Backlight, block_linear};
 
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
@@ -110,6 +110,7 @@ struct State {
 struct Display {
     base: usize,
     mc: usize,
+    backlight: Option<Backlight>,
     config: FramebufferConfig,
     // Ordinary linear mmap buffers; private block-linear front/back are never
     // exported as a linear framebuffer or written while DC fetches them.
@@ -843,6 +844,18 @@ impl Selectable for Display {
 }
 
 impl GraphicsDevice for Display {
+    fn get_brightness_percent(&self) -> Result<u8, &'static str> {
+        self.backlight
+            .as_ref()
+            .ok_or("Display brightness control is not supported")?
+            .get()
+    }
+    fn set_brightness_percent(&self, percent: u8) -> Result<(), &'static str> {
+        self.backlight
+            .as_ref()
+            .ok_or("Display brightness control is not supported")?
+            .set(percent)
+    }
     fn get_display_name(&self) -> &'static str {
         "Tegra210 DSI"
     }
@@ -1209,9 +1222,23 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         }
     }
     let event_mask = FRAME_END | VBLANK | WINDOW_A_FETCH_EVENTS | WINDOW_B_FETCH_EVENTS;
+    let backlight = match Backlight::adopt().and_then(|backlight| {
+        let percent = backlight.get()?;
+        Ok((backlight, percent))
+    }) {
+        Ok((backlight, percent)) => {
+            scarlet::println!("tegra-dc: LCD backlight PWM0 adopted at {}%", percent);
+            Some(backlight)
+        }
+        Err(error) => {
+            scarlet::println!("tegra-dc: backlight control unavailable: {}", error);
+            None
+        }
+    };
     let display = Arc::new(Display {
         base,
         mc,
+        backlight,
         config: FramebufferConfig::new(WIDTH, HEIGHT, PixelFormat::BGRA8888),
         buffers: Some(buffers),
         scanout: Some(scanout),

@@ -19,6 +19,41 @@ Cold panel/DSI initialization, HDMI modesetting and suspend/resume are outside
 this driver. It preserves inherited EMC/MC bandwidth policy and does not
 reprogram global translation or firmware carveouts.
 
+## Backlight control
+
+On the supported Erista LCD handoff, the driver adopts Hekate's running PWM0
+backlight and exposes Scarlet's existing `DISPLAY_GET_BRIGHTNESS` and
+`DISPLAY_SET_BRIGHTNESS` controls through the ordinary `/dev/displayN` endpoint.
+The value is an integer percentage in `0..=100`: zero drives the backlight off,
+and 100 selects the 256-tick constant-high PWM encoding. Intermediate values
+use rounded linear duty percentages, not a calibrated luminance curve.
+
+Adoption leaves the inherited brightness unchanged. Updates preserve the PWM
+period, pin routing and shared clock/reset state; PWM1 remains owned by the
+cooling fan. Invalid requests are rejected before writing. Writes are checked
+by register readback and restored on mismatch. If the inherited clock or LCD
+pin routing is incompatible, display scanout remains available without
+brightness control. OLED/DSI brightness and persistence across boots are not
+implemented.
+
+Scarlet's `framebuffer::DisplayControl` opens the first brightness-capable
+display without mapping scanout memory. The updated scarlet-shell Control
+Center shows its sampled brightness and a slider, reads back changes, and
+refreshes changes made by other clients. Unsupported displays show
+`Brightness unavailable`. The existing CLI can also exercise the interface:
+
+```sh
+displayctl get
+displayctl set 50
+displayctl set 100
+```
+
+Build the updated Scarlet userspace together with this driver: a bundle pinned
+to the earlier Scarlet revision contains the earlier Control Center. Hardware
+QA should verify visible changes at 10/50/100%, zero followed by recovery,
+CLI changes reflected in Control Center, and unchanged fan operation. Host
+tests and AArch64 compilation do not establish physical backlight behavior.
+
 ## Storage paths
 
 The working scanout layout uses uncompressed Tegra 16Bx2 block-linear storage:

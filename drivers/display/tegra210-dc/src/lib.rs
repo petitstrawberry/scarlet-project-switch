@@ -5,6 +5,8 @@
 //! are preserved. This is not yet a cold panel initialization or modesetter.
 
 extern crate alloc;
+#[cfg(any(target_os = "none", test))]
+mod backlight;
 #[cfg(target_os = "none")]
 mod block_linear;
 #[cfg(target_os = "none")]
