@@ -669,6 +669,58 @@ brackets, so they cannot establish a change in interrupt cost. The candidate
 matches the pinned Linux policy; it is not a demonstrated performance fix
 and does not identify the cause of the remaining low throughput.
 
+## TCP drain and USB receive copy candidate
+
+The next isolated candidate retains the 40µs policy and adds two receive-path
+changes. [TCP bulk drain](../patches/scarlet/tcp-bulk-receive-drain.patch)
+copies the receive deque's one or two contiguous slices into the caller's
+buffer, then drains that prefix. It replaces the per-byte `pop_front` loops
+in both receive methods while preserving the receive guard, state/error
+checks, waker registration and window-update ACK ordering. ACK submission
+still occurs after the receive guard and drain profile span are dropped.
+
+[The xHCI NCM RX patch](../patches/scarlet/xhci-ncm-rx-lock-scope.patch)
+claims the exact completed request under the controller registry guard, then
+invalidates its DMA buffer, copies the received NTB and prepares the full
+allocation for the next device write outside that guard. Before requeueing,
+it reacquires the guard and checks the captured device's `Arc` identity,
+endpoint DCI, transfer size and attachment state. Ring publication and
+in-flight ownership publication remain under the same guard. The RX pool
+depth remains eight; the owned NTB copy and full cache preparation remain.
+
+`XhciRxRequeue` timing now includes registry reacquisition and publication,
+as well as cache preparation. Its earlier and new elapsed means therefore
+have different scopes and cannot be compared directly. The existing
+post-unlock doorbell window and delivery to the captured device after a
+disconnect remain; these changes do not establish general hotplug safety.
+
+Build with the existing full patch chain:
+
+```sh
+nix develop --command python3 scripts/build-patched-usb.py \
+  --core-patch patches/scarlet/tcp-registry-drop-order.patch \
+  --core-patch patches/scarlet/xhci-network-fairness.patch \
+  --core-patch patches/scarlet/tcp-rx-stats-lock-scope.patch \
+  --core-patch patches/scarlet/network-stage-profile.patch \
+  --core-patch patches/scarlet/tegra-xhci-interrupt-moderation.patch \
+  --core-patch patches/scarlet/tcp-bulk-receive-drain.patch \
+  --core-patch patches/scarlet/xhci-ncm-rx-lock-scope.patch \
+  --board-patch patches/tegra210-xusb/linux-imod-policy.patch \
+  --output projects/aarch64-switch-l4t-console/.scarlet/usb-network-copy-candidate
+```
+
+`python3 tests/test-tcp-bulk-receive-drain.py` passed 17 cases on each of the
+extracted baseline and patched production receive methods, including wrapped
+FIFO reads, untouched output tails, EOF/errors, window ACK ordering and
+waker/wait boundaries. `python3 tests/test-xhci-ncm-rx-lock-scope.py` passed
+14 cases executing the production RX claim/completion paths, TX enqueue and
+ring methods. They cover ACK enqueue during unlocked preparation, exact
+ownership across ring wrap, failed/short completions, detach, slot reuse and
+changed endpoint/size rejection. IRQ masking, DMA/cache, scheduling and
+device callbacks are modeled. These host checks do not establish physical
+coherency, throughput improvement or the remaining bottleneck. Physical
+comparison of this candidate is pending.
+
 ## Primary implementation references
 
 - [Linux Tegra xHCI](https://github.com/torvalds/linux/blob/70293240c5ce675a67bfc48f419b093023b862b3/drivers/usb/host/xhci-tegra.c)
