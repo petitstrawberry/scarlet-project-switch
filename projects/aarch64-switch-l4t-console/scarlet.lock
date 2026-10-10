@@ -387,7 +387,7 @@ type = "path"
 path = "../../scripts/install-gm20b-firmware.sh"
 
 [sections.rootfs]
-hash = "sha256:df2593e6f0b267d485420065065cf2d0a4d60cb9968b3849fad9237ace25dc96"
+hash = "sha256:f5956928dfbe0a47a2e0d2715771c46d5158ab048d971f413c662883d02883fe"
 
 [[sections.rootfs.layers]]
 kind = "script"
@@ -1300,8 +1300,8 @@ rev = "a5e72b55e28ac7b618d42f1ad5201b856c2f7b9c"
 [[sections.rootfs.layers]]
 kind = "cargo"
 git = "https://github.com/petitstrawberry/yt-for-scarlet"
-git_ref = "d5aa0a4e3b658f4c01ff7f7dafab8a8d3a2779e2"
-resolved_rev = "d5aa0a4e3b658f4c01ff7f7dafab8a8d3a2779e2"
+git_ref = "3f008c3bfc86072341d818364bc661360c2a05b1"
+resolved_rev = "3f008c3bfc86072341d818364bc661360c2a05b1"
 package = "yt"
 bin = "yt"
 to = "/bin/yt"
@@ -1310,22 +1310,22 @@ hash = "sha256:64dab7d59e3264887f7aa2be087a8cce6db0b20079fde276d0509a1fe40e899f"
 [sections.rootfs.layers.source]
 type = "git"
 url = "https://github.com/petitstrawberry/yt-for-scarlet"
-rev = "d5aa0a4e3b658f4c01ff7f7dafab8a8d3a2779e2"
+rev = "3f008c3bfc86072341d818364bc661360c2a05b1"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
 git = "https://github.com/petitstrawberry/yt-for-scarlet"
-git_ref = "d5aa0a4e3b658f4c01ff7f7dafab8a8d3a2779e2"
-resolved_rev = "d5aa0a4e3b658f4c01ff7f7dafab8a8d3a2779e2"
+git_ref = "3f008c3bfc86072341d818364bc661360c2a05b1"
+resolved_rev = "3f008c3bfc86072341d818364bc661360c2a05b1"
 package = "yt-gui"
 bin = "yt-gui"
 to = "/bin/yt-gui"
-hash = "sha256:f30212e3678cd0c386d2ab419a34b9a601b8f35355c9ec6fedc2e2209745088d"
+hash = "sha256:b3b822fa357ce2ffd6a863045be2340e7fa8ca9db14aafeb5e8adb908e4e3848"
 
 [sections.rootfs.layers.source]
 type = "git"
 url = "https://github.com/petitstrawberry/yt-for-scarlet"
-rev = "d5aa0a4e3b658f4c01ff7f7dafab8a8d3a2779e2"
+rev = "3f008c3bfc86072341d818364bc661360c2a05b1"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
@@ -1432,7 +1432,7 @@ path = ".scarlet/cache/git/db99e5104faa6c7a/scripts/scarlet-plugins-aarch64.sh"
 [[sections.rootfs.layers]]
 kind = "script"
 to = "/bin/easyrpg-player"
-hash = "sha256:a6dbb9a1f775a81558ae8070de23e725b5ab2f68887f678c7aef13034d90aef8"
+hash = "sha256:534115407f7ddb5d3b92e1223f492b569b0a427eeca94cc6d0f543240f804b7b"
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -1441,7 +1441,7 @@ path = ".scarlet/cache/git/1d707eff8bef4cad/bundle/build-aarch64.sh"
 [[sections.rootfs.layers]]
 kind = "script"
 to = "/"
-hash = "sha256:3abdacccab77769d277df5ae5ae3d5a3d394630fb8b49a820ceb2642981b8cd9"
+hash = "sha256:0670c01d8f6c63ed856f95e7dcf6e3fc17e64cc6d60d1cf580fd26623cc3ae6e"
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -1462,8 +1462,8 @@ sha256 = "sha256:bcd6c090278c3ff8ce20be4f225a33cd0b0837cb90f37f1240444bc22b7dc32
 [[sections.rootfs.layers]]
 kind = "cargo"
 git = "https://github.com/petitstrawberry/Scarlet"
-git_ref = "3ecfef43b8223e2b76f6b852a364d9cc38876913"
-resolved_rev = "3ecfef43b8223e2b76f6b852a364d9cc38876913"
+git_ref = "dcd62324c13b3162559c3ab2ce21c5495807642c"
+resolved_rev = "dcd62324c13b3162559c3ab2ce21c5495807642c"
 package = "video_player"
 bin = "video-player"
 subdir = "user/video_player"
@@ -1478,12 +1478,12 @@ hash = "sha256:aeeec413c2d6e3c27a4cccef9dbb1164f47ea8a4848d1380e43b26082f32a615"
 [sections.rootfs.layers.source]
 type = "git"
 url = "https://github.com/petitstrawberry/Scarlet"
-rev = "3ecfef43b8223e2b76f6b852a364d9cc38876913"
+rev = "dcd62324c13b3162559c3ab2ce21c5495807642c"
 
 [[sections.rootfs.layers]]
 kind = "script"
 to = "/"
-hash = "sha256:147dd6256143244d89e845a93e0c6fc2d8e25a0147058fb82adcbb90bd882771"
+hash = "sha256:861c29fe8b9c60f2b3555e2dc93dd272f753422476c05e8975e2a50c0e424309"
 
 [sections.rootfs.layers.source]
 type = "path"
