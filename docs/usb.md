@@ -544,6 +544,41 @@ The firmware is embedded unchanged; its license is installed in the
 initramfs and rootfs at `/usr/share/licenses/tegra210-xusb/LICENCE.nvidia`.
 See [firmware provenance](../drivers/usb/tegra210-xusb/firmware/README.md).
 
+## Network timing diagnostics
+
+The physical NIC reports a 1Gbps link and enumerates at SuperSpeed, but three
+bounded 8MiB TCP runs with the network candidate measured median receive/send
+rates of 70.4/66.7Mbps. Type-C and mailbox task CPU counters did not grow during
+the measured traffic; xHCI and NCM receive work did. These observations do not
+establish the remaining bottleneck or an isolated before/after improvement.
+
+`patches/scarlet/network-stage-profile.patch` adds opt-in `/dev/net_profile`
+diagnostics after the cooperative-wait, TCP registry-drop, xHCI fairness and
+TCP statistics-lock patches. It leaves traffic, DMA/cache operations and IRQ
+policy unchanged. The xHCI startup readback also records the current `IMOD`
+value without programming it.
+
+Profiling starts disabled. One complete write of ASCII `0` or `1`, optionally
+followed by one newline, disables or enables new observations. Counters are
+cumulative and are never reset. Collect snapshots in one bounded large read;
+position zero refreshes the shared diagnostic snapshot. Count and byte fields
+cover all enabled calls. Timing samples every sixteenth stage call and reports
+its actual `TIMED_CALLS`, `TIMED_BYTES`, `TIMED_CAPACITY` and `TIMED_NS`.
+
+Stages separate xHCI RX invalidation/copy/requeue, TX copy/cache clean, NCM
+parse/enqueue/queue residence/framing, network dispatch, TCP receive and socket
+receive-buffer drain. Timings include preemption and any lock waits inside
+their spans; nested dispatch/TCP spans and queue residence must not be added
+together. Snapshots use independent relaxed loads, and in-flight samples may
+finish after disable. Compare the same transfer with profiling off and on to
+measure instrumentation overhead, then disable on cleanup.
+
+`python3 tests/test-network-stage-profile.py` executes twenty host tests using
+the production profiler/device, NCM parser/queue paths and xHCI TX/fairness
+methods. RX cache and TCP integration sites are source checks, while MMIO,
+DMA/cache and scheduling boundaries are modeled. These tests and the linked
+Cortex-A57 build do not establish physical timing or a throughput improvement.
+
 ## Primary implementation references
 
 - [Linux Tegra xHCI](https://github.com/torvalds/linux/blob/70293240c5ce675a67bfc48f419b093023b862b3/drivers/usb/host/xhci-tegra.c)
