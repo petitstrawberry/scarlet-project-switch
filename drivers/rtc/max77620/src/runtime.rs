@@ -137,8 +137,9 @@ impl super::system_power::Registers for Max77620 {
         self.write(0x3c, register, value)
     }
 }
-impl scarlet::device::power::SystemPowerOff for Max77620 {
-    fn power_off(&self) -> Result<core::convert::Infallible, &'static str> {
+impl Max77620 {
+    /// Execute the PMIC poweroff selected by the board system-power policy.
+    pub fn power_off(&self) -> Result<core::convert::Infallible, &'static str> {
         scarlet::println!("max77620: requesting system poweroff");
         let _lock = self.lock.lock();
         super::system_power::request_power_off(self)?;
@@ -207,7 +208,6 @@ fn probe(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
     });
     pmic.byte(0x3c, 0x2f)?;
     *PMIC.lock() = Some(pmic.clone());
-    scarlet::device::power::register_system_power_off(pmic.clone())?;
     // Establish wall time before userspace starts. RTC failure must not prevent
     // the independent touch supply from binding to this PMIC.
     let mut seeded = false;

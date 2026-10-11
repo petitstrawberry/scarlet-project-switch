@@ -1241,6 +1241,33 @@ fn probe_gpio(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
     }));
     Ok(())
 }
+/// Request the SoC's normal reset without changing firmware boot selection.
+/// The board policy selects this operation; no controller/driver lock is held
+/// while the reset is issued. Only PMC_CNTRL is accessed.
+pub fn restart_system() -> Result<core::convert::Infallible, &'static str> {
+    struct ResetIo(Mmio);
+    impl crate::restart::Registers for ResetIo {
+        fn read(&self, offset: usize) -> u32 {
+            self.0.read(offset)
+        }
+        fn write(&self, offset: usize, value: u32) {
+            self.0.write(offset, value);
+        }
+        fn barrier(&self) {
+            // SAFETY: Complete earlier memory and Device MMIO accesses before
+            // resetting the machine; retain the compiler memory barrier too.
+            unsafe {
+                core::arch::asm!("dsb sy", options(nostack, preserves_flags));
+            }
+        }
+    }
+    let pmc = (*PMC.lock()).ok_or("Tegra210 PMC is not ready for system reset")?;
+    scarlet::println!("tegra210-pmc: requesting normal system reset");
+    crate::restart::request(&ResetIo(pmc));
+    delay_us(1_000_000);
+    Err("Tegra210 PMC system reset did not complete within one second")
+}
+
 fn probe_pmc(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
     *PMC.lock() = Some(map_resource(d, 0x7000e400, 0xe8)?);
     Ok(())

@@ -93,6 +93,7 @@ fn remove(_: &PlatformDeviceInfo) -> Result<(), &'static str> {
     Err("power telemetry provider is in use")
 }
 fn register() {
+    super::system::register();
     DeviceManager::get_manager().register_driver(
         Box::new(PlatformDeviceDriver::new(
             "switch-power",

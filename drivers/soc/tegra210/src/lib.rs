@@ -17,6 +17,8 @@ pub use audio::{AudioPlatform, poll as audio_poll};
 #[cfg(target_os = "none")]
 mod gpu;
 pub mod packet;
+#[cfg(any(target_os = "none", test))]
+mod restart;
 #[cfg(target_os = "none")]
 pub use gpu::{GpuPlatform, GpuPlatformState};
 #[cfg(target_os = "none")]

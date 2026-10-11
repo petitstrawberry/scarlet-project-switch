@@ -1484,8 +1484,8 @@ sha256 = "sha256:bcd6c090278c3ff8ce20be4f225a33cd0b0837cb90f37f1240444bc22b7dc32
 [[sections.rootfs.layers]]
 kind = "cargo"
 git = "https://github.com/petitstrawberry/Scarlet"
-git_ref = "8a392ce30ae319b0a2d69173b28cb6e9d6772e95"
-resolved_rev = "8a392ce30ae319b0a2d69173b28cb6e9d6772e95"
+git_ref = "287f46789187a93a84b15c8f33d6fb5d9f28315d"
+resolved_rev = "287f46789187a93a84b15c8f33d6fb5d9f28315d"
 package = "video_player"
 bin = "video-player"
 subdir = "user/video_player"
@@ -1500,7 +1500,7 @@ hash = "sha256:e653d4b692cf5108517f40ff382db47c91b1a46e876c6557baa6d6f9f5974da4"
 [sections.rootfs.layers.source]
 type = "git"
 url = "https://github.com/petitstrawberry/Scarlet"
-rev = "8a392ce30ae319b0a2d69173b28cb6e9d6772e95"
+rev = "287f46789187a93a84b15c8f33d6fb5d9f28315d"
 
 [[sections.rootfs.layers]]
 kind = "script"

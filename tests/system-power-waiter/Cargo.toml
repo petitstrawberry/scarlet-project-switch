@@ -1,0 +1,10 @@
+[package]
+name = "system-power-waiter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+scarlet-sys = { git = "https://github.com/petitstrawberry/Scarlet", rev = "532897055ca57d2f10eb59f6cdee05b34eb05133" }
+
+[profile.release]
+panic = "abort"
