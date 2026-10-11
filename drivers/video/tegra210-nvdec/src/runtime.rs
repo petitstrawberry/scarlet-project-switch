@@ -222,6 +222,8 @@ impl VideoDecodeBackend for Backend {
                     s.engine.platform.completion.value(),
                     pending.fence
                 );
+                s.session.as_ref().unwrap().log_failure(pending);
+                s.engine.log_failure();
                 s.fail("NVDEC frame timeout")?;
                 return Err("NVDEC frame timeout");
             }

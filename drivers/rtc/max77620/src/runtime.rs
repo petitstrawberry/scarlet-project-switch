@@ -129,6 +129,23 @@ impl super::xusb_supplies::Registers for Max77620 {
         );
     }
 }
+impl super::system_power::Registers for Max77620 {
+    fn read(&self, register: u8) -> Result<u8, &'static str> {
+        self.byte(0x3c, register)
+    }
+    fn write(&self, register: u8, value: u8) -> Result<(), &'static str> {
+        self.write(0x3c, register, value)
+    }
+}
+impl scarlet::device::power::SystemPowerOff for Max77620 {
+    fn power_off(&self) -> Result<core::convert::Infallible, &'static str> {
+        scarlet::println!("max77620: requesting system poweroff");
+        let _lock = self.lock.lock();
+        super::system_power::request_power_off(self)?;
+        delay_us(1_000_000);
+        Err("MAX77620 poweroff did not remove power within one second")
+    }
+}
 impl super::rtc::Registers for Max77620 {
     fn read(&self, register: u8, bytes: &mut [u8]) -> Result<(), &'static str> {
         self.read(0x68, register, bytes)
@@ -190,6 +207,7 @@ fn probe(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
     });
     pmic.byte(0x3c, 0x2f)?;
     *PMIC.lock() = Some(pmic.clone());
+    scarlet::device::power::register_system_power_off(pmic.clone())?;
     // Establish wall time before userspace starts. RTC failure must not prevent
     // the independent touch supply from binding to this PMIC.
     let mut seeded = false;

@@ -7,6 +7,7 @@
 
 extern crate alloc;
 pub mod rtc;
+pub mod system_power;
 #[cfg(target_os = "none")]
 mod runtime;
 pub mod xusb_supplies;

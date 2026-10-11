@@ -25,6 +25,8 @@ mod vic;
 pub use vic::VicPlatform;
 #[cfg(target_os = "none")]
 mod nvdec;
+#[cfg(any(target_os = "none", test))]
+mod nvdec_mbist;
 #[cfg(target_os = "none")]
 pub use nvdec::NvdecPlatform;
 #[cfg(target_os = "none")]

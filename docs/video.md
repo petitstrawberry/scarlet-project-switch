@@ -13,8 +13,18 @@ explicitly negotiated immutable native NV12 image lease.
 - Private noncacheable DMA buffers; host1x OP_DONE syncpoint retirement before
   reusing backing. Falcon IDLESTATE stays `0x801` after successful jobs and is
   only suitable for the initial firmware boot check.
+- Reserve the completion threshold before EXECUTE, then publish EXECUTE before
+  requesting OP_DONE. An OP_DONE request on the preceding idle engine is not
+  a retirement fence for the next picture.
+- Each NVDEC reset release applies the Tegra210 MBIST workaround, including
+  inherited powered-on partitions and session recovery. Both override
+  transitions settle before a borrowed NVJPG clock is disabled.
 - One-second decode timeout; reset and MC drain affect NVDEC alone. Backing
   is retained if isolation cannot be proven. A failed session must be reopened.
+- Before timeout recovery resets NVDEC, `nvdec: fault` lines capture picture
+  DMA addresses/setup, Falcon mailboxes/DMA registers, THI interrupt state, and
+  MC/clock/reset state. MC error registers are shared evidence: their client
+  ID must be checked before attributing a recorded fault to NVDEC.
 - Completion is polled by the existing video client. No decode test runs at boot.
 
 Mapped-output clients convert NVDEC block-linear surfaces to linear NV12 on
@@ -37,10 +47,21 @@ nix develop --command cargo scarlet build \
   --project projects/aarch64-switch-l4t-console --release
 nix develop --command cargo test --manifest-path tests/nvdec-qa/Cargo.toml
 nix develop --command cargo test --manifest-path drivers/video/tegra210-nvdec/Cargo.toml
+nix develop --command cargo test --manifest-path drivers/soc/tegra210/Cargo.toml
 ```
 
 See [NVDEC QA](../tests/nvdec-qa/README.md) for manually launched device tests,
 encoded fixtures and independent software decode references.
+
+The 2026-10-11 static review corrected OP_DONE being requested before EXECUTE,
+and the MBIST workaround being conditional on the inherited partition being
+off. Linux's power-up sequence still applies MBIST when setting power on was
+a no-op; its clock workaround waits after both override transitions. Host
+tests cover delayed/instant decode retirement, counter wrap, MBIST timing and
+companion-clock preservation. Restoring the old command order or dropping the
+restore delay makes those tests fail. These findings establish protocol
+defects; they do not prove that either defect alone caused the observed
+first-frame timeout.
 
 ## Surface ownership and presentation
 
@@ -106,6 +127,8 @@ status on each read without EOF; `cat /dev/video0` therefore keeps reading.
 
 - Linux v6.12, `adc218676eef25575469234709c2d87185ca223a`: Tegra Falcon/NVDEC
   boot, host1x v5 syncpoints, CAR MBIST sequence, and MC client reset.
+  [PMC power-up and already-on handling](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/soc/tegra/pmc.c)
+  and [MBIST clock workaround](https://github.com/torvalds/linux/blob/adc218676eef25575469234709c2d87185ca223a/drivers/clk/tegra/clk-tegra210.c).
 - [NVIDIA picture layout](https://github.com/NVIDIA/open-gpu-doc/blob/9fdf5c4062007929d9f4e6cbad9c9771fe61b880/classes/video/nvdec_drv.h)
   and the adjacent `clc5b0.h` method definitions.
 - [FFmpeg nvtegra H.264 implementation](https://github.com/averne/FFmpeg/blob/caeec83b791be08ed43468a2ef426d6901d51c78/libavcodec/nvtegra_h264.c)

@@ -146,7 +146,7 @@ dependencies = [
 [[package]]
 name = "scarlet"
 version = "1.0.1"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=ca9fdafe1e633d752cb3a335d795496d5df5d272#ca9fdafe1e633d752cb3a335d795496d5df5d272"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=8a392ce30ae319b0a2d69173b28cb6e9d6772e95#8a392ce30ae319b0a2d69173b28cb6e9d6772e95"
 dependencies = [
  "chacha20",
  "fdt",
@@ -162,7 +162,7 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=ca9fdafe1e633d752cb3a335d795496d5df5d272#ca9fdafe1e633d752cb3a335d795496d5df5d272"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=8a392ce30ae319b0a2d69173b28cb6e9d6772e95#8a392ce30ae319b0a2d69173b28cb6e9d6772e95"
 
 [[package]]
 name = "scarlet-modules"
@@ -220,6 +220,6 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "zeroize"
-version = "1.9.0"
+version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13c156562582aa81c60cb29407084cdb54c4164760106ab78e6c5b0858cf64e"
+checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"

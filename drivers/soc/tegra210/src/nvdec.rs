@@ -8,7 +8,6 @@ use alloc::sync::Arc;
 use scarlet::{arch, time};
 
 const NVDEC: u32 = 1 << 2;
-const NVJPG: u32 = 1 << 3;
 const ENB: usize = 0x298;
 const ENB_SET: usize = 0x29c;
 const ENB_CLR: usize = 0x2a0;
@@ -99,6 +98,35 @@ impl NvdecPlatform {
         self.regs
     }
 
+    /// Read fault evidence without clearing MC interrupts or changing clocks.
+    pub fn log_failure(&self) {
+        let [clock, reset, source, power, clamp] = {
+            let _guard = self.car.lock.lock();
+            [
+                self.car.regs.read(ENB),
+                self.car.regs.read(RESET),
+                self.car.regs.read(SOURCE),
+                self.pmc.read(0x38),
+                self.pmc.read(0x2c),
+            ]
+        };
+        scarlet::println!(
+            "nvdec: fault platform mc_intstatus={:#x} mc_err_status={:#x} mc_err_addr={:#x} smmu={:#x} nvdec_asid={:#x} hotreset={:#x}/{:#x} clock={:#x} reset={:#x} source={:#x} power={:#x} clamp={:#x}",
+            self.mc.read(0),
+            self.mc.read(8),
+            self.mc.read(0xc),
+            self.mc.read(0x10),
+            self.mc.read(0xab4),
+            self.mc.read(0x970),
+            self.mc.read(0x974),
+            clock,
+            reset,
+            source,
+            power,
+            clamp,
+        );
+    }
+
     pub fn activate(&self) -> Result<(), &'static str> {
         let _guard = self.car.lock.lock();
         let car = self.car.regs;
@@ -125,25 +153,9 @@ impl NvdecPlatform {
         car.write(RESET_CLR, NVDEC);
         let _ = car.read(RESET);
         delay_us(10);
-        if !was_on {
-            let jpg_on = car.read(ENB) & NVJPG != 0;
-            let jpg_source = car.read(0x69c);
-            if !jpg_on {
-                car.write(0x69c, PLLP | 6);
-                car.write(ENB_SET, NVJPG);
-                let _ = car.read(ENB);
-            }
-            let saved = car.read(0x554);
-            car.write(0x554, saved | (1 << 9) | (1 << 31));
-            let _ = car.read(0x554);
-            delay_us(1);
-            car.write(0x554, saved);
-            let _ = car.read(0x554);
-            if !jpg_on {
-                car.write(ENB_CLR, NVJPG);
-                car.write(0x69c, jpg_source);
-            }
-        }
+        // Power already being on says nothing about MBIST after this reset.
+        // Linux pmc.c performs the WAR even when powergate_set was a no-op.
+        crate::nvdec_mbist::after_reset(&car)?;
         car.write(SOURCE, PLLP);
         let _ = car.read(SOURCE);
         delay_us(10);
@@ -182,5 +194,16 @@ impl NvdecPlatform {
         car.write(SOURCE, self.original_source);
         arch::io_mb();
         Ok(())
+    }
+}
+impl crate::nvdec_mbist::ClockIo for Mmio {
+    fn read(&self, offset: usize) -> u32 {
+        (*self).read(offset)
+    }
+    fn write(&self, offset: usize, value: u32) {
+        (*self).write(offset, value);
+    }
+    fn delay_us(&self, us: u64) {
+        delay_us(us);
     }
 }

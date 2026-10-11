@@ -78,6 +78,8 @@ or sustained four-core operation.
 
 ## Driver and device checks
 
+- [System power](system-power.md): shutdown/reboot commands, PMIC sequence,
+  SMC/HVC integration checks and physical validation limits.
 - [Audio QA](../tests/audio-qa/README.md): manually launched stereo,
   resampling and reopen checks.
 - [NVDEC QA](../tests/nvdec-qa/README.md): encoded fixtures and independent

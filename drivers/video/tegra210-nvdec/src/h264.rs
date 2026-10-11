@@ -483,9 +483,7 @@ impl Session {
             engine.method(0x474 + i as u32 * 4, frame.image.address(g.chroma));
         }
         arch::io_mb();
-        let fence = engine.arm_completion();
-        engine.method(0x300, 1 << 8);
-        arch::io_mb();
+        let fence = engine.execute_picture();
         Ok(Pending {
             request: *decode,
             slot,
@@ -496,6 +494,26 @@ impl Session {
 
     pub fn status(&self) -> [u32; 4] {
         core::array::from_fn(|i| self.input.read_word(STATUS + i * 4))
+    }
+
+    pub fn log_failure(&self, pending: Pending) {
+        let image = &self.frames[pending.slot].as_ref().unwrap().image;
+        scarlet::println!(
+            "nvdec: fault picture input_pa={:#x} status_pa={:#x} bitstream_pa={:#x} scratch_pa={:#x} image_pa={:#x} slot={} stream_bytes={} slices={} mbs={}x{} flags={:#x}/{:#x} bitstream_head={:#x}",
+            self.input.paddr(),
+            self.input.paddr() + STATUS as u64,
+            self.input.paddr() + self.bitstream as u64,
+            self.scratch.paddr(),
+            image.paddr(),
+            pending.slot,
+            self.input.read_word(72),
+            self.input.read_word(76),
+            self.input.read_word(100),
+            self.input.read_word(104),
+            self.input.read_word(176),
+            self.input.read_word(180),
+            self.input.read_word(self.bitstream),
+        );
     }
 
     pub fn finish(&self, pending: Pending) -> Result<VideoBackendDecodedFrame, &'static str> {

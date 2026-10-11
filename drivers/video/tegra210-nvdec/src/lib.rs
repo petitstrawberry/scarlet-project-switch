@@ -12,6 +12,8 @@ mod h264;
 mod layout;
 #[cfg(any(target_os = "none", test))]
 mod lifecycle;
+#[cfg(any(target_os = "none", test))]
+mod submission;
 #[cfg(target_os = "none")]
 mod runtime;
 #[cfg(target_os = "none")]

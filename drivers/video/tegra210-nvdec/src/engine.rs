@@ -139,18 +139,36 @@ impl Engine {
         self.regs().write(0x40, method >> 2);
         self.regs().write(0x44, value);
     }
-    pub fn arm_completion(&self) -> u32 {
-        let target = self.platform.completion.value().wrapping_add(1);
-        // THI OP_DONE is the job retirement fence used by the host1x driver.
-        // Falcon IDLESTATE can remain 0x801 after a completed NVDEC job and
-        // cannot be used to decide when picture backing may be recycled.
-        self.regs()
-            .write(0, (1 << 8) | self.platform.completion.id());
-        arch::io_mb();
-        target
+    pub fn execute_picture(&self) -> u32 {
+        crate::submission::execute(self)
     }
     pub fn completed(&self, target: u32) -> bool {
         self.platform.completion.value() == target
+    }
+    /// Capture failure state before reset destroys the Falcon/THI evidence.
+    pub fn log_failure(&self) {
+        let regs = self.regs();
+        scarlet::println!(
+            "nvdec: fault falcon mailbox0={:#x} mailbox1={:#x} irqmask={:#x} irqdest={:#x} itfen={:#x} dmactl={:#x} dmatrfbase={:#x} dmatrfcmd={:#x} firmware_pa={:#x}",
+            regs.read(0x1040),
+            regs.read(0x1044),
+            regs.read(0x1018),
+            regs.read(0x101c),
+            regs.read(0x1048),
+            regs.read(0x110c),
+            regs.read(0x1110),
+            regs.read(0x1118),
+            self.firmware.as_ref().map_or(0, Dma::paddr),
+        );
+        scarlet::println!(
+            "nvdec: fault thi intstatus={:#x} intmask={:#x} method={:#x} data={:#x} syncpoint={}",
+            regs.read(0x78),
+            regs.read(0x7c),
+            regs.read(0x40),
+            regs.read(0x44),
+            self.platform.completion.id(),
+        );
+        self.platform.log_failure();
     }
     pub fn isolate(&mut self) -> Result<(), &'static str> {
         if self.active {
@@ -161,6 +179,20 @@ impl Engine {
     }
     pub fn active(&self) -> bool {
         self.active
+    }
+}
+impl crate::submission::SubmissionIo for Engine {
+    fn counter(&self) -> u32 {
+        self.platform.completion.value()
+    }
+    fn execute(&self) {
+        self.method(0x300, 1 << 8);
+        arch::io_mb();
+    }
+    fn request_completion(&self) {
+        self.regs()
+            .write(0, (1 << 8) | self.platform.completion.id());
+        arch::io_mb();
     }
 }
 impl Drop for Engine {
