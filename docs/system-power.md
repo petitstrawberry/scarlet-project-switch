@@ -149,7 +149,7 @@ to SD yet.
 The static follow-up also identified that native Poll with no handles still
 uses the full-duration kernel sleep path (including an infinite timeout).
 Both new QEMU fixtures time out on d24aa542 before firmware transition.
-Revision `287f46789187a93a84b15c8f33d6fb5d9f28315d` separates interruptible
+Revision `72e68549b679f5ff471b79847675bbb5ec3dc73a` separates interruptible
 userspace sleep from full-duration device delays, and routes native Sleep,
 empty Poll and selectable minimum waits through the interruptible path. The
 expanded regression adds an infinite empty Poll and an unreadable pipe with a

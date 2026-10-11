@@ -398,7 +398,7 @@ type = "path"
 path = "../../scripts/install-gm20b-firmware.sh"
 
 [sections.rootfs]
-hash = "sha256:741bfe121fd3f4600a816af29eae18afbf8cd38b1f5b63d5a86c1dd24b4e6f9d"
+hash = "sha256:5239b37fd6c74179e38a1595b88dfa693c0c6ff53fea9df8682e220e533b6895"
 
 [[sections.rootfs.layers]]
 kind = "script"
@@ -843,7 +843,7 @@ kind = "cargo"
 package = "scarlet-std-bin"
 bin = "scarlet-shell"
 to = "/bin/scarlet-shell"
-hash = "sha256:726acc2083027e1f9e9cd8fc5b32494712e37b07446005b71ee6fd983a337f59"
+hash = "sha256:146fd3690d6632d855622ffcf34e61f684412690ca0ecdfa7e13ba05f6a6c7fd"
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -1463,7 +1463,7 @@ path = ".scarlet/cache/git/1d707eff8bef4cad/bundle/build-aarch64.sh"
 [[sections.rootfs.layers]]
 kind = "script"
 to = "/"
-hash = "sha256:e663eba9b9d9e47bfa3a1d3e59c6c08e8a7b966cc9b4b26077f6980a957b0c7d"
+hash = "sha256:515a223a5856934e835534925ee76923e794c1530c47ce2165e1e5123abc3144"
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -1484,8 +1484,8 @@ sha256 = "sha256:bcd6c090278c3ff8ce20be4f225a33cd0b0837cb90f37f1240444bc22b7dc32
 [[sections.rootfs.layers]]
 kind = "cargo"
 git = "https://github.com/petitstrawberry/Scarlet"
-git_ref = "287f46789187a93a84b15c8f33d6fb5d9f28315d"
-resolved_rev = "287f46789187a93a84b15c8f33d6fb5d9f28315d"
+git_ref = "72e68549b679f5ff471b79847675bbb5ec3dc73a"
+resolved_rev = "72e68549b679f5ff471b79847675bbb5ec3dc73a"
 package = "video_player"
 bin = "video-player"
 subdir = "user/video_player"
@@ -1500,12 +1500,12 @@ hash = "sha256:e653d4b692cf5108517f40ff382db47c91b1a46e876c6557baa6d6f9f5974da4"
 [sections.rootfs.layers.source]
 type = "git"
 url = "https://github.com/petitstrawberry/Scarlet"
-rev = "287f46789187a93a84b15c8f33d6fb5d9f28315d"
+rev = "72e68549b679f5ff471b79847675bbb5ec3dc73a"
 
 [[sections.rootfs.layers]]
 kind = "script"
 to = "/"
-hash = "sha256:2dcfe118de84d2d8bb45ca6fbb3a05d2f823e9dfd38e9ca879f28116125bebba"
+hash = "sha256:4f7f650026b1bae49f4182b9fdb503d0c8b668ec6afc3c6002e4aca5bc10ab2b"
 
 [sections.rootfs.layers.source]
 type = "path"
