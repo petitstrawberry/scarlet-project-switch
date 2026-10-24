@@ -5,7 +5,7 @@ edition = "2024"
 license = "GPL-2.0-only"
 
 [target.'cfg(target_os = "scarlet")'.dependencies]
-scarlet-video-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "f5a0c9e52068aa355e566538c1337f68efa809ff", default-features = false, features = ["std", "h264-stateless-hw"] }
+scarlet-video-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "64f4893bbba14ada8a2bee15a5a0ee65d2a6da1e", default-features = false, features = ["std", "h264-stateless-hw"] }
 
 [dev-dependencies]
-scarlet-codecs = { git = "https://github.com/petitstrawberry/Scarlet", rev = "f5a0c9e52068aa355e566538c1337f68efa809ff", features = ["h264"] }
+scarlet-codecs = { git = "https://github.com/petitstrawberry/Scarlet", rev = "64f4893bbba14ada8a2bee15a5a0ee65d2a6da1e", features = ["h264"] }
