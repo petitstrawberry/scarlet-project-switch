@@ -15,13 +15,25 @@ before replacing the service file. Reboot through Switchvisor USB deployment.
 SWS readiness uses the service name and accepts notification from the child
 started by the wrapper. The shell exports the diagnostic flag explicitly;
 stemd clears the environment and has no per-service environment table.
-Capture stdout in `/tmp/home-trace-sws.log` and `/tmp/home-trace-shell.log` to
-avoid synchronous UART logging. Do not enable the unbounded UI/SWS profilers.
+Keep stdout connected to stemd's normal logd pipes. Script-mode Scarlet `sh`
+does not apply output redirection correctly; adding `>` also passes it as a
+program argument. Do not put redirection in either startup script.
+Do not enable the unbounded UI/SWS profilers.
 
 After a fresh boot, open Home directly once without launching another app or
 entering Overview. Save captures after 2, 4 and 15 seconds, the two trace files,
 and any later capture with its elapsed time and human interactions recorded.
-Treat RFB and physical-panel results separately.
+From the interactive UART shell, whose pipeline parser supports redirection,
+snapshot the existing service journal to files before network transfer:
+
+```sh
+/bin/logctl -u sws -n all > /tmp/home-trace-sws.log
+/bin/logctl -u scarlet-desktop -n all > /tmp/home-trace-shell.log
+```
+
+This avoids streaming the records over UART. Verify both files contain
+`[HOME_TRACE]` records and that `scarlet-desktop` and `scarlet-shell` are running
+before interpreting a capture. Treat RFB and physical-panel results separately.
 
 After collecting the logs, restore the normal service file from
 `projects/aarch64-switch-l4t-console/rootfs/etc/stemd.d/services/01-sws.toml`
