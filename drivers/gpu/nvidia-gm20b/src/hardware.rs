@@ -110,7 +110,6 @@ pub fn measure_clock(base: usize, reference_hz: u32) -> Option<u64> {
     let second = read(base, CLOCK_COUNTER);
     if first == second && second != u32::MAX && second & 0xfffff != 0 {
         let hz = u64::from(reference_hz) * u64::from(second & 0xfffff) / u64::from(CYCLES);
-        scarlet::println!("gm20b: GPCCLK measured={}Hz count={:#010x}", hz, second);
         Some(hz)
     } else {
         scarlet::println!(

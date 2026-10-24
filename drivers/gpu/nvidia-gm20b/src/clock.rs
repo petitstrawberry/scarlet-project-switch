@@ -184,7 +184,6 @@ pub fn set_rate_khz(base: usize, reference_hz: u32, rate_khz: u64) -> Result<(),
     if actual == Ok(rate_khz)
         && measured.is_some_and(|hz| hz.abs_diff(expected_hz) <= expected_hz / 100)
     {
-        scarlet::println!("gm20b: GPCCLK transitioned {}->{}kHz", old_rate, rate_khz);
         return Ok(());
     }
 

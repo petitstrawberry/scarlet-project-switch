@@ -17,6 +17,12 @@ SWS / ScarletUI / SGFX driver IR
 
 ## Power, memory and firmware
 
+Successful runtime clock measurements and OPP transitions are silent. Desktop
+activity can trigger frequent transitions; logging each one adds UART and
+kernel print-lock work to the rendering path. Clock validation and failure
+diagnostics remain enabled. This reduces diagnostic traffic, not the clock
+measurement itself, and does not establish a UI performance improvement.
+
 The GPU driver owns MAX77621 at I2C5 address `0x1c`, its two 1.0-V DVS
 banks, and active-high MAX77620 GPIO6. It validates the DT supply wiring,
 configures GPIO6 as push-pull and isolates the GPU before changing power.
