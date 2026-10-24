@@ -5,6 +5,6 @@ edition = "2024"
 publish = false
 
 [dependencies]
-scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "a88184dfb10c9cb15fcde98e88e548235574afd3", default-features = false, features = ["std"] }
-sws-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "a88184dfb10c9cb15fcde98e88e548235574afd3", default-features = false, features = ["std"] }
-sws-protocol = { git = "https://github.com/petitstrawberry/Scarlet", rev = "a88184dfb10c9cb15fcde98e88e548235574afd3", default-features = false, features = ["std"] }
+scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "4640dea64350b6954addf2ec0a990db9a919acc6", default-features = false, features = ["std"] }
+sws-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "4640dea64350b6954addf2ec0a990db9a919acc6", default-features = false, features = ["std"] }
+sws-protocol = { git = "https://github.com/petitstrawberry/Scarlet", rev = "4640dea64350b6954addf2ec0a990db9a919acc6", default-features = false, features = ["std"] }
