@@ -132,3 +132,12 @@ kernel fix (`e3edd8f`) were also installed into the SD FAT boot package and
 all console/Switchvisor files passed readback. The subsequent hardware check
 used the equivalent Switchvisor USB bundle and the installed SD rootfs; it
 does not establish an unattended SD-only boot. See [input validation](input.md).
+
+Later on 2026-10-25, the normal `cargo scarlet image --release` build with
+Scarlet bundle revision `4640dea64350b6954addf2ec0a990db9a919acc6` produced
+a 2,399,141,888-byte rootfs image with SHA256
+`14a577c6a749745dfb7a97295d0f2db721ce6df0f2ad75a0e7f8a2c751c7e84d`.
+That complete, unmodified image was written to SD p4 and passed full readback.
+The matching console/Switchvisor boot files also passed readback, and the card
+was ejected. This supersedes the earlier updates of selected runtime files;
+hardware boot of this full image is not yet verified.
