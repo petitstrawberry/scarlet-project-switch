@@ -174,7 +174,7 @@ dependencies = [
 [[package]]
 name = "scarlet"
 version = "1.0.1"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=a88184dfb10c9cb15fcde98e88e548235574afd3#a88184dfb10c9cb15fcde98e88e548235574afd3"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=4640dea64350b6954addf2ec0a990db9a919acc6#4640dea64350b6954addf2ec0a990db9a919acc6"
 dependencies = [
  "chacha20",
  "fdt",
@@ -190,7 +190,7 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=a88184dfb10c9cb15fcde98e88e548235574afd3#a88184dfb10c9cb15fcde98e88e548235574afd3"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=4640dea64350b6954addf2ec0a990db9a919acc6#4640dea64350b6954addf2ec0a990db9a919acc6"
 
 [[package]]
 name = "scarlet-driver-joycon"
