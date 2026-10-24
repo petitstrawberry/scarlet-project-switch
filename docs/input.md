@@ -52,6 +52,14 @@ Controller reset, I2C failure and Joy-Con detach/stale input release state.
 All configuration, FIFO and connection waits have finite deadlines. Input
 workers run after normal device probing and failures do not park kernel boot.
 
+The desktop uses tablet posture by default; shell presentation remains desktop.
+ScarletUI's per-editor `automatic_software_keyboard(false)` setting suppresses
+automatic panel display without disabling physical keyboard or text editing.
+The calculator uses it for its expression field because it provides a keypad.
+Applications need rebuilding with the pinned ScarletUI to receive the shared
+button fix: a held touch can still activate on release inside a button, while
+scroll takeover or leaving the button cancels activation.
+
 RTC initialization requests only the read latch; it does not write calendar
 fields, alarm state or reboot reason. The raw hardware calendar is interpreted
 as UTC. Horizon's separate user-time offset is not available here, so the raw
