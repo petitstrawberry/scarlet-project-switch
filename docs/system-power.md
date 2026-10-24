@@ -92,10 +92,12 @@ final hardware syscall ran. Switchvisor's own `reboot-rcm` subsequently worked.
 
 Diagnostic revision `701060519ff67455209a6d0c267436762e3dbc59` activates the
 DT-selected, byte-wide runtime 16550 for direct kernel output. The project
-currently enables `sync-debug` to report init task snapshots, signal delivery,
+enabled `sync-debug` to report init task snapshots, signal delivery,
 and lock contention without a userspace log reader. This is an investigation
 configuration, not evidence that physical Restart or shutdown is fixed.
 Evidence is retained in `.cache/system-power-switchvisor/`.
+The normal desktop image now disables this tracing to avoid its per-lock
+runtime cost; enable it explicitly for another diagnostic capture.
 
 The next capture showed service exits while kernel thermal workers remained
 alive. Revision `24e9d7f2f6c0534b24e0c8f0564c80a1e7d2b6d1` also moved the

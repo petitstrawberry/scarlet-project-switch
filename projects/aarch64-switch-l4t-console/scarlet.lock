@@ -408,7 +408,7 @@ type = "path"
 path = "../../scripts/install-gm20b-firmware.sh"
 
 [sections.rootfs]
-hash = "sha256:3ca956e7dbf996e0c472224145866e06264a16f1388667bcff7a856879107e0a"
+hash = "sha256:cb0d70e1c9dbe408a1f504be1333a47d1b796b0d032bf5d2cd869b7920952904"
 
 [[sections.rootfs.layers]]
 kind = "script"

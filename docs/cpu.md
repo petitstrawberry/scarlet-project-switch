@@ -4,6 +4,23 @@ The console uses Scarlet's Linux arm64 Image path with PSCI SMP and
 `maxcpus=4`. The separate boot-probe and diagnostic project uses one CPU.
 All four Cortex-A57 cores share the [CPU frequency policy](cpufreq.md).
 
+## Runtime diagnostic overhead
+
+The normal desktop image disables `sync-debug`. That feature tracks every
+kernel lock acquisition and release; enable it in `scarlet.toml` when collecting
+lock-owner or `top --debug` snapshots for a kernel investigation.
+
+On 2026-10-24, Switchvisor hardware runs with Scarlet `30b47a71` and the same
+SD rootfs measured 31.2–32.0% aggregate CPU busy with diagnostics enabled after
+a fresh desktop/tablet boot. Without diagnostics, SWS client wait threads fell
+from roughly 5–6% to 2.7–3.0% of one CPU each. Aggregate busy was 20.4–21.0%,
+but Screenshot was also open in that run, so those aggregate samples are not
+a controlled before/after benchmark. Both kernels reported 1017600 kHz.
+These observations establish diagnostic overhead, not that all idle CPU cost
+or application latency is resolved. SWS still performs bounded client polling.
+Capture `cpufreqctl get` and repeated `top` samples with the same windows and
+input activity when comparing later changes.
+
 ## Firmware and entry
 
 The inspected ODIN DTB contains four enabled Cortex-A57 CPU nodes, MPIDR

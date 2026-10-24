@@ -12,7 +12,7 @@ package = "scarlet"
 
 [bsp.kernel]
 source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "30b47a71ece77b811722d5f7cf53727857f0c536" }
-features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true, sync-debug = true }
+features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true, sync-debug = false }
 
 [modules]
 "scarlet-driver-switch-power" = { path = "../../drivers/power/switch-power", enabled = true }
