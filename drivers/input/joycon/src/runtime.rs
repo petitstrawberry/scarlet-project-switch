@@ -260,7 +260,11 @@ fn worker() {
                         changed = true;
                     }
                 }
-                rail.uart.enable_rx_interrupts(rx_waker.clone());
+                if detected[n] {
+                    rail.uart.enable_rx_interrupts(rx_waker.clone());
+                } else {
+                    rail.uart.disable_rx_interrupts();
+                }
                 rails[n] = Some(rail.clone());
             }
         }
@@ -274,6 +278,11 @@ fn worker() {
                 let attached = rail.attached().unwrap_or(false);
                 if attached != detected[n] {
                     detected[n] = attached;
+                    if attached {
+                        rail.uart.enable_rx_interrupts(rx_waker.clone());
+                    } else {
+                        rail.uart.disable_rx_interrupts();
+                    }
                     link.detach();
                     parsers[n].clear();
                     pair.release(rail.side);

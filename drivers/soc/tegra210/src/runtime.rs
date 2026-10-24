@@ -478,7 +478,14 @@ pub struct GpioInterruptSnapshot {
 
 impl From<[u32; 6]> for GpioInterruptSnapshot {
     fn from([cnf, oe, input, sta, enb, lvl]: [u32; 6]) -> Self {
-        Self { cnf, oe, input, sta, enb, lvl }
+        Self {
+            cnf,
+            oe,
+            input,
+            sta,
+            enb,
+            lvl,
+        }
     }
 }
 
@@ -947,6 +954,19 @@ impl TegraUart {
         self.rx_interrupt.lock().waker = Some(waker);
         self.regs.write(4, Self::RX_INTERRUPTS);
         let _ = self.regs.read(4);
+    }
+    /// Detached rail controllers leave RX electrically floating. Keep their
+    /// UART error interrupt masked so line noise cannot create a permanent IRQ
+    /// storm; re-enable it only after the rail reports an attached controller.
+    pub fn disable_rx_interrupts(&self) {
+        let _lock = self.lock.lock();
+        self.regs.write(4, 0);
+        let _ = self.regs.read(4);
+        let mut rx = self.rx_interrupt.lock();
+        rx.waker = None;
+        rx.head = 0;
+        rx.len = 0;
+        rx.errors = 0;
     }
     pub fn rx_interrupt_pending(&self) -> bool {
         let rx = self.rx_interrupt.lock();
