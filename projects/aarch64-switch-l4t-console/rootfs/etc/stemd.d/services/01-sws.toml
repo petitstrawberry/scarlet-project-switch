@@ -3,11 +3,11 @@
 
 [service.sws]
 exec = "/bin/sws"
-order = 01
+order = 1
 depends = ["sbusd", "sas"]
 ready_notify = true
 ready_timeout_ms = 5000
 
 [service.scarlet-desktop]
-exec = "/bin/scarlet-desktop --shell-mode console"
+exec = "/bin/sh /etc/sws/start-desktop.sh"
 depends = ["sws"]

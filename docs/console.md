@@ -1,7 +1,11 @@
 # Console setup
 
 `projects/aarch64-switch-l4t-console` uses Scarlet's normal init, stemd, SWS
-and Scarlet Desktop. Its session starts `scarlet-shell --mode console`.
+and Scarlet Desktop. Its session starts `scarlet-shell --mode desktop` with
+tablet posture and posture-derived focused windowing. The board startup script
+`/etc/sws/start-desktop.sh` applies this policy before starting the supervised
+desktop session. The project and boot-directory names retain `console` for
+compatibility with existing installations.
 The initramfs bootstraps an ext2 root on `/dev/mmcblk0p4`; install that root
 filesystem as described in [storage](storage.md).
 
@@ -11,7 +15,7 @@ firmware there. The desktop, applications and board configuration live in
 the full ext2 rootfs. The bootstrap switches to that root before starting
 stemd and the desktop.
 
-The console shell includes Clock, Files, Notepad, Settings, Task Manager and
+The desktop includes Clock, Files, Notepad, Settings, Task Manager and
 Terminal. The project also supplies the hardware video-player bundle.
 The full root image uses Scarlet's full distribution catalog.
 
@@ -87,7 +91,7 @@ together, use the [combined menu procedure](boot-menu.md).
 
 ## Controls and display
 
-- Left stick or directional buttons navigate the console shell.
+- Left stick or directional buttons navigate shell menus.
 - Nintendo A confirms, Nintendo B cancels, and HOME returns to Home.
 - The touchscreen uses the same application input path.
 - Output is 1280 × 720 landscape at scale 1.0 on the portrait panel.
