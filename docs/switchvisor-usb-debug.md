@@ -1,10 +1,13 @@
-# Switchvisor USB setup
+# Switchvisor SD boot and USB development
 
-This entry uses the public Switchvisor revision pinned in `flake.lock` with
+These entries use the public Switchvisor revision pinned in `flake.lock` with
 USB UART, control, and guest-bundle loading. The EL2 GDB port is not enabled in this profile.
-The direct Scarlet SD entry remains available separately.
+The normal `switchvisor` entry (`SCR-SWV`) automatically starts its packaged
+U-Boot and loads the installed Scarlet kernel/initramfs from SD. The
+`switchvisor-dev` entry (`SCR-SWD`) waits indefinitely for USB uploads and never
+automatically boots SD. The direct Scarlet SD entry remains available separately.
 
-Switchvisor owns the Switch USB controller in this entry. The guest uses its
+Switchvisor owns the Switch USB controller in both entries. The guest uses its
 virtual NS16550A UART for logs and input. The optional USB network profile
 exposes a virtio-net NIC to Scarlet through Switchvisor's CDC-NCM bridge.
 Connect the USB data cable before boot to capture early UART output.
@@ -29,14 +32,22 @@ python3 scripts/package-switchvisor.py
 ```
 
 The packager combines the Nix-built monitor with the pinned Noble U-Boot as
-the EL1 guest, enabling USB UART/control with `--no-fallback`: the guest waits
-for a host-uploaded bundle. It verifies the pinned U-Boot and bootstack, the console image
-hashes, and Switchvisor's USB/no-fallback profile. It writes an SD package
-under `projects/aarch64-switch-l4t-console/.scarlet/switchvisor/` and a host
-`bundle.json`. The bundle sends U-Boot to `0xaa000000`, `uImage` to
-`0xa0000000`, and initramfs to `0x92000000`. U-Boot selects the platform DTB
-from the pinned `nx-plat.dtimg` on SD, applies `usb-uart.dtbo`, then enters
-Scarlet. The boot script skips SD reads for the two uploaded images.
+the EL1 guest twice: fallback-enabled for normal SD boot, and `--no-fallback`
+for development. It verifies the pinned U-Boot and bootstack, console image
+hashes, USB settings and the distinct fallback policies. Both entries go into
+one SD package under `projects/aarch64-switch-l4t-console/.scarlet/switchvisor/`.
+
+The normal entry starts U-Boot after the USB preboot window (currently two
+seconds), then reads `uImage` and `initramfs` from `/switchroot/scarlet-console/`.
+These are shared with the direct Scarlet entry; the root filesystem is also
+shared. No host or USB upload is required.
+
+The host `bundle.json` is for `SCR-SWD`. It sends U-Boot to `0xaa000000`,
+`uImage` to `0xa0000000`, and initramfs to `0x92000000`. Development U-Boot
+skips SD reads for those two images. Both boot scripts select the platform DTB
+from their pinned `nx-plat.dtimg` on SD and apply their USB overlays before
+entering Scarlet. Uploads should use the development entry; it has no timeout
+and cannot race with automatic SD boot.
 
 ### USB network profile
 
@@ -114,8 +125,8 @@ DNS and external connectivity are available.
 
 ## Install and boot
 
-With the FAT32 Switch SD mounted, install the Scarlet `SCR-SWV` entry. The
-separate Switchvisor project uses `SWV-NX`; Hekate IDs must be unique:
+With the FAT32 Switch SD mounted, install both `SCR-SWV` and `SCR-SWD`.
+The separate Switchvisor project uses `SWV-NX`; Hekate IDs must be unique:
 
 ```sh
 python3 scripts/install-sd.py --mount "/Volumes/SWITCH SD" --switchvisor
@@ -123,11 +134,16 @@ python3 scripts/install-sd.py --mount "/Volumes/SWITCH SD" --switchvisor --write
 diskutil eject "/Volumes/SWITCH SD"
 ```
 
+For `--switchvisor`, matching console kernel/initramfs files must already be
+installed on SD. Use `--l4t` instead to install the console and both Switchvisor
+entries together. Dependency validation completes before any writes.
+
 The installer verifies the SD layout and hashes of the existing Stock,
 Kubuntu, Scarlet console, and diagnostic entries before and after copying.
 The installation receipt is written to the project's generated state.
 
-For the first launch, put the Switch in RCM, then use the Hekate payload that
+For normal SD boot, select **switchvisor** in Hekate. For USB development,
+select **switchvisor-dev**, or put the Switch in RCM and use the Hekate payload that
 already boots the existing Scarlet entry:
 
 On macOS, run the complete launch and console sequence in the Nix shell:
@@ -136,7 +152,7 @@ On macOS, run the complete launch and console sequence in the Nix shell:
 scripts/start-switchvisor.py /path/to/hekate.bin
 ```
 
-The launcher selects `SCR-SWV`, waits up to 60 seconds for the guest CDC port,
+The launcher selects `SCR-SWD`, waits up to 60 seconds for the guest CDC port,
 deploys the existing guest bundle, and opens minicom at 115200 baud. Capture
 starts when minicom opens, after deployment, and is saved under
 `projects/aarch64-switch-l4t-console/.scarlet/logs/`. Exit with **Ctrl-A, X**.
@@ -147,7 +163,7 @@ the SD package first using the steps above.
 The equivalent individual commands are:
 
 ```sh
-nxboot --hekate id SCR-SWV /path/to/hekate.bin
+nxboot --hekate id SCR-SWD /path/to/hekate.bin
 switchvisorctl deploy \
   projects/aarch64-switch-l4t-console/.scarlet/switchvisor/bundle.json
 ```
@@ -170,14 +186,17 @@ switchvisorctl reboot-rcm
 ```
 
 After `reboot-rcm`, wait for the Switch to appear in RCM, then repeat the
-`nxboot` and `switchvisorctl deploy` commands above with entry `SCR-SWV`.
+`nxboot` and `switchvisorctl deploy` commands above with entry `SCR-SWD`.
 Keep the GDB-disabled profile for ordinary use; select another profile explicitly
 when debugging the monitor.
 
 Rebuild the Scarlet console package and rerun `package-switchvisor.py` after
 changing the kernel or initramfs. The resulting bundle transfers the new
-images over USB; the SD debug entry does not need rewriting unless its BL33,
-boot script, overlay, or bootstack changed.
+images over USB; the SD development entry does not need rewriting unless its
+BL33, boot script, overlay, or bootstack changed. To update normal SD boot too,
+install the console package's new kernel/initramfs (or use `--l4t`). Changing
+between SD-root and initramfs-dev profiles also requires reinstalling the boot
+scripts so their root arguments match the selected profile.
 
 ## Kernel and initramfs iteration
 
@@ -186,7 +205,7 @@ With the full SD distribution installed, rebuild only the boot image:
 ```sh
 cargo scarlet image --project projects/aarch64-switch-l4t-console --release --image initramfs
 switchvisorctl reboot-rcm
-nxboot --hekate id SCR-SWV /path/to/hekate.bin
+nxboot --hekate id SCR-SWD /path/to/hekate.bin
 switchvisorctl deploy projects/aarch64-switch-l4t-console/.scarlet/switchvisor/bundle.json
 ```
 
@@ -202,10 +221,17 @@ nix develop --accept-flake-config --no-write-lock-file \
   --override-input switchvisor-src path:/path/to/switchvisor
 ```
 
-Alternatively, pass an existing output from Switchvisor's `build-payload.sh`
-to `package-switchvisor.py --switchvisor-dist /path/to/distribution`. Its
-manifest selects the UART/network profile and must match the pinned bootstack
-and no-fallback settings. The normal Nix build records the public source commit
+Alternatively, prepare two outputs from Switchvisor's `build-payload.sh`, one
+with fallback enabled and one with `--no-fallback`, then pass both:
+
+```sh
+python3 scripts/package-switchvisor.py \
+  --switchvisor-dist /path/to/sd-distribution \
+  --switchvisor-dev-dist /path/to/development-distribution
+```
+
+Both must use USB UART/control, the same network profile and the pinned
+bootstack. The normal Nix build records the public source commit
 in the package manifest; a custom build without source metadata records no
 revision.
 

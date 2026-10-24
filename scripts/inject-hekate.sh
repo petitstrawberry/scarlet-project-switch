@@ -2,7 +2,7 @@
 set -eu
 task_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 if [ "${1:-}" = --help ]; then
-    echo "usage: $0 [menu|console|switchvisor|ums-sd] <Hekate payload.bin>"
+    echo "usage: $0 [menu|console|switchvisor|switchvisor-dev|ums-sd] <Hekate payload.bin>"
     exit 0
 fi
 mode=${1:-menu}
@@ -22,6 +22,7 @@ case "$mode" in
     menu) set -- --hekate menu ;;
     console) set -- --hekate id SCR-NXC ;;
     switchvisor) set -- --hekate id SCR-SWV ;;
+    switchvisor-dev) set -- --hekate id SCR-SWD ;;
     ums-sd) set -- --hekate ums sd ;;
     *) echo "Unknown mode: $mode" >&2; exit 1 ;;
 esac

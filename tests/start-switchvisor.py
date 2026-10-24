@@ -44,7 +44,7 @@ class LauncherTests(unittest.TestCase):
         self.argv += ["--console", "/dev/cu.custom-guest"]
         self.invoke()
         self.assertEqual(launcher.subprocess.run.call_args_list[0].args[0],
-                         ["/tools/nxboot", "--hekate", "id", "SCR-SWV", str(self.payload)])
+                         ["/tools/nxboot", "--hekate", "id", "SCR-SWD", str(self.payload)])
         self.assertEqual(launcher.subprocess.run.call_args_list[1].args[0],
                          ["/tools/switchvisorctl", "deploy", str(self.bundle)])
         self.assertEqual(launcher.os.execv.call_args.args,

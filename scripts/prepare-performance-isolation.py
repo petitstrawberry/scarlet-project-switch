@@ -74,7 +74,7 @@ def prepare(source, output, dtimg, overlay):
         "if load mmc ${devnum}:${distro_bootpart} 0x8c000000 ${boot_dir}/usb-uart.dtbo; then",
         "if true; then",
     )
-    boot = "setenv scarlet_switchvisor_payload 1\n" + boot
+    boot = "setenv scarlet_switchvisor 1\nsetenv scarlet_switchvisor_payload 1\n" + boot
     require("load mmc" not in boot, "boot script still loads from SD")
 
     spec = importlib.util.spec_from_file_location(

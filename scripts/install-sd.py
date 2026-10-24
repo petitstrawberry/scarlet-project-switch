@@ -2,7 +2,7 @@
 """Install only Scarlet FAT32 boot files on the SD described by the handoff.
 
 Defaults to a console dry run. Validates the current disk layout via diskutil; never
-opens a raw device or formats a filesystem. --l4t installs the two current
+opens a raw device or formats a filesystem. --l4t installs the three current
 entries and removes the named obsolete L4T menu files, retaining their data.
 """
 import argparse
@@ -74,9 +74,9 @@ def main():
     parser.add_argument("--write", action="store_true", help="copy the verified files (default: dry run)")
     profile = parser.add_mutually_exclusive_group()
     profile.add_argument("--console", action="store_true", help="install the SWS console entry (default)")
-    profile.add_argument("--switchvisor", action="store_true", help="install the USB UART/control entry")
+    profile.add_argument("--switchvisor", action="store_true", help="install the Switchvisor SD and USB development entries")
     profile.add_argument("--l4t", action="store_true",
-                         help="install switchvisor + scarlet and remove obsolete L4T menu entries")
+                         help="install switchvisor + switchvisor-dev + scarlet and remove obsolete L4T menu entries")
     args = parser.parse_args()
     mount = args.mount.resolve(strict=True)
     device = validate_mount(mount)
@@ -101,6 +101,7 @@ def main():
         protected = PROTECTED + [p for p in (
             "bootloader/ini/L4T-scarlet.ini", "switchroot/scarlet",
             "bootloader/ini/L4T-scarlet-switchvisor.ini", "switchroot/scarlet-switchvisor",
+            "bootloader/ini/L4T-scarlet-switchvisor-dev.ini", "switchroot/scarlet-switchvisor-dev",
         ) if (mount / p).exists()]
     manifest = json.loads((package / "manifest.json").read_text())
     packages = [(package, manifest, boot_directory, entry_file)]
@@ -110,8 +111,14 @@ def main():
     files = []
     installed_hashes = {}
     for package, manifest, boot_directory, entry_file in packages:
+        boot_directories = [boot_directory]
+        entry_files = [entry_file]
+        if boot_directory == "scarlet-switchvisor":
+            boot_directories.append("scarlet-switchvisor-dev")
+            entry_files.append("L4T-scarlet-switchvisor-dev.ini")
         for relative, expected in manifest["sha256"].items():
-            if relative != f"bootloader/ini/{entry_file}" and not relative.startswith(f"switchroot/{boot_directory}/"):
+            if (relative not in [f"bootloader/ini/{entry}" for entry in entry_files]
+                    and not any(relative.startswith(f"switchroot/{directory}/") for directory in boot_directories)):
                 raise ValueError(f"unexpected package destination: {relative}")
             path = Path(relative)
             if path.is_absolute() or ".." in path.parts: raise ValueError("invalid destination path")
@@ -120,6 +127,22 @@ def main():
             if digest(source) != expected: raise ValueError(f"package SHA256 mismatch: {source}")
             files.append((source, target, expected))
             installed_hashes[relative] = expected
+    # Normal Switchvisor boot reads the installed console images. A combined
+    # install supplies them; a Switchvisor-only update must find matching files
+    # already on SD. Check before writing either entry or removing menu files.
+    for _, manifest, _, _ in packages:
+        for relative, expected in manifest.get("sd_boot_dependencies", {}).items():
+            if relative not in ("switchroot/scarlet-console/uImage", "switchroot/scarlet-console/initramfs"):
+                raise ValueError(f"unexpected SD boot dependency: {relative}")
+            target = mount / relative
+            if not target.resolve().is_relative_to(mount):
+                raise ValueError("SD boot dependency escapes the volume")
+            if relative in installed_hashes:
+                valid = installed_hashes[relative] == expected
+            else:
+                valid = target.is_file() and digest(target) == expected
+            if not valid:
+                raise ValueError(f"missing or mismatched SD boot dependency: {relative}; install the matching console package with --l4t")
     obsolete = [mount / name for name in OBSOLETE_L4T_ENTRIES] if args.l4t else []
     for target in obsolete:
         if target.exists() and (not target.is_file() or target.is_symlink()):

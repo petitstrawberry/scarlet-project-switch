@@ -46,7 +46,7 @@ On macOS, rediscover the whole SD device and calculate the prepared image's
 SHA-256:
 
 ```sh
-diskutil list external physical
+diskutil list physical
 shasum -a 256 /absolute/path/to/prepared-rootfs.ext2
 ```
 

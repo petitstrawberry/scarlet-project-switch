@@ -34,11 +34,12 @@ def validate_disk(device):
     if os.uname().sysname != "Darwin" or not re.fullmatch(r"/dev/disk[0-9]+", device):
         raise ValueError("specify the rediscovered whole macOS SD device, e.g. /dev/disk12")
     whole = disk_info(device)
-    if (not whole.get("WholeDisk") or whole.get("Internal") is not False
+    if (not whole.get("WholeDisk")
+            or not (whole.get("Internal") is False or whole.get("RemovableMedia") is True)
             or whole.get("VirtualOrPhysical") != "Physical"
             or whole.get("Content") != "FDisk_partition_scheme"
             or whole.get("Size") != DISK_BYTES or whole.get("DeviceBlockSize") != 512):
-        raise ValueError("external SD capacity, sector size, or MBR scheme differs from the handoff")
+        raise ValueError("removable/external SD capacity, sector size, or MBR scheme differs from the handoff")
     parts = []
     for index, (_, first, count) in enumerate(PARTITIONS, 1):
         info = disk_info(f"{device}s{index}")

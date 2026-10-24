@@ -82,7 +82,7 @@ scripts/inject-hekate.sh menu /path/to/hekate.bin
 ```
 
 For a host-uploaded kernel/initramfs, a UART shell or USB networking, follow
-[Switchvisor setup](switchvisor-usb-debug.md). To install both menu entries
+[Switchvisor setup](switchvisor-usb-debug.md). To install all three menu entries
 together, use the [combined menu procedure](boot-menu.md).
 
 ## Controls and display

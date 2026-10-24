@@ -1,6 +1,7 @@
 # Scarlet T210 bring-up through the existing Noble BL31/BL33 stack.
 # U-Boot reads the kernel/initramfs from FAT; init mounts the Scarlet rootfs.
 setenv boot_dir ${prefix}
+test -n "${scarlet_kernel_dir}" || setenv scarlet_kernel_dir ${boot_dir}
 setenv kernload 0xA0000000
 setenv initaddr 0x92000000
 setenv fdtrload 0xA8000000
@@ -21,14 +22,14 @@ fi
 if test "${scarlet_switchvisor_payload}" = 1; then
     echo Scarlet uImage and initramfs supplied by Switchvisor
 else
-    if load mmc ${devnum}:${distro_bootpart} ${kernload} ${boot_dir}/uImage; then
+    if load mmc ${devnum}:${distro_bootpart} ${kernload} ${scarlet_kernel_dir}/uImage; then
         echo Scarlet uImage loaded
     else
         echoe Scarlet uImage read failed
         sleep 3
         reset
     fi
-    if load mmc ${devnum}:${distro_bootpart} ${initaddr} ${boot_dir}/initramfs; then
+    if load mmc ${devnum}:${distro_bootpart} ${initaddr} ${scarlet_kernel_dir}/initramfs; then
         echo Scarlet initramfs loaded
     else
         echoe Scarlet initramfs read failed
@@ -118,7 +119,7 @@ fdt set /host1x/dc@54240000 status disabled
 # Physical USB belongs to Scarlet only in the direct SD entry. This opt-in
 # must precede BM92T/charger writes as well as XUSB MMIO. Switchvisor's guest
 # overlays disable these nodes and keep their controller ownership at EL2.
-if test "${scarlet_switchvisor_payload}" != 1; then
+if test "${scarlet_switchvisor}" != 1; then
     # This fixed ODIN host driver initializes its PHYs directly. Standard
     # phys would make Scarlet's common pre-probe wait for an unused generic
     # PHY provider. Retain the inspected ODIN phandles as private metadata.
@@ -127,7 +128,7 @@ if test "${scarlet_switchvisor_payload}" != 1; then
     fdt set /xusb@70090000 scarlet,usb-host
     fdt set /i2c@7000c000/bm92t@18 scarlet,usb-host
 fi
-if test "${scarlet_switchvisor_payload}" = 1; then
+if test "${scarlet_switchvisor}" = 1; then
     if test "${scarlet_switchvisor_net}" = 1; then
         if load mmc ${devnum}:${distro_bootpart} 0x8c000000 ${boot_dir}/usb-net.dtbo; then
             fdt addr ${fdtraddr}
@@ -170,7 +171,7 @@ fi
 # The USB debug entry runs an interactive login on tty0. Keep PID 1 on the
 # same default console as the ordinary Scarlet distribution for this entry.
 # The screen-only entry still suppresses service-manager output on its TTY.
-if test "${scarlet_switchvisor_payload}" != 1; then
+if test "${scarlet_switchvisor}" != 1; then
     setenv bootargs "${bootargs} init.console=/dev/null"
 fi
 if test "${scarlet_keep_bootcon}" = 1; then

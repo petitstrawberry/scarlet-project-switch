@@ -16,6 +16,33 @@ spec = importlib.util.spec_from_file_location("install_sd", ROOT / "scripts/inst
 sd = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sd)
 
+rootfs_spec = importlib.util.spec_from_file_location("install_rootfs", ROOT / "scripts/install-rootfs.py")
+rootfs = importlib.util.module_from_spec(rootfs_spec)
+rootfs_spec.loader.exec_module(rootfs)
+
+
+class RootfsDiskTests(unittest.TestCase):
+    def test_removable_sd_in_internal_reader_keeps_layout_checks(self):
+        whole = {"WholeDisk": True, "Internal": True, "RemovableMedia": True,
+                 "VirtualOrPhysical": "Physical", "Content": "FDisk_partition_scheme",
+                 "Size": rootfs.DISK_BYTES, "DeviceBlockSize": 512,
+                 "DeviceIdentifier": "disk99"}
+        parts = {
+            f"/dev/disk99s{i}": {"ParentWholeDisk": "disk99",
+                                 "PartitionMapPartitionOffset": first * 512,
+                                 "Size": count * 512}
+            for i, (_, first, count) in enumerate(rootfs.PARTITIONS, 1)
+        }
+        with patch.object(rootfs.os, "uname", return_value=SimpleNamespace(sysname="Darwin")), \
+                patch.object(rootfs, "disk_info", side_effect=lambda device: whole if device == "/dev/disk99" else parts[device]):
+            self.assertEqual(len(rootfs.validate_disk("/dev/disk99")), 4)
+            parts["/dev/disk99s4"]["PartitionMapPartitionOffset"] += 512
+            with self.assertRaisesRegex(ValueError, "partition 4"):
+                rootfs.validate_disk("/dev/disk99")
+            whole["RemovableMedia"] = False
+            with self.assertRaisesRegex(ValueError, "capacity, sector size, or MBR"):
+                rootfs.validate_disk("/dev/disk99")
+
 
 class SdInstallTests(unittest.TestCase):
     def setUp(self):
@@ -41,7 +68,7 @@ class SdInstallTests(unittest.TestCase):
     def manifest(self):
         (self.package / "manifest.json").write_text(json.dumps({"sha256": self.hashes}))
 
-    def invoke(self, write=False, console=False, switchvisor=False):
+    def invoke(self, write=False, console=False, switchvisor=False, l4t=False):
         argv = ["install-sd.py", "--mount", str(self.volume)]
         if write:
             argv.append("--write")
@@ -49,8 +76,10 @@ class SdInstallTests(unittest.TestCase):
             argv.append("--console")
         if switchvisor:
             argv.append("--switchvisor")
+        if l4t:
+            argv.append("--l4t")
         with patch.object(sd, "CONSOLE_PACKAGE", self.package), \
-                patch.object(sd, "SWITCHVISOR_PACKAGE", self.package), \
+                patch.object(sd, "SWITCHVISOR_PACKAGE", getattr(self, "switchvisor_package", self.package)), \
                 patch.object(sd, "validate_mount", return_value="disk99s1"), \
                 patch("sys.argv", argv), contextlib.redirect_stdout(io.StringIO()):
             sd.main()
@@ -110,7 +139,9 @@ class SdInstallTests(unittest.TestCase):
 
     def test_default_console_preserves_switchvisor_without_legacy_probe(self):
         existing = ["bootloader/ini/L4T-scarlet-switchvisor.ini",
-                    "switchroot/scarlet-switchvisor/bl33.bin"]
+                    "switchroot/scarlet-switchvisor/bl33.bin",
+                    "bootloader/ini/L4T-scarlet-switchvisor-dev.ini",
+                    "switchroot/scarlet-switchvisor-dev/bl33.bin"]
         for relative in existing:
             path = self.volume / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +166,9 @@ class SdInstallTests(unittest.TestCase):
             path.write_bytes(b"existing Scarlet entry")
         self.hashes = {}
         for relative in ["bootloader/ini/L4T-scarlet-switchvisor.ini",
-                         "switchroot/scarlet-switchvisor/bl33.bin"]:
+                         "switchroot/scarlet-switchvisor/bl33.bin",
+                         "bootloader/ini/L4T-scarlet-switchvisor-dev.ini",
+                         "switchroot/scarlet-switchvisor-dev/bl33.bin"]:
             path = self.package / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(b"Switchvisor USB entry")
@@ -146,6 +179,80 @@ class SdInstallTests(unittest.TestCase):
             self.assertEqual((self.volume / relative).read_bytes(), b"existing Scarlet entry")
         for relative, expected in self.hashes.items():
             self.assertEqual(sd.digest(self.volume / relative), expected)
+
+    def prepare_switchvisor_pair(self):
+        self.switchvisor_package = self.root / "generated/switchvisor"
+        hashes = {}
+        for suffix in ("", "-dev"):
+            for relative in (f"bootloader/ini/L4T-scarlet-switchvisor{suffix}.ini",
+                             f"switchroot/scarlet-switchvisor{suffix}/bl33.bin"):
+                path = self.switchvisor_package / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(relative.encode())
+                hashes[relative] = sd.digest(path)
+        dependencies = {}
+        for name in ("uImage", "initramfs"):
+            relative = f"switchroot/scarlet-console/{name}"
+            path = self.package / relative
+            path.write_bytes(name.encode())
+            self.hashes[relative] = sd.digest(path)
+            dependencies[relative] = self.hashes[relative]
+        self.manifest()
+        manifest = {"sha256": hashes, "sd_boot_dependencies": dependencies}
+        (self.switchvisor_package / "manifest.json").write_text(json.dumps(manifest))
+        return manifest
+
+    def test_switchvisor_pair_requires_matching_installed_console_before_writes(self):
+        manifest = self.prepare_switchvisor_pair()
+        before = sd.protected_hashes(self.volume)
+        with self.assertRaisesRegex(ValueError, "SD boot dependency"):
+            self.invoke(write=True, switchvisor=True)
+        self.assertFalse((self.volume / "switchroot/scarlet-switchvisor").exists())
+        self.assertFalse((self.volume / "switchroot/scarlet-switchvisor-dev").exists())
+        self.invoke(write=True, console=True)
+        installed = self.volume / "switchroot/scarlet-console/initramfs"
+        installed.write_bytes(b"different installed version")
+        with self.assertRaisesRegex(ValueError, "SD boot dependency"):
+            self.invoke(write=True, switchvisor=True)
+        self.assertFalse((self.volume / "switchroot/scarlet-switchvisor").exists())
+        installed.write_bytes(b"initramfs")
+        self.invoke(write=True, switchvisor=True)
+        for relative, expected in manifest["sha256"].items():
+            self.assertEqual(sd.digest(self.volume / relative), expected)
+        self.assertEqual(sd.protected_hashes(self.volume), before)
+
+    def test_combined_install_supplies_console_dependencies_and_both_entries(self):
+        manifest = self.prepare_switchvisor_pair()
+        self.invoke(write=True, l4t=True)
+        for relative, expected in {**self.hashes, **manifest["sha256"]}.items():
+            self.assertEqual(sd.digest(self.volume / relative), expected)
+        receipt = json.loads((self.switchvisor_package.parent / "sd-installation.json").read_text())
+        self.assertEqual(len(receipt["sha256"]), len(self.hashes) + len(manifest["sha256"]))
+
+    def test_corrupt_development_image_prevents_installing_either_entry(self):
+        self.prepare_switchvisor_pair()
+        before = {str(p.relative_to(self.volume)): sd.digest(p)
+                  for p in self.volume.rglob("*") if p.is_file()}
+        (self.switchvisor_package / "switchroot/scarlet-switchvisor-dev/bl33.bin").write_bytes(b"corrupt")
+        with self.assertRaisesRegex(ValueError, "SHA256 mismatch"):
+            self.invoke(write=True, l4t=True)
+        self.assertEqual(before, {str(p.relative_to(self.volume)): sd.digest(p)
+                                  for p in self.volume.rglob("*") if p.is_file()})
+
+    def test_development_destination_allowlist_is_exact(self):
+        manifest = self.prepare_switchvisor_pair()
+        before = {str(p.relative_to(self.volume)): sd.digest(p)
+                  for p in self.volume.rglob("*") if p.is_file()}
+        for relative in ("switchroot/scarlet-switchvisor-dev-other/bl33.bin",
+                         "switchroot/scarlet-switchvisor-dev/../../escape",
+                         "bootloader/ini/L4T-scarlet-switchvisor-other.ini"):
+            with self.subTest(relative=relative):
+                bad = {**manifest, "sha256": {relative: "untrusted"}}
+                (self.switchvisor_package / "manifest.json").write_text(json.dumps(bad))
+                with self.assertRaises(ValueError):
+                    self.invoke(write=True, switchvisor=True)
+        self.assertEqual(before, {str(p.relative_to(self.volume)): sd.digest(p)
+                                  for p in self.volume.rglob("*") if p.is_file()})
 
     def disk_metadata(self):
         info = {"MountPoint": str(self.volume), "FilesystemType": "msdos",

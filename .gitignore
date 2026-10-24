@@ -1,6 +1,7 @@
 .direnv/
 .cache/
 .scarlet/
+.scarlet-operation.lock
 target/
 result
 result-*

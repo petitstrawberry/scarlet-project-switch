@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Boot Switchvisor from RCM, deploy the guest bundle, and open its console."""
+"""Boot Switchvisor's no-fallback development entry, deploy, and open its console."""
 import argparse
 import datetime
 import math
@@ -29,7 +29,7 @@ def wait_console(port, timeout):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise ValueError(f"console did not appear within {timeout:g}s: {port}; "
-                             "check the SD SCR-SWV entry, USB cable, or --console")
+                             "check the SD SCR-SWD development entry, USB cable, or --console")
         time.sleep(min(0.2, remaining))
 
 
@@ -58,8 +58,8 @@ def main(argv=None):
     with log.open("ab"):
         pass
     console = args.console.absolute()
-    print("Starting Hekate entry SCR-SWV (waiting for RCM if necessary)...", flush=True)
-    subprocess.run([tools["nxboot"], "--hekate", "id", "SCR-SWV", str(payload)], check=True)
+    print("Starting Hekate development entry SCR-SWD (waiting for RCM if necessary)...", flush=True)
+    subprocess.run([tools["nxboot"], "--hekate", "id", "SCR-SWD", str(payload)], check=True)
     print(f"Waiting for guest console: {console}", flush=True)
     wait_console(console, args.timeout)
     print(f"Deploying guest bundle: {bundle}", flush=True)

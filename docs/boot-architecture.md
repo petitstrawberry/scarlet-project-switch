@@ -8,7 +8,9 @@ RCM -> Hekate L4T -> BL31 -> U-Boot
     -> Scarlet Linux Image -> initramfs -> SD ext2 root -> Scarlet Desktop
 
 Optional Switchvisor EL2 monitor
-    -> host-uploaded U-Boot / kernel / initramfs -> the same guest path
+    -> switchvisor: packaged U-Boot -> installed SD kernel/initramfs
+    -> switchvisor-dev: indefinite USB wait -> uploaded U-Boot / kernel / initramfs
+    -> the same guest path
 ```
 
 Bootstack pins are in the project's `bootstack.json`. The importer requires

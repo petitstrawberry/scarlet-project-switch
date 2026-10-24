@@ -32,8 +32,12 @@ kernel and unguarded LSE in userspace, and
 checks native ELF OSABI. Recognized Rust outline-atomic helpers may contain an
 LSE alternative behind a runtime-flag check with an LL/SC fallback. The A57
 QEMU boot checks remain necessary to validate runtime feature selection.
-The Switchvisor package tests cover custom distributions, UART/network
-profile changes, source metadata and rejection of invalid inputs.
+The Switchvisor package tests cover the paired SD/development distributions,
+fallback policy, UART/network profile changes, source metadata and rejection
+of invalid inputs. They execute generated script control flow with stubbed
+firmware commands to check SD versus USB image selection, overlay application
+and failure paths; they do not emulate U-Boot or validate DTB contents. The SD
+installer tests also check both entries and their installed-console dependencies.
 
 The test-only `tests/boot-probe` project shares the production BSP entry,
 framebuffer parser and packaging helpers. It builds without firmware or SD
