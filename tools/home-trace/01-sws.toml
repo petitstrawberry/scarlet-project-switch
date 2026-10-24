@@ -1,0 +1,11 @@
+# Diagnostic replacement for the normal 01-sws.toml; restore it after capture.
+[service.sws]
+exec = "/bin/sh /etc/sws/home-trace-sws.sh"
+order = 1
+depends = ["sbusd", "sas"]
+ready_notify = true
+ready_timeout_ms = 5000
+
+[service.scarlet-desktop]
+exec = "/bin/sh /etc/sws/home-trace-desktop.sh"
+depends = ["sws"]
