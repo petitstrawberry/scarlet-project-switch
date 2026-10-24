@@ -5,4 +5,4 @@ edition = "2024"
 publish = false
 
 [dependencies]
-scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "abf75eaad55154bb7f82fb128499553ba1fa7c27", default-features = false, features = ["network"] }
+scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "f5a0c9e52068aa355e566538c1337f68efa809ff", default-features = false, features = ["network"] }
