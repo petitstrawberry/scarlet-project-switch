@@ -60,6 +60,16 @@ Applications need rebuilding with the pinned ScarletUI to receive the shared
 button fix: a held touch can still activate on release inside a button, while
 scroll takeover or leaving the button cancels activation.
 
+On 2026-10-24, physical Switch testing confirmed improvement in both missing
+calculator digits and unwanted automatic keyboard display with Scarlet
+`4fcc8a07b98f6bbe6a88d335179623fa926dfe2b` and ScarletUI
+`775e42f502f4e150bb614bbe2c1ed76d46530484`. The server, shell, keyboard,
+calculator, Notepad and Maxwell library were installed on the SD rootfs over
+USB networking with staged-file readback verification and atomic rename.
+The earlier FTM4 FIFO fix alone had not resolved the calculator symptom.
+Drawer presentation delay remains a separate unresolved issue; this input
+confirmation does not establish animation smoothness or general UI latency.
+
 RTC initialization requests only the read latch; it does not write calendar
 fields, alarm state or reboot reason. The raw hardware calendar is interpreted
 as UTC. Horizon's separate user-time offset is not available here, so the raw
