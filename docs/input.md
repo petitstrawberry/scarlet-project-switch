@@ -18,6 +18,20 @@ firmware properties remain intact; existing drivers keep every dependency hook.
 
 ## Controls and scope
 
+The Joy-Con worker queues normal 15 ms input requests into the UART FIFO
+without polling the transmit shift register to completion. Initialization and
+baud changes retain synchronous transmission. FIFO-full waits still have a
+100 ms deadline and sleep when scheduling is available.
+
+UART RX notifications occur on an empty-to-ready queue transition; the worker
+checks that queue before sleeping, so fragmented reports cannot lose a wake.
+Line errors and software overflow mask the UART interrupt source immediately
+in the top half. Failed links keep RX masked throughout the one-second retry
+backoff and rearm it only after resetting the UART for a new handshake. This
+prevents a continuously faulty rail from repeatedly waking the worker and
+postponing recovery. Host tests exercise persistent errors, bounded continuous
+RX, overflow, fragmented reports, and the backoff/rearm sequence.
+
 The body volume buttons emit standard `KEY_VOLUMEDOWN`/`KEY_VOLUMEUP` events.
 The driver validates the ODIN `gpio-keys` wiring and debounce interval,
 samples every 8 ms using a sleeping worker, and leaves repeat to SWS. The

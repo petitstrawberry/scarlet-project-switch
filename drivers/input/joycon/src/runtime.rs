@@ -260,7 +260,7 @@ fn worker() {
                         changed = true;
                     }
                 }
-                if detected[n] {
+                if detected[n] && links[n].receive_enabled() {
                     rail.uart.enable_rx_interrupts(rx_waker.clone());
                 } else {
                     rail.uart.disable_rx_interrupts();
@@ -278,11 +278,9 @@ fn worker() {
                 let attached = rail.attached().unwrap_or(false);
                 if attached != detected[n] {
                     detected[n] = attached;
-                    if attached {
-                        rail.uart.enable_rx_interrupts(rx_waker.clone());
-                    } else {
-                        rail.uart.disable_rx_interrupts();
-                    }
+                    // Reinitialization owns IRQ rearming. A disconnected or
+                    // failed link must stay quiet throughout its backoff.
+                    rail.uart.disable_rx_interrupts();
                     link.detach();
                     parsers[n].clear();
                     pair.release(rail.side);
@@ -360,6 +358,7 @@ fn worker() {
                         scarlet::println!("joycon: {:?} {:?}: {}", rail.side, link.stage, error);
                         next_diagnostic[n] = now + 5000;
                     }
+                    rail.uart.disable_rx_interrupts();
                     parsers[n].clear();
                     link.fail(now);
                 }
@@ -380,13 +379,25 @@ fn worker() {
                     parsers[n].clear();
                     first_input[n] = false;
                 }
-                let result = transmit(&rail, action);
+                let result = match action {
+                    Action::Start => rail.uart.configure(1_000_000).and_then(|_| {
+                        rail.uart.enable_rx_interrupts(rx_waker.clone());
+                        rail.uart.send(WAKE_HANDSHAKE)
+                    }),
+                    Action::Send(command) if previous == Stage::Ready => {
+                        rail.uart.send_queued(command)
+                    }
+                    _ => transmit(&rail, action),
+                };
                 if let Err(error) = result {
                     scarlet::println!("joycon: {:?} {:?}: {}", rail.side, link.stage, error);
-                    link.fail(now);
+                    link.fail(scarlet::time::current_time_ns() / 1_000_000);
                     pair.release(rail.side);
                     changed = true;
                 }
+            }
+            if !link.receive_enabled() {
+                rail.uart.disable_rx_interrupts();
             }
             if now >= next_diagnostic[n] && link.stage != Stage::Ready {
                 scarlet::println!(

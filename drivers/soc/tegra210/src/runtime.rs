@@ -883,10 +883,7 @@ impl Drop for UartTxGuard<'_> {
 }
 struct UartRxInterrupt {
     waker: Option<Arc<Waker>>,
-    bytes: [u8; 512],
-    head: usize,
-    len: usize,
-    errors: u32,
+    queue: crate::uart_rx::RxQueue,
 }
 pub struct UartRxError {
     status: u32,
@@ -919,9 +916,7 @@ impl TegraUart {
         self.regs.write(4, 0);
         {
             let mut rx = self.rx_interrupt.lock();
-            rx.head = 0;
-            rx.len = 0;
-            rx.errors = 0;
+            rx.queue.clear();
         }
         self.regs.write(0x0c, 0x83);
         self.regs.write(0, 1);
@@ -964,13 +959,11 @@ impl TegraUart {
         let _ = self.regs.read(4);
         let mut rx = self.rx_interrupt.lock();
         rx.waker = None;
-        rx.head = 0;
-        rx.len = 0;
-        rx.errors = 0;
+        rx.queue.clear();
     }
     pub fn rx_interrupt_pending(&self) -> bool {
         let rx = self.rx_interrupt.lock();
-        rx.len != 0 || rx.errors != 0
+        rx.queue.ready()
     }
     fn clear_fifos(&self, clear: u32, baud: u32) {
         // serial-tegra.c: T210 must leave FIFO mode before resetting a FIFO.
@@ -993,7 +986,17 @@ impl TegraUart {
             self.car.regs.read(self.source),
         ]
     }
+    /// Queue a complete packet without waiting for the shift register to empty.
+    /// Runtime input requests do not change baud or pins; hardware owns the
+    /// queued bytes and CTS until transmission finishes. FIFO-full waits remain
+    /// bounded and sleep just like synchronous initialization transfers.
+    pub fn send_queued(&self, bytes: &[u8]) -> Result<(), &'static str> {
+        self.send_inner(bytes, false)
+    }
     pub fn send(&self, bytes: &[u8]) -> Result<(), &'static str> {
+        self.send_inner(bytes, true)
+    }
+    fn send_inner(&self, bytes: &[u8], drain: bool) -> Result<(), &'static str> {
         let _tx = self.claim_tx()?;
         // CTS can pause a transfer while the controller handles a command.
         let start = scarlet::time::current_time_ns();
@@ -1014,6 +1017,13 @@ impl TegraUart {
                 }
                 Self::wait_tx(start);
             }
+        }
+        if !drain {
+            // Post the final FIFO write without reading THR or acknowledging
+            // RX line errors through LSR; those belong to the RX IRQ handler.
+            let _lock = self.lock.lock();
+            let _ = self.regs.read(0x1c);
+            return Ok(());
         }
         loop {
             {
@@ -1059,21 +1069,14 @@ impl TegraUart {
     pub fn receive_ready(&self, bytes: &mut [u8]) -> Result<usize, UartRxError> {
         let _lock = self.lock.lock();
         let mut rx = self.rx_interrupt.lock();
-        let count = bytes.len().min(rx.len);
-        for byte in &mut bytes[..count] {
-            *byte = rx.bytes[rx.head];
-            rx.head = (rx.head + 1) % rx.bytes.len();
+        match rx.queue.read(bytes) {
+            Ok(count) => Ok(count),
+            Err((errors, count)) => {
+                drop(rx);
+                self.recover_rx();
+                Err(Self::rx_error(errors, &bytes[..count]))
+            }
         }
-        rx.len -= count;
-        let errors = core::mem::take(&mut rx.errors);
-        if errors == 0 {
-            return Ok(count);
-        }
-        rx.head = 0;
-        rx.len = 0;
-        drop(rx);
-        self.recover_rx();
-        Err(Self::rx_error(errors, &bytes[..count]))
     }
     fn receive_with_wait(
         &self,
@@ -1160,26 +1163,7 @@ impl InterruptCapableDevice for TegraUart {
         }
         let waker = {
             let mut rx = self.rx_interrupt.lock();
-            // Bounded top half: only drain already available data, never
-            // wait for the next character. A still-asserted level retriggers.
-            // Parsing and input-event publication remain in the worker.
-            for _ in 0..256 {
-                let status = self.regs.read(0x14);
-                rx.errors |= status & 0x1e;
-                if status & 1 == 0 {
-                    break;
-                }
-                let byte = self.regs.read(0) as u8;
-                if rx.len < rx.bytes.len() {
-                    let tail = (rx.head + rx.len) % rx.bytes.len();
-                    rx.bytes[tail] = byte;
-                    rx.len += 1;
-                } else {
-                    // Do not silently splice packets across software overrun.
-                    rx.errors |= 2;
-                }
-            }
-            if rx.len != 0 || rx.errors != 0 {
+            if rx.queue.interrupt(&self.regs) {
                 rx.waker.clone()
             } else {
                 None
@@ -1404,10 +1388,7 @@ fn probe_uart(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
         interrupt_id,
         rx_interrupt: IrqSpinLock::new(UartRxInterrupt {
             waker: None,
-            bytes: [0; 512],
-            head: 0,
-            len: 0,
-            errors: 0,
+            queue: crate::uart_rx::RxQueue::new(),
         }),
     });
     uart.configure(1_000_000)?;

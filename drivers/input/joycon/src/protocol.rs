@@ -279,6 +279,10 @@ impl Link {
     pub fn stale(&self, now: u64) -> bool {
         self.stage != Stage::Ready || now.saturating_sub(self.last_input_ms) >= 250
     }
+    /// Failed links keep UART RX masked until the next initialization starts.
+    pub fn receive_enabled(&self) -> bool {
+        !matches!(self.stage, Stage::Detached | Stage::Backoff)
+    }
     /// Next protocol transmit deadline; RX delivery is independent of polling.
     pub fn next_deadline_ms(&self) -> u64 {
         self.due
@@ -387,6 +391,23 @@ mod tests {
         assert_eq!(link.next(500), None);
         link.detach();
         assert_eq!(link.stage, Stage::Detached);
+    }
+    #[test]
+    fn failed_link_stays_quiet_for_backoff_then_rearms_for_handshake() {
+        let mut link = Link::new(Side::Left);
+        assert!(!link.receive_enabled());
+        assert_eq!(link.next(0), Some(Action::Start));
+        assert!(link.receive_enabled());
+        link.fail(50);
+        for now in [50, 100, 500, 1049] {
+            assert_eq!(link.next(now), None);
+            assert!(!link.receive_enabled());
+            assert_eq!(link.next_deadline_ms(), 1050);
+        }
+        assert_eq!(link.next(1050), Some(Action::Start));
+        assert!(link.receive_enabled());
+        link.detach();
+        assert!(!link.receive_enabled());
     }
     #[test]
     fn reports_preserve_other_half_and_unplug_only_releases_owner() {

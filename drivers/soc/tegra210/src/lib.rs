@@ -43,14 +43,16 @@ pub use sdmmc::SdmmcPlatform;
 mod xusb;
 #[cfg(target_os = "none")]
 pub use xusb::XusbPlatform;
+#[cfg(any(target_os = "none", test))]
+mod gpio_irq;
 #[cfg(target_os = "none")]
 mod runtime;
 #[cfg(any(target_os = "none", test))]
-mod gpio_irq;
-#[cfg(any(target_os = "none", test))]
-mod xusb_phy;
+mod uart_rx;
 #[cfg(any(target_os = "none", test))]
 mod xusb_car;
+#[cfg(any(target_os = "none", test))]
+mod xusb_phy;
 #[cfg(target_os = "none")]
 pub use runtime::*;
 #[cfg(target_os = "none")]
