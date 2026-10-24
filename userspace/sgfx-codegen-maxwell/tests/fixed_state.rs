@@ -265,6 +265,21 @@ fn all_filter_and_address_combinations_have_exact_portable_records() {
 }
 
 #[test]
+fn border_sampling_is_rejected_instead_of_becoming_edge_clamping() {
+    for (u, v) in [
+        (AddressMode::ClampToBorder, AddressMode::ClampToEdge),
+        (AddressMode::ClampToEdge, AddressMode::ClampToBorder),
+    ] {
+        let result = draw(
+            SamplerDesc::new(FilterMode::Nearest, FilterMode::Nearest, u, v),
+            None,
+            48,
+        );
+        assert!(matches!(result, Err(CompileError::UnsupportedFeature)));
+    }
+}
+
+#[test]
 fn mip_filter_and_lod_clamps_survive_wire_serialization() {
     for filter in [FilterMode::Nearest, FilterMode::Linear] {
         let sampler = nearest().with_mip_filter(filter, 1.0, 3.5).unwrap();

@@ -34,7 +34,7 @@ pub fn fixed_blend_record(words: &[u32], extended: bool) -> Result<NativeBlend, 
             .any(|&word| word != 0)
         || words[21] > 15
         || words[22] > 1
-        || [23, 24, 26, 27].iter().any(|&i| words[i] > 5)
+        || [23, 24, 26, 27].iter().any(|&i| words[i] > 9)
         || words[25] > 2
         || words[28] > 2
     {
@@ -43,7 +43,9 @@ pub fn fixed_blend_record(words: &[u32], extended: bool) -> Result<NativeBlend, 
     if words[22] == 0 && words[23..29] != [1, 0, 0, 1, 0, 0] {
         return Err("disabled fixed blend must use replacement factors");
     }
-    const FACTOR: [u32; 6] = [0x4000, 0x4001, 0x4302, 0x4303, 0x4304, 0x4305];
+    const FACTOR: [u32; 10] = [
+        0x4000, 0x4001, 0x4302, 0x4303, 0x4304, 0x4305, 0x4300, 0x4301, 0x4306, 0x4307,
+    ];
     const EQUATION: [u32; 3] = [0x8006, 0x800a, 0x800b];
     let mask = words[21];
     Ok(NativeBlend {

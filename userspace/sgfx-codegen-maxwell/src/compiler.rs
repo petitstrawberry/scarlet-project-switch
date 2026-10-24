@@ -1090,10 +1090,17 @@ fn validate_sample_state(
     }
     let min_linear = sampler.min_filter() == FilterMode::Linear;
     let mag_linear = sampler.mag_filter() == FilterMode::Linear;
+    if matches!(sampler.address_u(), AddressMode::ClampToBorder)
+        || matches!(sampler.address_v(), AddressMode::ClampToBorder)
+    {
+        // The fixed Maxwell sampler record has no border-color payload.
+        return Err(CompileError::UnsupportedFeature);
+    }
     let address = |mode| match mode {
         AddressMode::ClampToEdge => 0,
         AddressMode::Repeat => 1,
         AddressMode::MirrorRepeat => 2,
+        AddressMode::ClampToBorder => 0,
     };
     // Retain legacy records: bit 1 alone still means both filters are linear.
     // Bit 6 selects different min/mag filters; bits 7..10 carry the portable

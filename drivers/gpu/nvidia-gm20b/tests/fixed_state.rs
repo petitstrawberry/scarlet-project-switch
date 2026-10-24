@@ -163,14 +163,16 @@ fn blend_record(mask: u32, components: [u32; 6]) -> [u32; 64] {
 
 #[test]
 fn fixed_blend_maps_every_factor_equation_and_component_mask_to_native_fields() {
-    let factors = [0x4000, 0x4001, 0x4302, 0x4303, 0x4304, 0x4305];
+    let factors = [
+        0x4000, 0x4001, 0x4302, 0x4303, 0x4304, 0x4305, 0x4300, 0x4301, 0x4306, 0x4307,
+    ];
     let equations = [0x8006, 0x800a, 0x800b];
-    for src in 0..6 {
-        for dst in 0..6 {
+    for src in 0..10 {
+        for dst in 0..10 {
             for eq in 0..3 {
                 for mask in 0..16 {
-                    let asrc = (src + 1) % 6;
-                    let adst = (dst + 2) % 6;
+                    let asrc = (src + 1) % 10;
+                    let adst = (dst + 2) % 10;
                     let aeq = (eq + 1) % 3;
                     let native = method::fixed_blend_record(
                         &blend_record(mask, [src, dst, eq, asrc, adst, aeq]),
@@ -222,11 +224,11 @@ fn fixed_blend_is_a_closed_v2_record_with_canonical_disabled_state() {
     for (index, value) in [
         (21, 16),
         (22, 2),
-        (23, 6),
-        (24, 6),
+        (23, 10),
+        (24, 10),
         (25, 3),
-        (26, 6),
-        (27, 6),
+        (26, 10),
+        (27, 10),
         (28, 3),
     ] {
         let mut bad = good;

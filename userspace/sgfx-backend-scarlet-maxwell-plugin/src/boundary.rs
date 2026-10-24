@@ -107,6 +107,34 @@ mod tests {
     };
 
     #[test]
+    fn accepts_native_facade_r3_swapchain_metadata() {
+        use sgfx::ir as client;
+        let producer = client::ResourceTable::new();
+        let descriptor = client::TextureDesc::new(
+            client::TextureFormat::Bgra8Unorm,
+            client::Extent2D::new(1280, 720).unwrap(),
+            client::TextureUsage::RENDER_ATTACHMENT
+                | client::TextureUsage::PRESENT
+                | client::TextureUsage::COPY_SRC
+                | client::TextureUsage::COPY_DST,
+        )
+        .unwrap();
+        let targets: Vec<_> = (0..3)
+            .map(|_| producer.define_texture(descriptor).unwrap().slot() as u32)
+            .collect();
+        let words = producer.abi_snapshot().unwrap();
+        assert_eq!(words[0], 0x3352_5846_4753); // SGFXR3
+        let mirror = ir::ResourceTable::new();
+        mirror.sync_abi_snapshot(&words).unwrap();
+        for slot in targets {
+            let target = mirror.texture(mirror.abi_texture(slot).unwrap()).unwrap();
+            assert_eq!(target.extent(), ir::Extent2D::new(1280, 720).unwrap());
+            assert_eq!(target.format(), ir::TextureFormat::Bgra8Unorm);
+            assert!(target.usage().contains(ir::TextureUsage::PRESENT));
+        }
+    }
+
+    #[test]
     fn borrowed_spans_reject_bad_alignment_capacity_and_address_wrap() {
         assert_eq!(validate_span::<u64>(ptr::null(), 1), Err(abi::INVALID));
         assert_eq!(

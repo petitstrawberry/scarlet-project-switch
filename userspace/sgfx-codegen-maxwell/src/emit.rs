@@ -17,6 +17,10 @@ fn blend_factor(factor: BlendFactor) -> u32 {
         BlendFactor::OneMinusSourceAlpha => 3,
         BlendFactor::DestinationAlpha => 4,
         BlendFactor::OneMinusDestinationAlpha => 5,
+        BlendFactor::SourceColor => 6,
+        BlendFactor::OneMinusSourceColor => 7,
+        BlendFactor::DestinationColor => 8,
+        BlendFactor::OneMinusDestinationColor => 9,
     }
 }
 

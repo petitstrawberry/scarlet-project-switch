@@ -103,6 +103,10 @@ fn every_fixed_factor_and_equation_survives_actual_records_and_wire() {
         BlendFactor::OneMinusSourceAlpha,
         BlendFactor::DestinationAlpha,
         BlendFactor::OneMinusDestinationAlpha,
+        BlendFactor::SourceColor,
+        BlendFactor::OneMinusSourceColor,
+        BlendFactor::DestinationColor,
+        BlendFactor::OneMinusDestinationColor,
     ];
     let equations = [BlendOp::Add, BlendOp::Subtract, BlendOp::ReverseSubtract];
     for (src, &source) in factors.iter().enumerate() {

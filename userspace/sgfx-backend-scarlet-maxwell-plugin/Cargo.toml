@@ -9,8 +9,8 @@ name = "sgfx_scarlet_maxwell"
 crate-type = ["cdylib"]
 
 [dependencies]
-sgfx-backend-abi = { git = "https://github.com/petitstrawberry/sgfx", rev = "20bb5b8cc19445520d08c31c3971ac06244bc1d9" }
-sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "040dbb5cf42b75489504e1765183d37f6131f54c", default-features = false, features = ["backend-abi"] }
+sgfx-backend-abi = { git = "https://github.com/petitstrawberry/sgfx", rev = "73330c2c6edc59f0b3a0081b96a5ad379086cbc5" }
+sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "77e64a81115d78fab7c63671c2a6c16aac060c05", default-features = false, features = ["backend-abi"] }
 
 [target.'cfg(any(target_os = "scarlet", all(target_os = "linux", target_arch = "aarch64")))'.dependencies]
 sgfx-backend-scarlet-maxwell = { path = "../sgfx-backend-scarlet-maxwell", default-features = false, features = ["std"] }
@@ -19,3 +19,8 @@ maxwell-submit-wire = { path = "../../shared/maxwell-submit-wire" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("scarlet"))'] }
+
+[dev-dependencies]
+# Exercise the metadata producer used by native applications, independently
+# of the plugin's core pin. A plugin must accept this facade's snapshots.
+sgfx = { git = "https://github.com/petitstrawberry/sgfx", rev = "73330c2c6edc59f0b3a0081b96a5ad379086cbc5", default-features = false }

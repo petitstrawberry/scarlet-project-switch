@@ -276,7 +276,13 @@ fn compile_pipeline(
             .vertex_buffers()
             .iter()
             .flat_map(|layout| layout.attributes())
-            .any(|a| a.location() >= 16)
+            .any(|a| {
+                a.location() >= 16
+                    || matches!(
+                        a.format(),
+                        ir::VertexFormat::Uint16x2 | ir::VertexFormat::Float32
+                    )
+            })
     {
         return Err(IrSubmitError::Unsupported(
             UnsupportedIrFeature::VertexLayout,
@@ -787,6 +793,8 @@ fn vertex_format(format: ir::VertexFormat) -> u32 {
         ir::VertexFormat::Float16x4 => 19,
         ir::VertexFormat::Sint16x4 => 20,
         ir::VertexFormat::Snorm10_10_10_2 => 21,
+        // Rejected by the layout validation before a draw is prepared.
+        ir::VertexFormat::Uint16x2 | ir::VertexFormat::Float32 => 0,
     }
 }
 fn compare(compare: ir::CompareFunction) -> u32 {
@@ -809,6 +817,10 @@ fn blend_factor(factor: ir::BlendFactor) -> u32 {
         ir::BlendFactor::OneMinusSourceAlpha => 7,
         ir::BlendFactor::DestinationAlpha => 8,
         ir::BlendFactor::OneMinusDestinationAlpha => 9,
+        ir::BlendFactor::SourceColor => 2,
+        ir::BlendFactor::OneMinusSourceColor => 3,
+        ir::BlendFactor::DestinationColor => 4,
+        ir::BlendFactor::OneMinusDestinationColor => 5,
     }
 }
 fn blend_op(op: ir::BlendOp) -> u32 {
@@ -823,6 +835,8 @@ fn sampler_flags(s: ir::SamplerDesc) -> u32 {
         ir::AddressMode::ClampToEdge => 0,
         ir::AddressMode::Repeat => 1,
         ir::AddressMode::MirrorRepeat => 2,
+        // Rejected before sampler recording; the fixed TSC has no border color.
+        ir::AddressMode::ClampToBorder => 0,
     };
     u32::from(s.mag_filter() == ir::FilterMode::Linear)
         | u32::from(s.min_filter() == ir::FilterMode::Linear) << 1
@@ -881,6 +895,8 @@ impl ContextResources {
             ir::PrimitiveTopology::TriangleList => 0,
             ir::PrimitiveTopology::TriangleStrip => 1,
             ir::PrimitiveTopology::TriangleFan => 2,
+            // Rejected by pipeline validation above.
+            ir::PrimitiveTopology::LineList | ir::PrimitiveTopology::LineStrip => 0,
         };
         header[5] = count;
         header[6] = instances;
@@ -1153,6 +1169,13 @@ impl ContextResources {
                         ir::AddressMode::ClampToEdge,
                     )
                 };
+                if matches!(sampler.address_u(), ir::AddressMode::ClampToBorder)
+                    || matches!(sampler.address_v(), ir::AddressMode::ClampToBorder)
+                {
+                    return Err(IrSubmitError::Unsupported(
+                        UnsupportedIrFeature::ResourceBindings,
+                    ));
+                }
                 if sampler.compare().is_some() != binding.comparison {
                     return Err(ir::Error::BindingLayoutMismatch.into());
                 }

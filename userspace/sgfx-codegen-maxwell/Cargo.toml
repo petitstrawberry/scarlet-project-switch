@@ -11,4 +11,4 @@ path = "src/lib.rs"
 maxwell-image-layout = { path = "../../shared/maxwell-image-layout" }
 maxwell-shader-pack = { path = "../../shared/maxwell-shader-pack" }
 maxwell-submit-wire = { path = "../../shared/maxwell-submit-wire" }
-sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "040dbb5cf42b75489504e1765183d37f6131f54c", default-features = false }
+sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "77e64a81115d78fab7c63671c2a6c16aac060c05", default-features = false }
