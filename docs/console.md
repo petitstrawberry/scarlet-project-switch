@@ -116,9 +116,16 @@ the body appeared by the next keyboard operation. Remote framebuffer captures
 can lag presentation, so this does not isolate that initial delay or establish
 animation smoothness. Physical touch verification remains a separate check.
 
-The final Scarlet pin `64f4893b` retains the same shared-image refresh and adds
-returning an empty tablet session Home after a confirmed document close.
-SWS, shell, keyboard, calculator, Notepad and the Maxwell library were updated
-on the installed SD rootfs over USB networking with staged-file readback and
-atomic rename. The kernel/initramfs were booted through Switchvisor USB
-deployment; this does not update the SD's FAT boot package.
+The 2026-10-25 snapshot pins Scarlet `a88184df` and ScarletUI `8efde207`.
+It includes shared-image refresh from the first COMMIT, returning an empty
+tablet session Home after a confirmed document close, explicit timed-animation
+support for the selected dynamic Maxwell backend, and revised swipe completion
+and task-card expansion. The initial Home delay remains unresolved; static
+captures do not establish animation smoothness.
+
+SWS, shell, desktop supervisor, keyboard, calculator, Notepad and the Maxwell
+library were updated on the installed SD rootfs over USB networking with
+staged-file readback and atomic rename. The normal service configuration was
+restored after diagnostic collection; the opt-in trace scripts were removed
+from the device. The kernel/initramfs use Switchvisor USB deployment; this
+does not update the SD's FAT boot package.
