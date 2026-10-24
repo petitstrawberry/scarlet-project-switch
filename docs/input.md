@@ -32,6 +32,22 @@ prevents a continuously faulty rail from repeatedly waking the worker and
 postponing recovery. Host tests exercise persistent errors, bounded continuous
 RX, overflow, fragmented reports, and the backoff/rearm sequence.
 
+On 2026-10-25, board commit `e3edd8f` passed 59 Tegra210 transport tests and
+7 Joy-Con protocol tests, the release kernel build, and the Cortex-A57 ISA
+audit. Kernel ELF SHA256 was
+`c2a47cfb9253e24c5e61bfd798435a187c176278745871ea97da1024bf215902`.
+Both console images and Switchvisor SD boot files were installed through the
+user-provided UMS connection and every packaged file passed SD readback.
+The installed rootfs already contained the latest normal desktop/tablet runtime.
+
+Hardware ran that kernel through the Switchvisor USB bundle, using the SD
+rootfs. Across a 180-second capture, 17 valid `top` samples showed Joy-Con at
+1.8–3.5% of one CPU, versus earlier ordinary samples of 5.3–5.4%. The capture
+had no UART error or CPU-watchdog reports; the user confirmed normal buttons
+and sticks on both controllers. The earlier 100.1% sample was not reproduced,
+so its exact triggering condition remains unidentified. Fault/backoff behavior
+is covered by host tests, rather than a physical fault-injection claim.
+
 The body volume buttons emit standard `KEY_VOLUMEDOWN`/`KEY_VOLUMEUP` events.
 The driver validates the ODIN `gpio-keys` wiring and debounce interval,
 samples every 8 ms using a sleeping worker, and leaves repeat to SWS. The

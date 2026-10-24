@@ -108,6 +108,12 @@ uses the current IPv4 default-route interface, instead of assuming `en0`.
 It validates the existing Apple NAT anchor and only updates
 `com.apple/switchvisor`; it never reloads the root PF ruleset.
 
+On 2026-10-25, restoring this forwarding path resolved DNS/NTP failures on
+the connected Switch. After a further guest reboot, the persistent `ntpd`
+automatically synchronized with `time.cloudflare.com` at 47.5 seconds uptime
+(stratum 3, round-trip delay about 5.9 ms), and `date` showed the correct JST
+date. No RTC write or persistent second NTP daemon was required.
+
 Persist the host's `.2` address in the macOS network service so a Switch reboot
 or USB reconnection does not replace it with a DHCP/link-local address:
 

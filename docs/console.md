@@ -127,5 +127,8 @@ SWS, shell, desktop supervisor, keyboard, calculator, Notepad and the Maxwell
 library were updated on the installed SD rootfs over USB networking with
 staged-file readback and atomic rename. The normal service configuration was
 restored after diagnostic collection; the opt-in trace scripts were removed
-from the device. The kernel/initramfs use Switchvisor USB deployment; this
-does not update the SD's FAT boot package.
+from the device. On 2026-10-25, the latest initramfs and the Joy-Con worker
+kernel fix (`e3edd8f`) were also installed into the SD FAT boot package and
+all console/Switchvisor files passed readback. The subsequent hardware check
+used the equivalent Switchvisor USB bundle and the installed SD rootfs; it
+does not establish an unattended SD-only boot. See [input validation](input.md).
