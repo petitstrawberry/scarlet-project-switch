@@ -71,9 +71,11 @@ def build_environment(target_dir):
     for variable in ("CARGO_ENCODED_RUSTFLAGS", "CARGO_UNSTABLE_BUILD_STD",
                      "CARGO_UNSTABLE_BUILD_STD_FEATURES"):
         env.pop(variable, None)
+    # The packaged Scarlet std includes native objects without LLVM bitcode.
+    # Link the driver without cross-crate LTO so those objects remain usable.
     env.update(CARGO_TARGET_DIR=str(target_dir),
                RUSTFLAGS='-Zdefault-visibility=hidden --cfg getrandom_backend="custom"',
-               CARGO_PROFILE_RELEASE_LTO="thin", CARGO_PROFILE_RELEASE_CODEGEN_UNITS="1")
+               CARGO_PROFILE_RELEASE_LTO="false", CARGO_PROFILE_RELEASE_CODEGEN_UNITS="1")
     return env
 
 

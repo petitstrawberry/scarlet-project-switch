@@ -226,7 +226,7 @@ class BuildTests(unittest.TestCase):
             self.assertNotIn(name, self.env)
         self.assertIn("-Zdefault-visibility=hidden", self.env["RUSTFLAGS"])
         self.assertIn('getrandom_backend="custom"', self.env["RUSTFLAGS"])
-        self.assertEqual(self.env["CARGO_PROFILE_RELEASE_LTO"], "thin")
+        self.assertEqual(self.env["CARGO_PROFILE_RELEASE_LTO"], "false")
         self.assertEqual(self.env["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"], "1")
         self.assertEqual(output, self.project / ".scarlet/sgfx-maxwell")
         audit.assert_called_once_with(output / "build" / builder.TARGET / "release" / builder.LIBRARY)

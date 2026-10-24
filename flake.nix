@@ -8,11 +8,17 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    scarlet-rust-toolchain.url = "github:petitstrawberry/scarlet-rust-nix/main";
+    scarlet-rust-toolchain.url = "github:petitstrawberry/scarlet-rust-nix/3c23906c35053e28d56f3aa9b1d29142535ffab7";
     scarlet-sdk = {
-      url = "github:petitstrawberry/scarlet-sdk/29e82f9b797fcedef2fe8f967c2d7f7729d51cbc";
+      url = "github:petitstrawberry/scarlet-sdk/a071222231e8bbd96c1d54f38d99d1b27ec90805";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.scarlet-rust-toolchain.follows = "scarlet-rust-toolchain";
+    };
+    vulkan-headers-src = {
+      url = "github:KhronosGroup/Vulkan-Headers/c46850864f4661461b0f6cb9922c058ffea4915e";
       flake = false;
     };
+    llvm-libc-src.follows = "scarlet-sdk/llvm-src";
     rust-overlay.follows = "scarlet-rust-toolchain/rust-overlay";
     switchvisor-src = {
       url = "github:petitstrawberry/switchvisor/8d2bc1db0dc858fb0b253540397e8105f137cba5";
@@ -20,7 +26,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, scarlet-rust-toolchain, scarlet-sdk, rust-overlay, switchvisor-src, ... }:
+  outputs = { self, nixpkgs, scarlet-rust-toolchain, scarlet-sdk, rust-overlay, switchvisor-src, vulkan-headers-src, llvm-libc-src, ... }:
     let
       systems = [ "aarch64-darwin" "aarch64-linux" "x86_64-linux" ];
       eachSystem = nixpkgs.lib.genAttrs systems;
@@ -111,10 +117,23 @@
               rust sdk switchvisor pkgs.python3 pkgs.ripgrep pkgs.git pkgs.gh pkgs.curl
               pkgs.llvmPackages.llvm pkgs.llvmPackages.lld pkgs.dtc pkgs.cpio pkgs.qemu
               pkgs.cmake pkgs.ninja pkgs.meson pkgs.pkg-config pkgs.e2fsprogs pkgs.minicom
+              pkgs.gnumake pkgs.autoconf pkgs.automake pkgs.libtool pkgs.texinfo
+              pkgs.perl pkgs.ruby pkgs.gperf pkgs.bison pkgs.flex pkgs.unifdef pkgs.tcl
+              pkgs.gawk pkgs.gnused pkgs.gnugrep pkgs.findutils pkgs.diffutils pkgs.patch
+              pkgs.gnutar pkgs.gzip pkgs.bzip2 pkgs.xz pkgs.unzip pkgs.coreutils pkgs.file
               pkgs.pkgsCross.aarch64-multiplatform.buildPackages.gcc
             ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ (mkNxboot pkgs) ];
             hardeningDisable = [ "zerocallusedregs" ];
             SWITCHVISOR_DATA = "${switchvisor}/share/switchvisor";
+            SCARLET_NATIVE_RUNTIME = "${scarlet-sdk.packages.${system}.scarlet-native-runtime}";
+            SCARLET_NATIVE_CC = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang";
+            SCARLET_NATIVE_CXX = "${pkgs.llvmPackages.clang-unwrapped}/bin/clang++";
+            SCARLET_NATIVE_AR = "${pkgs.llvmPackages.llvm}/bin/llvm-ar";
+            SCARLET_NATIVE_RANLIB = "${pkgs.llvmPackages.llvm}/bin/llvm-ranlib";
+            SCARLET_NATIVE_NM = "${pkgs.llvmPackages.llvm}/bin/llvm-nm";
+            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+            VULKAN_HEADERS_SOURCE_DIR = "${vulkan-headers-src}";
+            SCARLET_LLVM_LIBC_SOURCE_DIR = "${llvm-libc-src}/libc";
             shellHook = ''
               export PATH="${rust}/bin:$PWD/scripts:$PATH"
               export SCARLET_RUST_ACTIVE_BIN="${rust}/bin"

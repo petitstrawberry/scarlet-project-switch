@@ -111,7 +111,7 @@ pub struct Session {
     history_len: usize,
     picture_count: u32,
 }
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Pending {
     pub request: VideoBackendDecodeRequest,
     pub slot: usize,
@@ -485,7 +485,8 @@ impl Session {
         arch::io_mb();
         let fence = engine.execute_picture();
         Ok(Pending {
-            request: *decode,
+            // Keep mapped input/output alive through completion or isolation.
+            request: decode.clone(),
             slot,
             started: time::current_time_ns(),
             fence,
@@ -496,7 +497,7 @@ impl Session {
         core::array::from_fn(|i| self.input.read_word(STATUS + i * 4))
     }
 
-    pub fn log_failure(&self, pending: Pending) {
+    pub fn log_failure(&self, pending: &Pending) {
         let image = &self.frames[pending.slot].as_ref().unwrap().image;
         scarlet::println!(
             "nvdec: fault picture input_pa={:#x} status_pa={:#x} bitstream_pa={:#x} scratch_pa={:#x} image_pa={:#x} slot={} stream_bytes={} slices={} mbs={}x{} flags={:#x}/{:#x} bitstream_head={:#x}",
@@ -516,7 +517,7 @@ impl Session {
         );
     }
 
-    pub fn finish(&self, pending: Pending) -> Result<VideoBackendDecodedFrame, &'static str> {
+    pub fn finish(&self, pending: &Pending) -> Result<VideoBackendDecodedFrame, &'static str> {
         let g = self.geometry;
         let status = self.status();
         if status[3] != 0 || status[1] != 0 || status[0] != (g.width * g.height / 256) as u32 {

@@ -76,9 +76,9 @@ dependencies = [
 
 [[package]]
 name = "equivalent"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "fdt"
@@ -130,9 +130,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.190"
+version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
+checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 
 [[package]]
 name = "lock_api"
@@ -146,7 +146,7 @@ dependencies = [
 [[package]]
 name = "scarlet"
 version = "1.0.1"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=72e68549b679f5ff471b79847675bbb5ec3dc73a#72e68549b679f5ff471b79847675bbb5ec3dc73a"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=30b47a71ece77b811722d5f7cf53727857f0c536#30b47a71ece77b811722d5f7cf53727857f0c536"
 dependencies = [
  "chacha20",
  "fdt",
@@ -162,7 +162,7 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=72e68549b679f5ff471b79847675bbb5ec3dc73a#72e68549b679f5ff471b79847675bbb5ec3dc73a"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=30b47a71ece77b811722d5f7cf53727857f0c536#30b47a71ece77b811722d5f7cf53727857f0c536"
 
 [[package]]
 name = "scarlet-modules"

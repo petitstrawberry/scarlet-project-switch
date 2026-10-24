@@ -60,6 +60,9 @@ impl State {
 impl Drop for State {
     fn drop(&mut self) {
         if self.engine.isolate().is_err() {
+            if let Some(pending) = self.pending.take() {
+                core::mem::forget(pending);
+            }
             if let Some(session) = self.session.take() {
                 core::mem::forget(session);
             }
@@ -204,7 +207,7 @@ impl VideoDecodeBackend for Backend {
         if let Some(error) = s.lifecycle.error() {
             return Err(error);
         }
-        let Some(pending) = s.pending else {
+        let Some(pending) = s.pending.clone() else {
             return Ok(None);
         };
         let status = s.session.as_ref().unwrap().status();
@@ -222,7 +225,7 @@ impl VideoDecodeBackend for Backend {
                     s.engine.platform.completion.value(),
                     pending.fence
                 );
-                s.session.as_ref().unwrap().log_failure(pending);
+                s.session.as_ref().unwrap().log_failure(&pending);
                 s.engine.log_failure();
                 s.fail("NVDEC frame timeout")?;
                 return Err("NVDEC frame timeout");
@@ -231,7 +234,7 @@ impl VideoDecodeBackend for Backend {
         }
         arch::io_mb();
         let ready = time::current_time_ns();
-        match s.session.as_ref().unwrap().finish(pending) {
+        match s.session.as_ref().unwrap().finish(&pending) {
             Ok(frame) => {
                 s.timing.completed += 1;
                 s.timing.ready_ns += ready.saturating_sub(pending.started);

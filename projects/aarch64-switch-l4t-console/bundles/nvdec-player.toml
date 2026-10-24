@@ -1,7 +1,7 @@
 # Switch uses the Tegra210 stateless H.264 backend.
 [[layers]]
 kind = "cargo"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "72e68549b679f5ff471b79847675bbb5ec3dc73a" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "30b47a71ece77b811722d5f7cf53727857f0c536" }
 subdir = "user/video_player"
 package = "video_player"
 bin = "video-player"
