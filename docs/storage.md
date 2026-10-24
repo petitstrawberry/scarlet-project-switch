@@ -10,6 +10,31 @@ root=/dev/mmcblk0p4 rootfstype=ext2 rootwait
 The bootstrap mounts ext2 and switches root before starting stemd.
 The FAT boot package and the ext2 root image are separate artifacts.
 
+## Runtime updates
+
+Use Switchvisor USB networking for installed rootfs files and USB deployment
+for kernel experiments. Hekate UMS needs local console operation; reserve it
+for changes that require the host to access the SD boot filesystem.
+
+Build runtime files from committed source pins, then transfer each replacement
+under a distinct staging name in its destination directory. Verify the complete
+staged bytes against the host artifact before replacing the installed path.
+`tools/replace-runtime-file.rs` checks the staged file's length and performs a
+same-directory rename, avoiding truncation of a live executable. It does not
+verify a digest; transport/readback verification is the deployer's responsibility.
+
+```sh
+nix develop --accept-flake-config -c rustc --edition 2024 -O \
+  --target aarch64-unknown-scarlet tools/replace-runtime-file.rs \
+  -o /tmp/replace-runtime-file
+```
+
+After transferring that helper to the guest and validating a staged binary,
+run `/tmp/replace-runtime-file /bin/.calculator-update /bin/calculator BYTES`
+in the guest. Restart the affected application/services to load the replacement.
+The existing SD rootfs retains these file changes across boots; replacing an
+entire ext2 image is unnecessary for individual executable/configuration updates.
+
 ## SD layout
 
 Both installation helpers are specific to the inspected 123,773,911,040-byte
