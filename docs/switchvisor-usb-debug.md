@@ -102,6 +102,11 @@ nat on en6 inet from 192.168.77.0/24 to any -> (en6)
 This leaves the host's default route and unrelated PF rules intact. Verify
 the actual interfaces and active anchor hierarchy before applying it.
 Forwarding and PF NAT are runtime-only; a Mac reboot requires restoring them.
+Use `sudo sh scripts/enable-switchvisor-internet.sh` to restore sharing after
+a reboot or uplink change. It detects the USB interface by its MAC address and
+uses the current IPv4 default-route interface, instead of assuming `en0`.
+It validates the existing Apple NAT anchor and only updates
+`com.apple/switchvisor`; it never reloads the root PF ruleset.
 
 Persist the host's `.2` address in the macOS network service so a Switch reboot
 or USB reconnection does not replace it with a DHCP/link-local address:
