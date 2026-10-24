@@ -9,7 +9,7 @@ maxwell-image-layout = { path = "../../../shared/maxwell-image-layout" }
 maxwell-program-wire = { path = "../../../shared/maxwell-program-wire" }
 
 [target.'cfg(target_os = "none")'.dependencies]
-scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "64f4893bbba14ada8a2bee15a5a0ee65d2a6da1e", default-features = false, features = ["network"] }
+scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "9f23bd61cc63b9f59df7cf9773a4dd28ac55bf10", default-features = false, features = ["network"] }
 scarlet-driver-tegra210 = { path = "../../soc/tegra210" }
 fdt = "0.1.5"
 maxwell-shader-pack = { path = "../../../shared/maxwell-shader-pack" }
