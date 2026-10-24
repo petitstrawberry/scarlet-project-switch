@@ -104,3 +104,21 @@ port's implemented display path.
 The direct SD entry uses `init.console=/dev/null`. Switchvisor supplies the
 ordinary `/dev/tty0` console and a text login through its virtual UART.
 See [input and RTC](input.md) for device scope and timekeeping.
+
+## Desktop hardware validation
+
+On 2026-10-24, Switchvisor hardware testing with Scarlet `f5a0c9e5`
+and ScarletUI `8efde207` showed the application drawer body on five
+Home/Workspace keyboard cycles without creating another SWS window.
+The drawer handle remained visible and the bottom home bar was hidden in Home.
+The first Home capture still showed only the workspace rail after 15 seconds;
+the body appeared by the next keyboard operation. Remote framebuffer captures
+can lag presentation, so this does not isolate that initial delay or establish
+animation smoothness. Physical touch verification remains a separate check.
+
+The final Scarlet pin `64f4893b` retains the same shared-image refresh and adds
+returning an empty tablet session Home after a confirmed document close.
+SWS, shell, keyboard, calculator, Notepad and the Maxwell library were updated
+on the installed SD rootfs over USB networking with staged-file readback and
+atomic rename. The kernel/initramfs were booted through Switchvisor USB
+deployment; this does not update the SD's FAT boot package.
