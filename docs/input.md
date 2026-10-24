@@ -39,6 +39,10 @@ and [ScarletUI API](https://github.com/petitstrawberry/scarlet-ui/blob/6ef3e3c4d
 Touch coordinates use the FDT's landscape logical range and the ordinary SWS
 touch path; no Switch-specific UI or extra rotation is introduced. All slots
 are reported in each active frame so a consumer can recover after input loss.
+FIFO drains preserve every contact press and release, including a complete
+tap queued during a delayed poll. Motion is coalesced within the drain, with
+the last position published before release. Each complete snapshot uses one
+queue publication and reader wake; unchanged state generates no report.
 The ScarletUI revision declared in the upstream Cargo and bundle manifests
 subscribes to SWS native touch frames and routes finger drags to `ScrollView`,
 including momentum after release. The older mouse

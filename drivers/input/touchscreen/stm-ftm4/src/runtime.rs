@@ -118,27 +118,36 @@ impl Touch {
         before: [Option<Contact>; 10],
         after: [Option<Contact>; 10],
     ) {
-        if before == after && after.iter().all(Option::is_none) {
+        if before == after {
             return;
         }
+        // One complete type-B snapshot, published with one reader wake. Full
+        // snapshots also let the reader recover after a SYN_DROPPED boundary.
+        let mut records = [(0u16, 0u16, 0i32); 44];
+        let mut count = 0;
+        let mut push = |type_, code, value| {
+            records[count] = (type_, code, value);
+            count += 1;
+        };
         for slot in 0..10 {
-            event.push_event(3, 0x2f, slot as i32);
+            push(3, 0x2f, slot as i32);
             match after[slot] {
                 Some(c) => {
-                    event.push_event(3, 0x39, c.tracking);
-                    event.push_event(3, 0x35, c.x.clamp(self.ranges[0].0, self.ranges[0].1));
-                    event.push_event(3, 0x36, c.y.clamp(self.ranges[1].0, self.ranges[1].1));
+                    push(3, 0x39, c.tracking);
+                    push(3, 0x35, c.x.clamp(self.ranges[0].0, self.ranges[0].1));
+                    push(3, 0x36, c.y.clamp(self.ranges[1].0, self.ranges[1].1));
                 }
-                None => event.push_event(3, 0x39, -1),
+                None => push(3, 0x39, -1),
             }
         }
         let primary = after.into_iter().flatten().next();
-        event.push_event(1, 330, i32::from(primary.is_some()));
+        push(1, 330, i32::from(primary.is_some()));
         if let Some(c) = primary {
-            event.push_event(3, 0, c.x.clamp(self.ranges[0].0, self.ranges[0].1));
-            event.push_event(3, 1, c.y.clamp(self.ranges[1].0, self.ranges[1].1));
+            push(3, 0, c.x.clamp(self.ranges[0].0, self.ranges[0].1));
+            push(3, 1, c.y.clamp(self.ranges[1].0, self.ranges[1].1));
         }
-        event.push_event(0, 0, 0);
+        push(0, 0, 0);
+        event.push_events(&records[..count]);
     }
 }
 fn worker() {
@@ -172,12 +181,11 @@ fn worker() {
     let mut state = Contacts::new();
     let mut failures = 0;
     loop {
-        let before = state.slots;
         let result = (|| {
             let count = (touch.read::<2>(&[0xb6, 0, 0x23])?[1] >> 1).min(32);
             for _ in 0..count {
                 let input = decode(touch.read::<8>(&[0x85])?);
-                state.apply(input);
+                state.apply_reported(input, |before, after| touch.emit(&event, before, after));
                 if input == Event::Reset {
                     touch.sense()?;
                     break;
@@ -188,7 +196,9 @@ fn worker() {
         if let Err(error) = result {
             failures += 1;
             if failures >= 3 {
-                state.apply(Event::Reset);
+                state.apply_reported(Event::Reset, |before, after| {
+                    touch.emit(&event, before, after)
+                });
                 scarlet::println!(
                     "stm-ftm4: polling failed: {}; releasing contacts and resetting",
                     error
@@ -197,7 +207,7 @@ fn worker() {
         } else {
             failures = 0;
         }
-        touch.emit(&event, before, state.slots);
+        state.flush_report(|before, after| touch.emit(&event, before, after));
         if failures >= 3 {
             let mut attempts = 0;
             loop {
