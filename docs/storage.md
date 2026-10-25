@@ -110,9 +110,10 @@ contiguous allocation fails), so a page-cache batch reaches the card as one
 CMD18/CMD25 instead of several commands. The 48 MHz controller source programs
 24 MHz for SD default speed and 48 MHz after the card accepts SD High Speed
 (3.3 V, mode 1 through CMD6). Cards that reject the switch stay at 24 MHz.
-While an ADMA2 transfer runs, the completion wait sleeps once for the bus time
-implied by the negotiated clock and width rather than allocating a short timer
-every 100 µs.
+The board registers the SDHCI completion IRQ and blocks the waiting task only
+for data transfers. Command responses and card identification poll the status
+latch because external interrupts are not enabled during early probe. If the
+interrupt cannot be registered, a bounded polling path remains available.
 eMMC, 1.8 V UHS switching and tuning are outside this driver.
 `storage-check` provides manually invoked MBR inspection, streaming reads
 and new-file write/readback. Filesystem mounts belong to the bootstrap's

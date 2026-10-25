@@ -15,7 +15,7 @@ use scarlet::{
     },
     drivers::mmc::{
         core::MmcBlockDevice,
-        sdhci::{SdhciHost, SdhciHostConfig},
+        sdhci::{SdhciCompletion, SdhciHost, SdhciHostConfig},
     },
     time, vm,
 };
@@ -177,6 +177,7 @@ impl MmcHost for TegraSdhci {
 
 impl Drop for TegraSdhci {
     fn drop(&mut self) {
+        self.host.disable_interrupt();
         vm::iounmap(self.host.mmio_base());
     }
 }
@@ -263,6 +264,35 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
             "PIO"
         }
     };
+    let completion = SdhciCompletion::new(host.host.mmio_base());
+    if let Some(irq) = device
+        .get_resources()
+        .iter()
+        .find(|resource| resource.res_type == PlatformDeviceResourceType::IRQ)
+    {
+        match scarlet::interrupt::register_and_enable_platform_irq_device(
+            irq,
+            completion.clone(),
+            scarlet::arch::get_cpu().get_cpuid() as u32,
+        ) {
+            Ok(interrupt_id) => {
+                completion.set_interrupt_id(interrupt_id);
+                host.host.attach_interrupt(completion);
+                scarlet::println!(
+                    "tegra210-sdhci: completion IRQ {} registered",
+                    interrupt_id
+                );
+            }
+            Err(error) => {
+                scarlet::println!(
+                    "tegra210-sdhci: completion IRQ unavailable ({:?}); polling",
+                    error
+                );
+            }
+        }
+    } else {
+        scarlet::println!("tegra210-sdhci: no completion IRQ resource; polling");
+    }
     scarlet::println!(
         "tegra210-sdhci: SDMMC1 {}, source={}Hz, legacy 3.3V, GPIO card detect",
         transfer,
