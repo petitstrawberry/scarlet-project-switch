@@ -5,7 +5,9 @@ use scarlet::{
     device::{
         Device,
         manager::{DeviceManager, DriverPriority},
-        mmc::{MmcBusWidth, MmcCommand, MmcData, MmcError, MmcHost, MmcResponse, MmcResult},
+        mmc::{
+            MmcBusWidth, MmcCommand, MmcData, MmcError, MmcHost, MmcResponse, MmcResult, MmcTiming,
+        },
         platform::{
             PlatformDeviceDriver, PlatformDeviceInfo, PlatformProbeOptions,
             resource::PlatformDeviceResourceType,
@@ -139,6 +141,10 @@ impl MmcHost for TegraSdhci {
 
     fn set_bus_width(&mut self, width: MmcBusWidth) -> MmcResult<()> {
         self.host.set_bus_width(width)
+    }
+
+    fn set_timing(&mut self, timing: MmcTiming) -> MmcResult<()> {
+        self.host.set_timing(timing)
     }
 
     fn card_present(&self) -> bool {

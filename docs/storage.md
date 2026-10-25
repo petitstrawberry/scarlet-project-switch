@@ -105,8 +105,14 @@ calibration, card detect and power resources. The Tegra SoC module supplies
 pinmux, GPIO, PMC and CAR; MAX77620 supplies SD I/O LDO2.
 
 The board enables ADMA2 when a direct DMA context is available, falling back
-to PIO if setup fails. It uses a 48 MHz controller source and a 24 MHz legacy
-card clock.
+to PIO if setup fails. ADMA2 keeps one 256 KiB bounce buffer (64 KiB if the
+contiguous allocation fails), so a page-cache batch reaches the card as one
+CMD18/CMD25 instead of several commands. The 48 MHz controller source programs
+24 MHz for SD default speed and 48 MHz after the card accepts SD High Speed
+(3.3 V, mode 1 through CMD6). Cards that reject the switch stay at 24 MHz.
+While an ADMA2 transfer runs, the completion wait sleeps once for the bus time
+implied by the negotiated clock and width rather than allocating a short timer
+every 100 µs.
 eMMC, 1.8 V UHS switching and tuning are outside this driver.
 `storage-check` provides manually invoked MBR inspection, streaming reads
 and new-file write/readback. Filesystem mounts belong to the bootstrap's
