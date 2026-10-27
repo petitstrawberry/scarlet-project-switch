@@ -38,7 +38,7 @@ jobs:
             extra-trusted-public-keys = scarlet-rust-toolchain.cachix.org-1:p+coBExi0nNTIvWF/oM9H9/1/GhwFtqGZ2Vs+4pYl6o=
       - name: Test source coherence, SD replacement and board protocol cores
         run: |
-          nix develop --accept-flake-config -c bash -euc '
+          nix develop .#ci --accept-flake-config -c bash -euc '
             python3 tests/project-sources.py
             python3 tests/system-sd-update.py
             python3 tests/host-tools.py
@@ -47,4 +47,4 @@ jobs:
             python3 tests/test-wireless-cores.py --scarlet "$PWD/.cache/ci-scarlet"
           '
       - name: Build the production kernel without imported firmware
-        run: nix develop --accept-flake-config -c cargo scarlet build --project projects/aarch64-switch-l4t-console --release
+        run: nix develop .#ci --accept-flake-config -c cargo scarlet build --project projects/aarch64-switch-l4t-console --release
