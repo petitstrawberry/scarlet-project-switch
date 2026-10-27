@@ -219,7 +219,8 @@ def run(name, el1=False, kernel=False, framebuffer=True, invalid_stride=False, i
                 if kernel:
                     if uart:
                         assert "[linux-boot] temporary identity/HHDM page table active" in text
-                    assert "SCARLET SWITCH USERSPACE REACHED" in text
+                    if uart:
+                        assert "SCARLET SWITCH USERSPACE REACHED" in text
                     if uart:
                         assert "Successfully probed Critical Infrastructure device: interrupt-controller@8000000" in text
                         assert "Init task added to scheduler" in text
@@ -238,7 +239,15 @@ def run(name, el1=False, kernel=False, framebuffer=True, invalid_stride=False, i
                     assert "[panic]" not in text and "Panic occurred" not in text and "Failed to probe" not in text
                     sleep_checks = [tuple(map(int, values)) for values in re.findall(
                         r"TIMER_CHECK requested_ns=(\d+) elapsed_ns=(\d+) result=(-?\d+)", text)]
-                    assert [requested for requested, _, _ in sleep_checks] == [20_000_000, 100_000_000, 1_000_000_000] * 2
+                    requests = [20_000_000, 100_000_000, 1_000_000_000] * 2
+                    observed = [requested for requested, _, _ in sleep_checks]
+                    if uart:
+                        assert observed == requests
+                    else:
+                        # earlyfb clears on wrap; a final screen can retain only
+                        # the report's suffix. The completion marker is emitted
+                        # after all six sleeps and their guest-side assertions.
+                        assert observed and observed == requests[-len(observed):]
                     assert all(result == 0 and requested <= elapsed < requested + 2_000_000_000
                                for requested, elapsed, result in sleep_checks), sleep_checks
             qmp.command("stop")

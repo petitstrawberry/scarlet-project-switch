@@ -11,10 +11,12 @@ path = "bsp"
 package = "scarlet"
 
 [bsp.kernel]
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e37bf34664b293f2d13863d7f1bedac3770edd6d" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "189f9cba34ed3319f575b85cc9eeee9342ce3621" }
 features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true, sync-debug = false }
 
 [modules]
+"scarlet-driver-tegra210-pcie" = { path = "../../drivers/pcie/tegra210", enabled = true }
+"scarlet-driver-brcmfmac" = { path = "../../drivers/network/brcmfmac", enabled = true }
 "scarlet-driver-switch-power" = { path = "../../drivers/power/switch-power", enabled = true }
 "scarlet-driver-tegra210-audio" = { path = "../../drivers/audio/tegra210", enabled = true }
 "scarlet-driver-tegra210" = { path = "../../drivers/soc/tegra210", enabled = true }
@@ -40,13 +42,22 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e37bf34664b293f2d13863d7f1bedac3770edd6d" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "189f9cba34ed3319f575b85cc9eeee9342ce3621" }
 subdir = "bundles/base"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e37bf34664b293f2d13863d7f1bedac3770edd6d" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "189f9cba34ed3319f575b85cc9eeee9342ce3621" }
 subdir = "bundles/cli-utils"
+
+[[images.initramfs.layers]]
+kind = "bundle"
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "189f9cba34ed3319f575b85cc9eeee9342ce3621" }
+subdir = "bundles/wireless"
+
+[[images.initramfs.layers]]
+kind = "bundle"
+path = "bundles/wifi-firmware.toml"
 
 [[images.initramfs.layers]]
 kind = "bundle"
@@ -71,8 +82,12 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.rootfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "e37bf34664b293f2d13863d7f1bedac3770edd6d" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "189f9cba34ed3319f575b85cc9eeee9342ce3621" }
 subdir = "bundles/full"
+
+[[images.rootfs.layers]]
+kind = "bundle"
+path = "bundles/wifi-firmware.toml"
 
 [[images.rootfs.layers]]
 kind = "bundle"

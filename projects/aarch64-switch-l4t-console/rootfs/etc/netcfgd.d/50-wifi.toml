@@ -1,0 +1,6 @@
+[[interface]]
+name = "wlan0"
+method = "dhcp"
+metric = 50
+default = true
+required = false

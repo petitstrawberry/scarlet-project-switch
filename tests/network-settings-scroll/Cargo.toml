@@ -1,0 +1,13 @@
+[package]
+name = "network-settings-scroll"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "189f9cba34ed3319f575b85cc9eeee9342ce3621", default-features = false, features = ["std"] }
+sws-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "189f9cba34ed3319f575b85cc9eeee9342ce3621", default-features = false, features = ["std"] }
+sws-protocol = { git = "https://github.com/petitstrawberry/Scarlet", rev = "189f9cba34ed3319f575b85cc9eeee9342ce3621", default-features = false, features = ["std"] }
+
+[profile.release]
+panic = "abort"

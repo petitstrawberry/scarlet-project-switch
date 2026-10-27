@@ -1,0 +1,16 @@
+[package]
+name = "switch-wireless-probe"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+fdt = "=0.1.5"
+
+[features]
+radio-firmware = []
+radio-msgbuf = ["radio-firmware"]
+radio-scan = ["radio-msgbuf"]
+
+[profile.release]
+opt-level = "s"
+panic = "abort"

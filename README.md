@@ -5,7 +5,7 @@ Board integration and host tools for running
 Nintendo Switch (ODIN SKU 0)** through Hekate and the Switchroot Noble L4T
 boot stack.
 
-The console project starts Scarlet Desktop in game-console mode, with
+The console project starts Scarlet Desktop in tablet mode, with
 attached Joy-Con and touchscreen input, GM20B graphics, H.264 video decoding
 and speaker playback. It boots an ext2 root filesystem from the SD card.
 The upstream `full` bundle includes Debian trixie userspace for Linux ABI
@@ -25,6 +25,13 @@ Linux. It includes `switchvisorctl`, `switchvisor-tool`, the Switchvisor EL2
 monitor and `minicom`, with Switchvisor pinned in `flake.lock`.
 Run from this repository; the build downloads the
 dependencies declared in Cargo and Scarlet manifests automatically:
+
+The native Wi-Fi build pins the kernel, drivers and system bundles to the same
+public Scarlet revision, keeping the control ABI and userspace in sync. The project
+manifest includes the Tegra PCIe/BCM4356 modules, hash-checked Wi-Fi firmware in
+both filesystems, and the wireless manager. Import the board firmware with
+`scripts/import-wifi-firmware.py` before building. Settings → Network and
+`wifictl` control connections; credentials remain local user configuration.
 
 ```sh
 nix develop --accept-flake-config

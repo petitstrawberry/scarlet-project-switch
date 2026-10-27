@@ -26,6 +26,10 @@ impl Max77620 {
         let _lock = self.lock.lock();
         super::xusb_supplies::prepare(self)
     }
+    /// PCIe uses the same inspected SD3/LDO7/LDO1 PHY supplies as XUSB.
+    pub fn prepare_pcie_supplies(&self) -> Result<(), &'static str> {
+        self.prepare_xusb_supplies()
+    }
 
     /// Control SDMMC1's dedicated LDO2 IO rail. Card VDD remains owned by
     /// the board's PE4 fixed supply, so the host sequences these separately.

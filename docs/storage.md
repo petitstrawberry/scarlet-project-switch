@@ -23,6 +23,17 @@ staged bytes against the host artifact before replacing the installed path.
 same-directory rename, avoiding truncation of a live executable. It does not
 verify a digest; transport/readback verification is the deployer's responsibility.
 
+For a complete rebuilt bundle, `scripts/update-system-sd.py` compares the staged
+rootfs with the unmounted SD filesystem. Its default is a read-only comparison;
+`--write` requires administrator access and replaces only differing OS files,
+verifying staged and installed bytes. Native configuration matching a published
+default advances with the bundle; modified configuration, home directories,
+SSH keys and mutable Linux filesystem state are retained. It creates no backup
+and does not remove files absent from the new bundle. Rediscover the SD device
+before passing `--device`; install the matching FAT boot packages separately.
+Use `--scarlet-source` with the selected Scarlet checkout to recognize older
+common configuration defaults as well as this project's board defaults.
+
 ```sh
 nix develop --accept-flake-config -c rustc --edition 2024 -O \
   --target aarch64-unknown-scarlet tools/replace-runtime-file.rs \
