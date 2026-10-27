@@ -195,6 +195,20 @@ pub fn xusb_platform(provider: u32) -> Result<crate::XusbPlatform, &'static str>
     let fuse = Mmio::map(0x7000f800, 0x400)?;
     crate::XusbPlatform::new(car, pmc, host, fpci, ipfs, mc, padctl, fuse)
 }
+/// Serialize PCIe PLL/reset sequencing with the other peripheral clock users.
+/// The caller owns the inspected PCIe PHY lane and leaves USB/reset fields intact.
+pub fn with_pcie_clock_control<T>(
+    provider: u32,
+    operation: impl FnOnce(Mmio, Mmio) -> Result<T, &'static str>,
+) -> Result<T, &'static str> {
+    let car = car()?;
+    if car.phandle != provider {
+        return Err("unexpected PCIe clock provider");
+    }
+    let pmc = (*PMC.lock()).ok_or(PROBE_DEFER)?;
+    let _guard = car.lock.lock();
+    operation(car.regs, pmc)
+}
 pub fn gpio() -> Result<Arc<TegraGpio>, &'static str> {
     GPIO.lock().clone().ok_or(PROBE_DEFER)
 }

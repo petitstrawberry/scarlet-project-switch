@@ -57,6 +57,7 @@
             pname = "switchvisor";
             version = "0.1.0-${builtins.substring 0 7 (switchvisor-src.rev or "local")}";
             src = switchvisor-src;
+            patches = [ ./patches/switchvisor-pcie-phy.patch ];
             cargoLock.lockFile = "${switchvisor-src}/Cargo.lock";
             cargoBuildFlags = [ "-p" "switchvisorctl" "-p" "switchvisor-tool" ];
             cargoTestFlags = [ "--workspace" ];

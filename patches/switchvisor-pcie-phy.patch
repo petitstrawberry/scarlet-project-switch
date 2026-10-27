@@ -1,0 +1,92 @@
+diff --git a/crates/switchvisor/src/vdev/usb_ownership.rs b/crates/switchvisor/src/vdev/usb_ownership.rs
+index a64ebbd..68c1f90 100644
+--- a/crates/switchvisor/src/vdev/usb_ownership.rs
++++ b/crates/switchvisor/src/vdev/usb_ownership.rs
+@@ -3,6 +3,20 @@
+ pub use crate::drivers::usb::tegra210::{CAR, DEV_ASID, PMC};
+ pub const LIC: u64 = super::lic::BASE;
+ pub const PMC_PAGE: u64 = PMC & !4095;
++pub const PADCTL: u64 = 0x7009_f000;
++
++/// Erista PCIe lane 0 and its P0 PLL are independent from the resident USB2
++/// PHY. The whole PADCTL page remains trapped: shared words use masked RMW
++/// under the USB lock, and USB2, VBUS, SS port and other lane writes stay hidden.
++pub fn pcie_pad_mask(address: u64) -> Option<u32> {
++    match address.checked_sub(PADCTL)? {
++        0x024 => Some(7 << 29), // AUX clamp only; preserve all USB port fields.
++        0x028 => Some((3 << 12) | (1 << 1)), // lane 0 mux and IDDQ disable.
++        0x360 | 0x364 | 0x36c | 0x370 | 0x37c => Some(u32::MAX), // P0 PLL.
++        0x460 | 0x464 => Some(u32::MAX), // PCIe lane 0 electrical controls.
++        _ => None,
++    }
++}
+ pub const CONTROLLERS: [(u64, u64); 3] = [
+     (0x7009_0000, 0x10000),  // XUSB host and PADCTL.
+     (0x700d_0000, 0x10000),  // XUDC, PCI and IPFS.
+diff --git a/crates/switchvisor/src/vm/mmio.rs b/crates/switchvisor/src/vm/mmio.rs
+index 5c7f16f..296d398 100644
+--- a/crates/switchvisor/src/vm/mmio.rs
++++ b/crates/switchvisor/src/vm/mmio.rs
+@@ -16,6 +16,26 @@ fn usb(esr: u64, far: u64, hpfar: u64, registers: &mut [u64; 31]) -> bool {
+     if !usb::enabled() {
+         return false;
+     }
++    if let Some(access) = Access::decode_region(esr, far, hpfar, ownership::PADCTL, 4096) {
++        let address = ownership::PADCTL + access.offset;
++        if let Some(mask) = ownership::pcie_pad_mask(address) {
++            if access.size != 4 {
++                return false;
++            }
++            unsafe {
++                usb::with_io(|hardware| {
++                    let current = hardware.read32(address);
++                    if access.write {
++                        hardware.write32(address, (current & !mask) | (access.store_value(registers) & mask));
++                        hardware.barrier();
++                    } else {
++                        access.load_value(current & mask, registers);
++                    }
++                });
++            }
++            return true;
++        }
++    }
+     for (base, size) in ownership::CONTROLLERS {
+         if let Some(access) = Access::decode_region(esr, far, hpfar, base, size) {
+             if !access.write {
+diff --git a/crates/switchvisor/tests/pcie_phy_ownership.rs b/crates/switchvisor/tests/pcie_phy_ownership.rs
+new file mode 100644
+--- /dev/null
++++ b/crates/switchvisor/tests/pcie_phy_ownership.rs
+@@ -0,0 +1,31 @@
++use switchvisor::vdev::usb_ownership::{self as ownership, PADCTL};
++
++#[test]
++fn pcie_lane_zero_preserves_usb2_and_other_lanes() {
++    // Distinct patterns make an accidental whole-word write visible.
++    let old = 0xa5ff_5a5a;
++    for offset in [0x24, 0x28] {
++        let mask = ownership::pcie_pad_mask(PADCTL + offset).unwrap();
++        for value in [0, u32::MAX, 0x1234_5678] {
++            let next = (old & !mask) | (value & mask);
++            assert_eq!(next & !mask, old & !mask);
++            assert_eq!(next & mask, value & mask);
++        }
++    }
++    assert_eq!(ownership::pcie_pad_mask(PADCTL + 0x24), Some(0xe000_0000));
++    assert_eq!(ownership::pcie_pad_mask(PADCTL + 0x28), Some(0x3002));
++}
++
++#[test]
++fn usb_phy_vbus_and_other_uphy_lanes_remain_inaccessible() {
++    for offset in [0, 4, 8, 0x14, 0x20, 0x80, 0x84, 0x88, 0x8c, 0x284, 0x288,
++                   0x3a0, 0x4a0, 0x4a4, 0x5e0, 0xa60, 0xc60, 0xffc] {
++        assert_eq!(ownership::pcie_pad_mask(PADCTL + offset), None, "{offset:x}");
++        assert!(ownership::controller(PADCTL + offset));
++    }
++    for offset in [0x360, 0x364, 0x36c, 0x370, 0x37c, 0x460, 0x464] {
++        assert_eq!(ownership::pcie_pad_mask(PADCTL + offset), Some(u32::MAX));
++    }
++    assert_eq!(ownership::pcie_pad_mask(PADCTL - 4), None);
++    assert_eq!(ownership::pcie_pad_mask(PADCTL + 0x361), None);
++}

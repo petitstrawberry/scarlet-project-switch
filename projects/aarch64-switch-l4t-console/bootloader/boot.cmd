@@ -72,6 +72,15 @@ fdt set /chosen/framebuffer@f5a00000 status okay
 fdt rsvmem add 0xf5a00000 0x400000
 fdt set /chosen scarlet,boot-mode ${scarlet_boot_mode}
 
+# Board identity and direct PCIe DMA contract for the onboard BCM4356.
+fdt set /chosen nvidia,wifi-mac ${device_wifi_mac}
+fdt set /pcie@1003000 status okay
+fdt set /pcie@1003000 scarlet,pcie-phy-owned
+fdt set /pcie@1003000 scarlet,pcie-direct-dma
+fdt rm /pcie@1003000 iommus
+fdt rm /pcie@1003000 iommu-map
+fdt rm /pcie@1003000 iommu-map-mask
+
 # Firmware enables a UART only if explicitly requested in the Hekate entry.
 # UART B/C consume Joy-Con rails; default is screen-only.
 fdt rm /chosen stdout-path

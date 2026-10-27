@@ -14,3 +14,4 @@ __pycache__/
 
 # Durable, separately imported Noble boot firmware; not build output.
 /projects/aarch64-switch-l4t-console/firmware/bootstack/
+/projects/aarch64-switch-l4t-console/firmware/wifi/

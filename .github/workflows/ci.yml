@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  wireless-and-kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the shared Scarlet source revision
+        id: scarlet
+        run: |
+          python3 - <<'PY'
+          import os, tomllib
+          from pathlib import Path
+          manifest = tomllib.loads(Path('projects/aarch64-switch-l4t-console/scarlet.toml').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('revision=' + manifest['bsp']['kernel']['source']['rev'] + '\n')
+          PY
+      - uses: actions/checkout@v4
+        with:
+          repository: petitstrawberry/Scarlet
+          ref: ${{ steps.scarlet.outputs.revision }}
+          path: .cache/ci-scarlet
+      - uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            accept-flake-config = true
+            extra-substituters = https://scarlet-rust-toolchain.cachix.org
+            extra-trusted-public-keys = scarlet-rust-toolchain.cachix.org-1:p+coBExi0nNTIvWF/oM9H9/1/GhwFtqGZ2Vs+4pYl6o=
+      - name: Test source coherence, SD replacement and board protocol cores
+        run: |
+          nix develop --accept-flake-config -c bash -euc '
+            python3 tests/project-sources.py
+            python3 tests/system-sd-update.py
+            python3 tests/host-tools.py
+            python3 tests/switchvisor-package.py
+            python3 tests/sgfx-maxwell-build.py
+            python3 tests/test-wireless-cores.py --scarlet "$PWD/.cache/ci-scarlet"
+          '
+      - name: Build the production kernel without imported firmware
+        run: nix develop --accept-flake-config -c cargo scarlet build --project projects/aarch64-switch-l4t-console --release

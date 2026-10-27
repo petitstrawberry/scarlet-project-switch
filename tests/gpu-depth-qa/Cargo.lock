@@ -10,13 +10,13 @@ dependencies = [
  "maxwell-submit-wire",
  "scarlet-os",
  "sgfx-codegen-maxwell",
- "sgfx-core",
+ "sgfx-core 1.0.0 (git+https://github.com/petitstrawberry/sgfx?rev=040dbb5cf42b75489504e1765183d37f6131f54c)",
 ]
 
 [[package]]
 name = "gpu-raw"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=30b47a71ece77b811722d5f7cf53727857f0c536#30b47a71ece77b811722d5f7cf53727857f0c536"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=189f9cba34ed3319f575b85cc9eeee9342ce3621#189f9cba34ed3319f575b85cc9eeee9342ce3621"
 dependencies = [
  "scarlet-abi",
  "scarlet-os",
@@ -40,12 +40,12 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=30b47a71ece77b811722d5f7cf53727857f0c536#30b47a71ece77b811722d5f7cf53727857f0c536"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=189f9cba34ed3319f575b85cc9eeee9342ce3621#189f9cba34ed3319f575b85cc9eeee9342ce3621"
 
 [[package]]
 name = "scarlet-os"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=30b47a71ece77b811722d5f7cf53727857f0c536#30b47a71ece77b811722d5f7cf53727857f0c536"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=189f9cba34ed3319f575b85cc9eeee9342ce3621#189f9cba34ed3319f575b85cc9eeee9342ce3621"
 dependencies = [
  "scarlet-abi",
  "scarlet-sys",
@@ -54,7 +54,7 @@ dependencies = [
 [[package]]
 name = "scarlet-sys"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=30b47a71ece77b811722d5f7cf53727857f0c536#30b47a71ece77b811722d5f7cf53727857f0c536"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=189f9cba34ed3319f575b85cc9eeee9342ce3621#189f9cba34ed3319f575b85cc9eeee9342ce3621"
 dependencies = [
  "scarlet-abi",
 ]
@@ -66,10 +66,15 @@ dependencies = [
  "maxwell-image-layout",
  "maxwell-shader-pack",
  "maxwell-submit-wire",
- "sgfx-core",
+ "sgfx-core 1.0.0 (git+https://github.com/petitstrawberry/sgfx?rev=77e64a81115d78fab7c63671c2a6c16aac060c05)",
 ]
 
 [[package]]
 name = "sgfx-core"
 version = "1.0.0"
 source = "git+https://github.com/petitstrawberry/sgfx?rev=040dbb5cf42b75489504e1765183d37f6131f54c#040dbb5cf42b75489504e1765183d37f6131f54c"
+
+[[package]]
+name = "sgfx-core"
+version = "1.0.0"
+source = "git+https://github.com/petitstrawberry/sgfx?rev=77e64a81115d78fab7c63671c2a6c16aac060c05#77e64a81115d78fab7c63671c2a6c16aac060c05"

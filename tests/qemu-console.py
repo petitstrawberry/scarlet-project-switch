@@ -55,22 +55,24 @@ def boot_framebuffer_format(boot):
     return framebuffer_format
 
 
-def run(el1=False, timeout=120, screen_only=False, settle_seconds=20, input_qa=False, rootfs=None, input_panel_qa=False):
-    input_fixture = input_qa or input_panel_qa
+def run(el1=False, timeout=120, screen_only=False, settle_seconds=20, input_qa=False, rootfs=None, input_panel_qa=False, output_dir=None, network_scroll_qa=False):
+    input_fixture = input_qa or input_panel_qa or network_scroll_qa
     assert not (screen_only and input_fixture), "input QA requires its observation service"
     boot = PROJECT / ".scarlet/l4t/switchroot/scarlet-console"
     framebuffer_format = boot_framebuffer_format(boot)
     case_name = ("screen-only-" if screen_only else "") + ("el1" if el1 else "el2")
     if input_fixture:
         case_name = ("panel-" if input_panel_qa else "input-") + case_name
-    case_root = ROOT / ".cache/console-qa" / framebuffer_format
+    if network_scroll_qa:
+        case_name = "network-scroll-el2"
+    case_root = (output_dir or ROOT / ".cache/console-qa" / framebuffer_format).resolve()
     case = case_root / case_name
     case.mkdir(parents=True, exist_ok=True)
     image = gzip.decompress(smoke.legacy_payload(boot / "uImage", 2, 1))
     assert image == (boot / "Image").read_bytes()
     production_image_sha256 = hashlib.sha256(image).hexdigest()
     if input_fixture:
-        image = (ROOT / ".cache/input-qa-project/Image").read_bytes()
+        image = (ROOT / (".cache/network-scroll-qa-project/Image" if network_scroll_qa else ".cache/input-qa-project/Image")).read_bytes()
     (case / "Image").write_bytes(image)
     initrd = smoke.legacy_payload(boot / "initramfs", 3, 0)
     assert initrd.startswith(b"070701"), "expected production newc initramfs"
@@ -81,6 +83,16 @@ def run(el1=False, timeout=120, screen_only=False, settle_seconds=20, input_qa=F
     production_rootfs_sha256 = file_sha256(rootfs)
     root_disk = case / "rootfs.ext2"
     shutil.copyfile(rootfs, root_disk)
+    # Inspect the boot policy from the image under test. The normal Switch
+    # session now starts a tablet desktop; its Home drawer is initially hidden.
+    desktop_start = case / "desktop-start.sh"
+    desktop_start.unlink(missing_ok=True)
+    subprocess.run(["debugfs", "-R", f"dump /etc/sws/start-desktop.sh {desktop_start}", str(root_disk)], check=True)
+    policy = desktop_start.read_text() if desktop_start.exists() else ""
+    mode = re.search(r"/bin/scarlet-desktop\s+--shell-mode\s+(desktop|console)\b", policy)
+    shell_mode = mode[1] if mode else "desktop"
+    expect_home = shell_mode == "console" or input_qa
+    minimum_colors = 64 if input_panel_qa or network_scroll_qa or not expect_home else 1024
     services = b'''[service.console-qa-processes]
 exec = "/bin/ps -l"
 tty = "/dev/tty0"
@@ -104,7 +116,7 @@ depends = ["scarlet-desktop"]
             ("console-qa", "/bin/console-qa", qa.read_bytes(), True),
         ]
         if input_fixture:
-            input_elf = ROOT / ".cache/input-qa-target/aarch64-unknown-scarlet/release" / ("input-panel-qa" if input_panel_qa else "input-qa")
+            input_elf = (ROOT / ".cache/network-scroll-qa-target/aarch64-unknown-scarlet/release/network-settings-scroll" if network_scroll_qa else ROOT / ".cache/input-qa-target/aarch64-unknown-scarlet/release" / ("input-panel-qa" if input_panel_qa else "input-qa"))
             additions += [
                 ("input-qa", "/bin/input-qa", input_elf.read_bytes(), True),
                 ("input-qa-services.toml", "/etc/stemd.d/services/98-input-qa.toml", b'''[service.input-qa]
@@ -174,6 +186,13 @@ depends = ["scarlet-desktop", "console-qa-functional"]
         dmas = <0x7f000001 9>;
     };
 ''' + dts[root_end:]
+    if network_scroll_qa:
+        root_end = dts.rfind("};")
+        nodes = ""
+        for slot in (1, 2):
+            address = 0x0a000000 + slot * 0x200
+            nodes += f'virtio_mmio@{address:x} {{ compatible = "virtio,mmio"; reg = <0 0x{address:x} 0 0x200>; interrupts = <0 {16+slot} 1>; dma-coherent; }};\n'
+        dts = dts[:root_end] + nodes + dts[root_end:]
     (case / "input.dts").write_text(dts)
     subprocess.run(["dtc", "-q", "-I", "dts", "-O", "dtb", "-o", str(case / "input.dtb"), str(case / "input.dts")], check=True)
     subprocess.run(["aarch64-unknown-linux-gnu-as", f"--defsym=ENTER_EL1={int(el1)}", str(ROOT / "tests/entry.S"), "-o", str(case / "entry.o")], check=True)
@@ -193,6 +212,9 @@ depends = ["scarlet-desktop", "console-qa-functional"]
            "-device", f"loader,file={case / 'initramfs.cpio'},addr=0x92000040,force-raw=on"]
     for cpu in range(4):
         cmd.extend(["-device", f"loader,file={case / 'entry.bin'},addr=0x80000000,cpu-num={cpu},force-raw=on"])
+    if network_scroll_qa:
+        for slot in (1, 2):
+            cmd += ["-netdev",f"user,id=preview{slot},net=10.0.{slot+1}.0/24", "-device",f"virtio-net-device,netdev=preview{slot},bus=virtio-mmio-bus.{slot}"]
     (case / "command.json").write_text(json.dumps(cmd, indent=2) + "\n")
     with (case / "qemu.log").open("w") as stderr:
         process = subprocess.Popen(cmd, stdout=stderr, stderr=stderr)
@@ -206,6 +228,7 @@ depends = ["scarlet-desktop", "console-qa-functional"]
             qmp = smoke.Qmp(qmp_path)
             match_ratio = None
             panel_snapshot = False
+            network_top_snapshot = False
             if screen_only:
                 reference = (case_root / "el2/desktop.ppm").read_bytes().split(b"\n", 3)[3]
                 # The Home grid is stable; omit status clock and controls.
@@ -222,6 +245,9 @@ depends = ["scarlet-desktop", "console-qa-functional"]
                     qmp.command("pmemsave", {"val": smoke.FB_BASE, "size": smoke.FB_SIZE, "filename": str(dump)})
                     (case / "keyboard.ppm").write_bytes(b"P6\n1280 720\n255\n" + logical_rgb(dump.read_bytes(), framebuffer_format))
                     panel_snapshot = True
+                if network_scroll_qa and not network_top_snapshot and "NETWORK_SCROLL_TOP_READY" in text:
+                    qmp.command("pmemsave", {"val": smoke.FB_BASE, "size": smoke.FB_SIZE, "filename": str(case / "top-framebuffer.bin")})
+                    network_top_snapshot = True
                 if screen_only:
                     dump = case / "framebuffer.bin"
                     qmp.command("pmemsave", {"val": smoke.FB_BASE, "size": smoke.FB_SIZE, "filename": str(dump)})
@@ -229,7 +255,7 @@ depends = ["scarlet-desktop", "console-qa-functional"]
                     match_ratio = sum(rgb[i:i + 3] == reference[i:i + 3] for i in points) / len(points)
                     if match_ratio > 0.98:
                         break
-                elif all(marker in text for marker in ("Compositor ready. Starting main loop...", "[Shell] Initializing Scarlet workspace shell", "CONSOLE_FUNCTIONAL_QA_PASS")) and (not input_fixture or ("INPUT_PANEL_QA_PASS" if input_panel_qa else "INPUT_QA_PASS") in text):
+                elif all(marker in text for marker in ("Compositor ready. Starting main loop...", "[Shell] Initializing Scarlet workspace shell", "CONSOLE_FUNCTIONAL_QA_PASS")) and (not input_fixture or ("NETWORK_SCROLL_BOTTOM_READY" if network_scroll_qa else "INPUT_PANEL_QA_PASS" if input_panel_qa else "INPUT_QA_PASS") in text):
                     break
                 assert process.poll() is None, (case / "qemu.log").read_text()
                 time.sleep(0.5 if screen_only else 0.1)
@@ -238,17 +264,17 @@ depends = ["scarlet-desktop", "console-qa-functional"]
             # Give the real renderer time to commit its first full frame.
             time.sleep(settle_seconds)
             if not screen_only:
-                # The full catalog decodes more cover artwork than the small
-                # console image did. An empty Home surface is not a ready UI.
+                # Console Home must finish decoding artwork. A tablet desktop
+                # instead starts with its background and status bar visible.
                 while time.monotonic() < deadline:
                     dump = case / "framebuffer.bin"
                     qmp.command("pmemsave", {"val": smoke.FB_BASE, "size": smoke.FB_SIZE, "filename": str(dump)})
                     rgb = logical_rgb(dump.read_bytes(), framebuffer_format)
-                    if len({bytes(rgb[i:i + 3]) for i in range(0, len(rgb), 3)}) > (64 if input_panel_qa else 1024):
+                    if len({bytes(rgb[i:i + 3]) for i in range(0, len(rgb), 3)}) > minimum_colors:
                         break
                     time.sleep(1)
                 else:
-                    raise AssertionError("Home application artwork did not become visible")
+                    raise AssertionError("Selected shell presentation did not become visible: " + shell_mode)
             qmp.command("stop")
             dump = case / "framebuffer.bin"
             qmp.command("pmemsave", {"val": smoke.FB_BASE, "size": smoke.FB_SIZE, "filename": str(dump)})
@@ -262,12 +288,17 @@ depends = ["scarlet-desktop", "console-qa-functional"]
             png += chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
             (case / "desktop.png").write_bytes(png)
             colors = {bytes(rgb[i:i + 3]) for i in range(0, len(rgb), 3)}
-            assert len(colors) > (64 if input_panel_qa else 1024), "scanout is missing application content"
+            assert len(colors) > minimum_colors, "scanout is missing shell content"
             text = serial.read_text(errors="replace")
             if not screen_only:
                 assert "init: starting /bin/stemd in the default Environment" in text
                 assert "Scarlet Window Server (SWS)" in text
-                assert "name=Console Controls" in text and "name=Home" in text
+                assert "name=Scarlet Shell" in text
+                assert "[Shell] Registered workspace role" in text
+                if expect_home:
+                    assert "name=Home" in text
+                else:
+                    assert "name=Background" in text
                 assert "[PCI] no PCI ECAM found in FDT" in text
                 assert "CONSOLE_FILE_IO_PASS" in text
                 catalog = re.search(r"CONSOLE_CATALOG_PASS applications=(\d+)", text)
@@ -297,6 +328,7 @@ depends = ["scarlet-desktop", "console-qa-functional"]
             result = {"passed": True, "current_el": 1 if el1 else 2,
                       "hardware_validated": False, "sws_ready": True,
                       "scarlet_shell_started": True, "logical_surface": [1280, 720],
+                      "shell_mode": shell_mode, "home_expected": expect_home,
                       "scanout_unique_colors": len(colors), "scanout_format": framebuffer_format,
                       "boot_script_sha256": hashlib.sha256((boot / "boot.scr").read_bytes()).hexdigest(),
                       "image_sha256": hashlib.sha256(image).hexdigest(),
@@ -320,6 +352,9 @@ depends = ["scarlet-desktop", "console-qa-functional"]
                       "test_overrides": [] if screen_only else ["init.console=/dev/tty0", "journal/process observation services"]}
             if input_fixture:
                 result["test_overrides"] += ["isolated QA kernel", "native input injection fixture", "input QA service"]
+            if network_scroll_qa:
+                result["test_overrides"] += ["two static Ethernet interfaces", "maximized Freeform window policy"]
+                result["network_settings_touch_swipes_injected"] = True
             if prepared_rootfs:
                 result["test_overrides"].append("prepared SD rootfs")
             (case / "result.json").write_text(json.dumps(result, indent=2) + "\n")

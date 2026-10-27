@@ -1,0 +1,4 @@
+[[layers]]
+kind = "script"
+source = "../../../scripts/install-wifi-firmware.sh"
+to = "/lib/firmware/brcm"
