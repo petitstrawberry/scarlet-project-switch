@@ -146,6 +146,18 @@
               export TARGET_CC=${pkgs.llvmPackages.clang-unwrapped}/bin/clang
             '';
           };
+          # Host protocol tests and kernel compilation do not use the USB
+          # monitor or its SD payload. Keep that hardware tool in the default
+          # shell without rebuilding it for every source-only CI check.
+          ci = self.devShells.${system}.default.overrideAttrs (previous: {
+            nativeBuildInputs = builtins.filter
+              (input: input.outPath != switchvisor.outPath)
+              previous.nativeBuildInputs;
+            buildInputs = builtins.filter
+              (input: input.outPath != switchvisor.outPath)
+              (previous.buildInputs or []);
+            SWITCHVISOR_DATA = "";
+          });
         });
     };
 }
