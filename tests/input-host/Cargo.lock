@@ -12,4 +12,4 @@ dependencies = [
 [[package]]
 name = "sws-protocol"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=189f9cba34ed3319f575b85cc9eeee9342ce3621#189f9cba34ed3319f575b85cc9eeee9342ce3621"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=2125dc211215f05b7f31db533330cc88c858e4ef#2125dc211215f05b7f31db533330cc88c858e4ef"

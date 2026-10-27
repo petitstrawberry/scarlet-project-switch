@@ -8,7 +8,7 @@ path = "bsp"
 package = "scarlet"
 
 [bsp.kernel]
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "189f9cba34ed3319f575b85cc9eeee9342ce3621" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "2125dc211215f05b7f31db533330cc88c858e4ef" }
 features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true }
 
 [modules]
@@ -19,7 +19,7 @@ output = ".scarlet/images/initramfs.cpio"
 
 [[images.initramfs.layers]]
 kind = "cargo"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "189f9cba34ed3319f575b85cc9eeee9342ce3621" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "2125dc211215f05b7f31db533330cc88c858e4ef" }
 subdir = "user/scarlet-ld"
 package = "scarlet-ld"
 bin = "scarlet-ld"
