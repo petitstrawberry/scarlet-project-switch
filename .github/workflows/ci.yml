@@ -36,6 +36,10 @@ jobs:
             accept-flake-config = true
             extra-substituters = https://scarlet-rust-toolchain.cachix.org
             extra-trusted-public-keys = scarlet-rust-toolchain.cachix.org-1:p+coBExi0nNTIvWF/oM9H9/1/GhwFtqGZ2Vs+4pYl6o=
+      - uses: cachix/cachix-action@v17
+        with:
+          name: scarlet-dev
+          skipPush: true
       - name: Test source coherence, SD replacement and board protocol cores
         run: |
           nix develop .#ci --accept-flake-config -c bash -euc '
