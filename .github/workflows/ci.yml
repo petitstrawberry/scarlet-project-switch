@@ -51,4 +51,27 @@ jobs:
             python3 tests/test-wireless-cores.py --scarlet "$PWD/.cache/ci-scarlet"
           '
       - name: Build the production kernel without imported firmware
-        run: nix develop .#ci --accept-flake-config -c cargo scarlet build --project projects/aarch64-switch-l4t-console --release
+        run: |
+          nix develop .#ci --accept-flake-config -c python3 - <<'PY'
+          import subprocess, tomllib
+          from pathlib import Path
+
+          project = Path('projects/aarch64-switch-l4t-console')
+          path = project / 'scarlet.toml'
+          original = path.read_text()
+          # cargo-scarlet expands image bundles even for a kernel-only build.
+          # Keep the complete production BSP and module configuration without
+          # resolving unrelated application bundles or imported firmware.
+          kernel_only = original.split('[images.initramfs]', 1)[0]
+          manifest = tomllib.loads(original)
+          assert tomllib.loads(kernel_only) == {
+              key: value for key, value in manifest.items()
+              if key not in ('images', 'hooks')
+          }
+          try:
+              path.write_text(kernel_only)
+              subprocess.run(['cargo', 'scarlet', 'build', '--project', str(project),
+                              '--release'], check=True)
+          finally:
+              path.write_text(original)
+          PY
