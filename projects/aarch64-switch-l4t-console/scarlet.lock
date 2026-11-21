@@ -57,6 +57,17 @@ path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/bin"
 [[sections.initramfs.layers]]
 kind = "cargo"
 package = "userprogram"
+bin = "run-as"
+to = "/bin/run-as"
+hash = ""
+
+[sections.initramfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/bin"
+
+[[sections.initramfs.layers]]
+kind = "cargo"
+package = "userprogram"
 bin = "login"
 to = "/bin/login"
 hash = "sha256:6a67e1deef4034ea2ddc9f4216cbd462fdc550fc2bf95d5c6256c342c0352fb0"
@@ -462,6 +473,97 @@ type = "path"
 path = "../../scripts/install-sgfx-maxwell.sh"
 
 [[sections.rootfs.layers]]
+kind = "script"
+to = "/lib/sgfx"
+hash = "sha256:6b1dfaa5c854ea1a57df18ffa5e7c0cbcfb998abf69d3262d82939b2e105e0d4"
+
+[sections.rootfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/a183dd29127f115f/platforms/scarlet/prepare-config.sh"
+
+[[sections.rootfs.layers]]
+kind = "cargo"
+package = "sgfx-backend-scarlet-virgl-plugin"
+lib = "sgfx_scarlet_virgl"
+to = "/lib/sgfx/libsgfx_scarlet_virgl.so"
+hash = "sha256:aa520e985c9d428354b5bd128724d62527b0d57df71777ce2bef7edebe2feb28"
+
+[sections.rootfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/a183dd29127f115f"
+
+[[sections.rootfs.layers]]
+kind = "script"
+to = "/lib/sgfx"
+hash = "sha256:ec34778770d0ac45ab8d6e166416cf40fba73624d4fc471ef736deddb4ee42a8"
+
+[sections.rootfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/a183dd29127f115f/platforms/scarlet/install-config.sh"
+
+[[sections.rootfs.layers]]
+kind = "cargo"
+package = "sws-client-c"
+lib = "sws_client_c"
+to = "/lib/libsws_client_c.so"
+hash = ""
+
+[sections.rootfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/lib/sws-client-c"
+
+[[sections.rootfs.layers]]
+kind = "cargo"
+git = "https://github.com/petitstrawberry/scarlet-ui"
+git_ref = "4802af3f0191dbd6a13d0293fc63670fcb346f61"
+resolved_rev = "4802af3f0191dbd6a13d0293fc63670fcb346f61"
+package = "scarlet-ui-window-c"
+lib = "scarlet_ui_window"
+to = "/lib/libscarlet_ui_window.so"
+hash = ""
+
+[sections.rootfs.layers.source]
+type = "git"
+url = "https://github.com/petitstrawberry/scarlet-ui"
+rev = "4802af3f0191dbd6a13d0293fc63670fcb346f61"
+
+[[sections.rootfs.layers]]
+kind = "cargo"
+package = "scarlet-vulkan-loader"
+lib = "vulkan"
+to = "/lib/libvulkan.so.1"
+hash = "sha256:973119fba5a08cf63bd83228f3d1ec580faa196ae120cdf41684e9120caded31"
+
+[sections.rootfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/36f2cc053c0f1c1b/native"
+
+[[sections.rootfs.layers]]
+kind = "cargo"
+git = "https://github.com/petitstrawberry/sgfx"
+git_ref = "61e5ddd0f0e31309d2468ace3c4afe67d949fa72"
+resolved_rev = "61e5ddd0f0e31309d2468ace3c4afe67d949fa72"
+package = "vulkan-sgfx"
+lib = "vulkan_sgfx"
+default-features = false
+to = "/lib/libvulkan_sgfx.so"
+hash = ""
+
+[sections.rootfs.layers.source]
+type = "git"
+url = "https://github.com/petitstrawberry/sgfx"
+rev = "61e5ddd0f0e31309d2468ace3c4afe67d949fa72"
+
+[[sections.rootfs.layers]]
+kind = "script"
+to = "/"
+hash = "sha256:37055922dec8932f0644a04651d340d8e8888265ae35c4748f855f52e7389a00"
+
+[sections.rootfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/lib/scarlet-vulkan/install-runtime.sh"
+
+[[sections.rootfs.layers]]
 kind = "cargo"
 package = "scarlet-wpa-supplicant"
 bin = "wirelessd"
@@ -493,71 +595,6 @@ hash = "sha256:1021da90fcdec133b0e346a27d52ef901a391046ca7813b9e58bdf7ef2276258"
 [sections.rootfs.layers.source]
 type = "path"
 path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/wpa-supplicant"
-
-[[sections.rootfs.layers]]
-kind = "script"
-to = "/lib/sgfx"
-hash = "sha256:6b1dfaa5c854ea1a57df18ffa5e7c0cbcfb998abf69d3262d82939b2e105e0d4"
-
-[sections.rootfs.layers.source]
-type = "path"
-path = ".scarlet/cache/git/a183dd29127f115f/platforms/scarlet/prepare-config.sh"
-
-[[sections.rootfs.layers]]
-kind = "cargo"
-package = "sgfx-backend-scarlet-virgl-plugin"
-lib = "sgfx_scarlet_virgl"
-to = "/lib/sgfx/libsgfx_scarlet_virgl.so"
-hash = "sha256:aa520e985c9d428354b5bd128724d62527b0d57df71777ce2bef7edebe2feb28"
-
-[sections.rootfs.layers.source]
-type = "path"
-path = ".scarlet/cache/git/a183dd29127f115f"
-
-[[sections.rootfs.layers]]
-kind = "script"
-to = "/lib/sgfx"
-hash = "sha256:ec34778770d0ac45ab8d6e166416cf40fba73624d4fc471ef736deddb4ee42a8"
-
-[sections.rootfs.layers.source]
-type = "path"
-path = ".scarlet/cache/git/a183dd29127f115f/platforms/scarlet/install-config.sh"
-
-[[sections.rootfs.layers]]
-kind = "cargo"
-package = "scarlet-vulkan-loader"
-lib = "vulkan"
-to = "/lib/libvulkan.so.1"
-hash = "sha256:973119fba5a08cf63bd83228f3d1ec580faa196ae120cdf41684e9120caded31"
-
-[sections.rootfs.layers.source]
-type = "path"
-path = ".scarlet/cache/git/36f2cc053c0f1c1b/native"
-
-[[sections.rootfs.layers]]
-kind = "cargo"
-git = "https://github.com/petitstrawberry/sgfx"
-git_ref = "0ee6b41669904ced227f01cc435933c646a60c75"
-resolved_rev = "0ee6b41669904ced227f01cc435933c646a60c75"
-package = "vulkan-sgfx"
-lib = "vulkan_sgfx"
-default-features = false
-to = "/lib/libvulkan_sgfx.so"
-hash = "sha256:12d3c31a32cf4a9375e9b205dd9304bef7c24c3bd9430443642390951e52a327"
-
-[sections.rootfs.layers.source]
-type = "git"
-url = "https://github.com/petitstrawberry/sgfx"
-rev = "0ee6b41669904ced227f01cc435933c646a60c75"
-
-[[sections.rootfs.layers]]
-kind = "script"
-to = "/"
-hash = "sha256:37055922dec8932f0644a04651d340d8e8888265ae35c4748f855f52e7389a00"
-
-[sections.rootfs.layers.source]
-type = "path"
-path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/lib/scarlet-vulkan/install-runtime.sh"
 
 [[sections.rootfs.layers]]
 kind = "script"
@@ -596,6 +633,17 @@ package = "userprogram"
 bin = "sh"
 to = "/bin/sh"
 hash = "sha256:7d5e2490df5d72d2a608dabd8014f5358749b1996782f2f59a547aebbc6f2e91"
+
+[sections.rootfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/bin"
+
+[[sections.rootfs.layers]]
+kind = "cargo"
+package = "userprogram"
+bin = "run-as"
+to = "/bin/run-as"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -948,6 +996,17 @@ path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
 [[sections.rootfs.layers]]
 kind = "cargo"
 package = "userprogram"
+bin = "scarlet-session"
+to = "/bin/scarlet-session"
+hash = ""
+
+[sections.rootfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/bin"
+
+[[sections.rootfs.layers]]
+kind = "cargo"
+package = "userprogram"
 bin = "scarlet-desktop"
 to = "/bin/scarlet-desktop"
 hash = "sha256:a98bf34de741bb52d9625b574b8ac70a7316d7e70b1f9f3d0dfae5dd75eb6f84"
@@ -995,6 +1054,28 @@ package = "scarlet-std-bin"
 bin = "scarlet-shell"
 to = "/bin/scarlet-shell"
 hash = "sha256:bb9ff2161274872800e59de485ece775e0182ea4fa4405ededef46cfe94c57b4"
+
+[sections.rootfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
+
+[[sections.rootfs.layers]]
+kind = "cargo"
+package = "scarlet-std-bin"
+bin = "scarlet-seat"
+to = "/bin/scarlet-seat"
+hash = ""
+
+[sections.rootfs.layers.source]
+type = "path"
+path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
+
+[[sections.rootfs.layers]]
+kind = "cargo"
+package = "scarlet-std-bin"
+bin = "scarlet-shell-greeter"
+to = "/bin/scarlet-shell-greeter"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "path"
@@ -1079,18 +1160,18 @@ path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/bin"
 [[sections.rootfs.layers]]
 kind = "cargo"
 git = "https://github.com/petitstrawberry/scarlet-ui"
-git_ref = "b6a7bec8bc33b2abbf8dda1397529ab836e91ead"
-resolved_rev = "b6a7bec8bc33b2abbf8dda1397529ab836e91ead"
+git_ref = "4802af3f0191dbd6a13d0293fc63670fcb346f61"
+resolved_rev = "4802af3f0191dbd6a13d0293fc63670fcb346f61"
 package = "scarlet-ui-widget-factory"
 bin = "scarlet-ui-widget-factory"
 subdir = "examples/widget-factory"
 to = "/bin/widget-factory"
-hash = "sha256:e39c9f271dbda7838c52c10284bd54ebaa38202b5d8ed1a6396a4ea0fff3ebd4"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "git"
 url = "https://github.com/petitstrawberry/scarlet-ui"
-rev = "b6a7bec8bc33b2abbf8dda1397529ab836e91ead"
+rev = "4802af3f0191dbd6a13d0293fc63670fcb346f61"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
@@ -1447,7 +1528,7 @@ path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
 kind = "app"
 source = ".scarlet/cache/git/33c416af7493b416/platforms/scarlet/app.toml"
 to = "/applications/cadence.app"
-hash = "sha256:d7e10d3faef901ae3e5ae75b6b710c67774a07bafb0235564388d720766626e2"
+hash = ""
 
 [[sections.rootfs.layers]]
 kind = "cargo"
@@ -1464,13 +1545,13 @@ path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
 kind = "app"
 source = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/app-demo/app.toml"
 to = "/applications/app-demo.app"
-hash = "sha256:458716029c287ec63d9b4f68006d343aa4e69a05a2501a93e9b01260fc45b216"
+hash = ""
 
 [[sections.rootfs.layers]]
 kind = "app"
 source = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin/src/storage/app.toml"
 to = "/applications/storage.app"
-hash = "sha256:214edea19ad38f434a5a947c9a1e5dda09b0e010a1d45c812fc2eb5c8c87927e"
+hash = ""
 
 [[sections.rootfs.layers]]
 kind = "cargo"
@@ -1533,10 +1614,16 @@ type = "path"
 path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/std-bin"
 
 [[sections.rootfs.layers]]
-kind = "app"
-source = ".scarlet/cache/git/be620600662a4ab7/app.toml"
-to = "/applications/kureha-code.app"
-hash = "sha256:6f87aebeb4f0f7e42c77a6a1544903aaab1b57cef12455c6e3c5def91c8fe54c"
+kind = "archive"
+to = "/"
+format = "tar-gz"
+strip_components = 0
+hash = "sha256:37b2b1734f2d84b39a95e8e0290b166387d1896669af81b72629828d6be487c5"
+
+[sections.rootfs.layers.source]
+type = "archive"
+url = "https://github.com/petitstrawberry/kureha-code/releases/download/v0.1.0-51.1/kureha-code-scarlet-aarch64-v0.1.0-51.1.tar.gz"
+sha256 = "sha256:37b2b1734f2d84b39a95e8e0290b166387d1896669af81b72629828d6be487c5"
 
 [[sections.rootfs.layers]]
 kind = "archive"
@@ -1717,6 +1804,30 @@ path = ".scarlet/cache/git/c0675f018fc6c70d/producer/build-openttd-bundle.sh"
 
 [[sections.rootfs.layers]]
 kind = "archive"
+to = "/"
+format = "tar-gz"
+strip_components = 1
+hash = "sha256:63fbba4dfd5bb4502ca52bca503755ba549d91219cf877f5f4a8e286f5bf34db"
+
+[sections.rootfs.layers.source]
+type = "archive"
+url = "https://github.com/petitstrawberry/scarlet-bundle-lwjgl/releases/download/v0.2.10/lwjgl-3.4.3-aarch64-v0.2.10.tar.gz"
+sha256 = "sha256:63fbba4dfd5bb4502ca52bca503755ba549d91219cf877f5f4a8e286f5bf34db"
+
+[[sections.rootfs.layers]]
+kind = "archive"
+to = "/"
+format = "tar-gz"
+strip_components = 1
+hash = "sha256:121163b04de0b2caba9414e9a662fb022a9fe6fc7a4fab82d1a23d28accefe4d"
+
+[sections.rootfs.layers.source]
+type = "archive"
+url = "https://github.com/petitstrawberry/scarlet-bundle-openjdk/releases/download/v0.1.23/openjdk-25-aarch64-v0.1.23.tar.gz"
+sha256 = "sha256:121163b04de0b2caba9414e9a662fb022a9fe6fc7a4fab82d1a23d28accefe4d"
+
+[[sections.rootfs.layers]]
+kind = "archive"
 to = "/opt/scarlet/toolchains/rust/v0.1.0-dev.79f356924d1a"
 format = "tar-zst"
 strip_components = 1
@@ -1751,8 +1862,8 @@ path = "../../scripts/install-wifi-firmware.sh"
 [[sections.rootfs.layers]]
 kind = "cargo"
 git = "https://github.com/petitstrawberry/Scarlet"
-git_ref = "2125dc211215f05b7f31db533330cc88c858e4ef"
-resolved_rev = "2125dc211215f05b7f31db533330cc88c858e4ef"
+git_ref = "79f6736eeb4fb595b8baf74cdc6fa245dd8d74e9"
+resolved_rev = "79f6736eeb4fb595b8baf74cdc6fa245dd8d74e9"
 package = "video_player"
 bin = "video-player"
 subdir = "user/video_player"
@@ -1762,12 +1873,12 @@ features = [
 ]
 default-features = false
 to = "/bin/video-player"
-hash = "sha256:072589375cbdca6bd748504435c006f2df13a3e9d8354daba4b714b50d25e8a2"
+hash = ""
 
 [sections.rootfs.layers.source]
 type = "git"
 url = "https://github.com/petitstrawberry/Scarlet"
-rev = "2125dc211215f05b7f31db533330cc88c858e4ef"
+rev = "79f6736eeb4fb595b8baf74cdc6fa245dd8d74e9"
 
 [[sections.rootfs.layers]]
 kind = "script"
