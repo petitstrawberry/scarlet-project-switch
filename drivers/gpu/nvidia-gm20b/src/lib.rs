@@ -34,7 +34,7 @@ mod firmware;
 mod gmmu;
 #[cfg(target_os = "none")]
 mod gr;
-#[cfg(target_os = "none")]
+#[cfg(any(target_os = "none", test))]
 mod graphics;
 #[cfg(target_os = "none")]
 mod hardware;

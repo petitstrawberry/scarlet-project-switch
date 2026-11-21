@@ -8,6 +8,9 @@ license = "GPL-2.0-only"
 maxwell-image-layout = { path = "../../../shared/maxwell-image-layout" }
 maxwell-program-wire = { path = "../../../shared/maxwell-program-wire" }
 
+[dev-dependencies]
+maxwell-shader-pack = { path = "../../../shared/maxwell-shader-pack" }
+
 [target.'cfg(target_os = "none")'.dependencies]
 scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "2125dc211215f05b7f31db533330cc88c858e4ef", default-features = false, features = ["network"] }
 scarlet-driver-tegra210 = { path = "../../soc/tegra210" }

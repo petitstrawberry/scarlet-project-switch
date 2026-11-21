@@ -3,14 +3,20 @@
 //! Mesa nvc0_screen, nvc0_shader_state, nvc0_surface, nvc0_tex and nvc0_vbo
 //! at the shader pack's pinned revision are the primary reference. See NOTICE.
 
+#![cfg_attr(test, allow(dead_code))]
+
+#[cfg(target_os = "none")]
 use crate::{
     fifo::Fifo,
     gmmu::{clean, pages, pages_aligned, store},
     gr::Gr,
-    method::*,
 };
+use crate::method::*;
 use alloc::vec::Vec;
-use maxwell_shader_pack::{PACK_SIZE, PipelineVariant, copy_pack};
+use maxwell_shader_pack::PipelineVariant;
+#[cfg(target_os = "none")]
+use maxwell_shader_pack::{PACK_SIZE, copy_pack};
+#[cfg(target_os = "none")]
 use scarlet::{arch, device::gpu::GpuBackendSubmitError, mem::page::ContiguousPages, time};
 
 pub const PROGRAM_VA: usize = 0x270000;
@@ -36,6 +42,7 @@ const FENCE_VA: u32 = 0x6000;
 const PUSH_SIZE: usize = 0x100000;
 const BGRA8: u32 = 0xcf; // G80_SURFACE_FORMAT_BGRA8_UNORM
 
+#[cfg(target_os = "none")]
 pub struct Graphics {
     gpu_base: usize,
     programs: ContiguousPages,
@@ -51,6 +58,7 @@ pub struct Graphics {
     sequence: u32,
     encoder: Push,
 }
+#[cfg(target_os = "none")]
 impl Graphics {
     pub fn allocate(gpu_base: usize) -> Result<Self, &'static str> {
         Ok(Self {
@@ -186,11 +194,7 @@ impl Graphics {
                     if previous_programmable {
                         // Restore the fixed program's descriptor, CB and code
                         // namespaces after a programmable draw in this batch.
-                        push.initialize()?;
-                        push.uniforms = None;
-                        push.tic = None;
-                        push.tsc = None;
-                        push.texture_handle_initialized = false;
+                        push.resume_fixed()?;
                         previous_programmable = false;
                     }
                     push.operation(op)?;
@@ -1175,6 +1179,7 @@ fn probe_draw(variant: PipelineVariant) -> [u32; 96] {
     w
 }
 
+#[cfg(target_os = "none")]
 fn proof_error(error: GpuBackendSubmitError) -> &'static str {
     match error {
         GpuBackendSubmitError::Rejected(reason)
@@ -1190,6 +1195,7 @@ struct Push {
     tic: Option<[u32; 16]>,
     tsc: Option<[u32; 8]>,
     texture_handle_initialized: bool,
+    graphics_pending: bool,
     viewport: Option<[f32; 6]>,
     blend: Option<NativeBlend>,
 }
@@ -1202,6 +1208,7 @@ impl Push {
             tic: None,
             tsc: None,
             texture_handle_initialized: false,
+            graphics_pending: false,
             viewport: None,
             blend: None,
         }
@@ -1215,6 +1222,7 @@ impl Push {
         self.tic = None;
         self.tsc = None;
         self.texture_handle_initialized = false;
+        self.graphics_pending = false;
         self.viewport = None;
         self.blend = None;
     }
@@ -1261,6 +1269,21 @@ impl Push {
     }
     fn one(&mut self, method: u32, value: u32) -> Result<(), &'static str> {
         self.method(0, method, &[value])
+    }
+    fn serialize(&mut self) -> Result<(), &'static str> {
+        self.one(SERIALIZE, 0)?;
+        self.graphics_pending = false;
+        Ok(())
+    }
+    fn resume_fixed(&mut self) -> Result<(), &'static str> {
+        // Programmable draws can still read their CB/TIC/code namespaces.
+        self.serialize()?;
+        self.initialize()?;
+        self.uniforms = None;
+        self.tic = None;
+        self.tsc = None;
+        self.texture_handle_initialized = false;
+        Ok(())
     }
     fn address(&mut self, method: u32, address: u64) -> Result<(), &'static str> {
         self.method(0, method, &[(address >> 32) as u32, address as u32])
@@ -1401,7 +1424,7 @@ impl Push {
         )
     }
     fn operation(&mut self, w: &[u32; 96]) -> Result<(), &'static str> {
-        match w[0] {
+        let result = match w[0] {
             1 => {
                 self.target(w)?;
                 self.disable_depth()?;
@@ -1432,7 +1455,16 @@ impl Push {
                 self.one(CLEAR_BUFFERS, 1)
             }
             _ => Err("unsupported canonical operation"),
+        };
+        if result.is_ok() {
+            match w[0] {
+                1 | 2 | 4 => self.graphics_pending = true,
+                // The copy template serializes both before and after 2D work.
+                3 | 6 => self.graphics_pending = false,
+                _ => {}
+            }
         }
+        result
     }
     fn disable_depth(&mut self) -> Result<(), &'static str> {
         self.one(ZETA_ENABLE, 0)?;
@@ -1509,7 +1541,7 @@ impl Push {
             // The bounded arena is reused only after a full batch fence, or
             // an explicit serialization when a large batch exhausts it.
             if self.uniform_next == AUX_SIZE {
-                self.one(SERIALIZE, 0)?;
+                self.serialize()?;
                 self.uniform_next = UNIFORM_START;
             }
             self.cb((AUX_VA + self.uniform_next) as u64, 0, &uniforms)?;
@@ -1681,11 +1713,13 @@ impl Push {
             .map_err(|_| "draw sampler LOD invalid")?;
             let tic_changed = self.tic != Some(tic);
             let tsc_changed = self.tsc != Some(tsc);
-            // Descriptor slots remain shared; an actual overwrite still
-            // waits for earlier texture readers. CB0 updates no longer supply
-            // that wait implicitly. First use has no readers in this batch.
-            if (tic_changed && self.tic.is_some()) || (tsc_changed && self.tsc.is_some()) {
-                self.one(SERIALIZE, 0)?;
+            // TEX_CACHE_CTL does not retire prior render writes. A first
+            // texture use, or an unchanged TIC after another pass, can sample
+            // a target written earlier in this batch. Follow Mesa's texture
+            // barrier: SERIALIZE before cache invalidation. This also retires
+            // readers before overwriting the shared descriptor slots.
+            if self.graphics_pending {
+                self.serialize()?;
             }
             if tic_changed {
                 self.cb(DESCRIPTOR_VA as u64, 0, &tic)?;
@@ -1815,4 +1849,89 @@ fn plane_tic(
         0,
         0,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Inspect the actual trusted command encoder, including packet boundaries.
+    fn methods(words: &[u32]) -> Vec<u32> {
+        let mut result = Vec::new();
+        let mut cursor = 0;
+        while cursor < words.len() {
+            let header = words[cursor];
+            let count = ((header >> 16) & 0x1fff) as usize;
+            assert!(matches!(header >> 29, 1 | 5));
+            assert!(count > 0 && cursor + count < words.len());
+            if (header >> 13) & 7 == 0 {
+                result.push((header & 0x1fff) * 4);
+            }
+            cursor += count + 1;
+        }
+        assert_eq!(cursor, words.len());
+        result
+    }
+
+    fn sampled_draw() -> [u32; 96] {
+        let mut draw = probe_draw(PipelineVariant::Stride16TextureRgba);
+        draw[6] = TEXTURE_VA as u32;
+        draw[29..32].copy_from_slice(&[16, 16, 256]);
+        draw
+    }
+
+    fn assert_write_before_sample_is_ordered(push: &Push) {
+        let methods = methods(&push.words);
+        let write = methods.iter().rposition(|&m| m == CLEAR_BUFFERS).unwrap();
+        let invalidate = methods.iter().rposition(|&m| m == TEX_CACHE_CTL).unwrap();
+        assert!(write < invalidate);
+        assert!(
+            methods[write + 1..invalidate].contains(&SERIALIZE),
+            "texture invalidation must wait for prior render writes"
+        );
+    }
+
+    #[test]
+    fn first_texture_use_waits_for_a_clear_in_the_same_batch() {
+        let mut push = Push::new();
+        push.initialize().unwrap();
+        let mut clear = probe_clear();
+        clear[2] = TEXTURE_VA as u32;
+        push.operation(&clear).unwrap();
+        push.operation(&sampled_draw()).unwrap();
+        assert_write_before_sample_is_ordered(&push);
+    }
+
+    #[test]
+    fn unchanged_texture_descriptor_does_not_skip_render_write_barrier() {
+        let mut push = Push::new();
+        push.initialize().unwrap();
+        let draw = sampled_draw();
+        push.operation(&draw).unwrap();
+        let mut clear = probe_clear();
+        clear[2] = TEXTURE_VA as u32;
+        push.operation(&clear).unwrap();
+        push.operation(&draw).unwrap();
+        assert_write_before_sample_is_ordered(&push);
+    }
+
+    #[test]
+    fn fixed_namespace_restore_waits_for_programmable_readers() {
+        let mut push = Push::new();
+        push.resume_fixed().unwrap();
+        let methods = methods(&push.words);
+        assert_eq!(methods[0], SERIALIZE);
+        assert!(methods.iter().position(|&m| m == CODE_ADDRESS_HIGH).unwrap() > 0);
+        assert!(methods.iter().position(|&m| m == TIC_ADDRESS_HIGH).unwrap() > 0);
+    }
+
+    #[test]
+    fn retired_batch_does_not_leave_a_pending_texture_barrier() {
+        let mut push = Push::new();
+        push.operation(&probe_clear()).unwrap();
+        push.reset();
+        push.initialize().unwrap();
+        push.operation(&sampled_draw()).unwrap();
+        assert!(!methods(&push.words).contains(&SERIALIZE));
+    }
 }

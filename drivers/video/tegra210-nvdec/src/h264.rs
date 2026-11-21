@@ -535,7 +535,11 @@ impl Session {
             let image = self.frames[pending.slot]
                 .as_ref()
                 .ok_or("NVDEC output frame missing")?;
+            if self.picture_count < 10 || self.picture_count % 120 == 0 {
+                scarlet::println!("nvdec-pixel-probe finish ts={} count={} pa={:#x} refs={} y={:08x?} uv={:08x?}",pending.request.timestamp,self.picture_count,image.image.paddr(),Arc::strong_count(&image.image),[image.image.read_word(0),image.image.read_word(1024),image.image.read_word(g.chroma/2)],[image.image.read_word(g.chroma),image.image.read_word(g.chroma+1024)]);
+            }
             let backing = NativeImage {
+                probe_timestamp: pending.request.timestamp,
                 image: Arc::clone(&image.image),
                 geometry: g,
             };
@@ -598,6 +602,7 @@ impl Session {
 /// Publication occurs only after the decode fence/status check. All aliases
 /// are immutable; Session checks Arc uniqueness before reusing these pages.
 struct NativeImage {
+    probe_timestamp: u64,
     image: Arc<Dma>,
     geometry: Geometry,
 }
@@ -640,6 +645,10 @@ unsafe impl SharedImageBacking for NativeImage {
     }
     fn buffer_segments(&self, index: usize) -> Arc<[GpuBackingSegment]> {
         if index == 0 {
+            use core::sync::atomic::{AtomicUsize,Ordering};
+            static COUNT:AtomicUsize=AtomicUsize::new(0);
+            let n=COUNT.fetch_add(1,Ordering::Relaxed);
+            if n<10 || n%120==0 { scarlet::println!("nvdec-pixel-probe import ts={} pa={:#x} refs={} y={:08x?} uv={:08x?}",self.probe_timestamp,self.image.paddr(),Arc::strong_count(&self.image),[self.image.read_word(0),self.image.read_word(1024),self.image.read_word(self.geometry.chroma/2)],[self.image.read_word(self.geometry.chroma),self.image.read_word(self.geometry.chroma+1024)]); }
             Arc::from([GpuBackingSegment::new(
                 self.image.paddr(),
                 self.image.size(),
