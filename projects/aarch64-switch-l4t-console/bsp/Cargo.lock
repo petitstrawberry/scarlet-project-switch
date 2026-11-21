@@ -277,6 +277,10 @@ name = "maxwell-image-layout"
 version = "0.1.0"
 
 [[package]]
+name = "maxwell-native-submit-wire"
+version = "0.1.0"
+
+[[package]]
 name = "maxwell-program-wire"
 version = "0.1.0"
 
@@ -344,6 +348,7 @@ version = "0.1.0"
 dependencies = [
  "fdt",
  "maxwell-image-layout",
+ "maxwell-native-submit-wire",
  "maxwell-program-wire",
  "maxwell-shader-pack",
  "maxwell-submit-wire",

@@ -7,6 +7,7 @@ license = "GPL-2.0-only"
 [dependencies]
 maxwell-image-layout = { path = "../../../shared/maxwell-image-layout" }
 maxwell-program-wire = { path = "../../../shared/maxwell-program-wire" }
+maxwell-native-submit-wire = { path = "../../../shared/maxwell-native-submit-wire" }
 
 [dev-dependencies]
 maxwell-shader-pack = { path = "../../../shared/maxwell-shader-pack" }
