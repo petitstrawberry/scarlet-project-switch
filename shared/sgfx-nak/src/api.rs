@@ -395,7 +395,15 @@ macro_rules! pass {
 ///
 /// The frontend must populate IO metadata and structured control-flow depth.
 /// Unsupported IR is returned as an error; no generated program is fabricated.
-pub fn compile_graphics_ir(mut s: Shader<'_>) -> Result<CompiledShader, CompileError> {
+pub fn compile_graphics_ir(s: Shader<'_>) -> Result<CompiledShader, CompileError> {
+    compile_graphics_ir_with_assembly(s, true)
+}
+
+/// Compile with optional final assembly text. `NAK_DEBUG=print` always retains it.
+pub fn compile_graphics_ir_with_assembly(
+    mut s: Shader<'_>,
+    retain_assembly: bool,
+) -> Result<CompiledShader, CompileError> {
     let stage = validate(&s)?;
     panic::catch_unwind(AssertUnwindSafe(|| {
         pass!(s, opt_bar_prop);
@@ -426,7 +434,11 @@ pub fn compile_graphics_ir(mut s: Shader<'_>) -> Result<CompiledShader, CompileE
         let sph = sph::encode_header(s.sm, &s.info, None);
         let mut header = [0; 20];
         header.copy_from_slice(&sph[..20]);
-        let assembly = s.to_string();
+        let assembly = if retain_assembly || DEBUG.print() {
+            s.to_string()
+        } else {
+            String::new()
+        };
         let metadata = ShaderMetadata {
             stage,
             sm: s.sm.sm(),

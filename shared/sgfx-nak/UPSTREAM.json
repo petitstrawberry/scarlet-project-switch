@@ -3,6 +3,7 @@
     "src/nouveau/compiler/nak/lib.rs (module selection/public API)",
     "src/nouveau/compiler/nak/api.rs (pure Rust entrypoint/debug flags/pass chain)",
     "src/nouveau/compiler/nak/ir.rs (local safe bindings, SM50/52 dispatch)",
+    "src/nouveau/compiler/nak/opt_instr_sched_postpass.rs (avoid register tracking in blocks without dependency edges)",
     "src/nouveau/compiler/nak/sph.rs (local safe bindings)",
     "src/compiler/rust/lib.rs (pure Rust helper module selection)"
   ],

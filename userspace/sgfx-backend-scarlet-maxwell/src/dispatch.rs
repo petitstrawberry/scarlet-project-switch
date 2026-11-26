@@ -20,7 +20,7 @@ use std::{
 use crate::asynchronous::DispatchOwner;
 use crate::completion::{completion_status, monotonic_time_ns, remaining_timeout_ns};
 use crate::resource::RawBuffer;
-use crate::scheduler::{AdmissionError, DispatchError, Scheduler, Transport};
+use crate::scheduler::{Admission, AdmissionError, DispatchError, Job, Scheduler, Transport};
 use crate::{Handle, HandleError, HandleResult, IrSubmitError};
 use sgfx_core::backend::CompletionStatus;
 
@@ -55,8 +55,8 @@ fn try_lock<T>(mutex: &Mutex<T>) -> Option<MutexGuard<'_, T>> {
 // An empty job list certifies retirement only while admission and the worker
 // remain excluded. Failed dispatch never certifies that native work is idle.
 fn try_idle<T: Transport>(
-    scheduler: &Mutex<Scheduler<T>>,
-) -> Result<Option<MutexGuard<'_, Scheduler<T>>>, T::Error> {
+    scheduler: &Mutex<Admission<T>>,
+) -> Result<Option<MutexGuard<'_, Admission<T>>>, T::Error> {
     let Some(scheduler) = try_lock(scheduler) else {
         return Ok(None);
     };
@@ -239,7 +239,7 @@ enum Receipt {
     Uploaded,
 }
 
-struct Native;
+struct Native(Arc<Shared>);
 
 impl Transport for Native {
     type Chunk = Chunk;
@@ -340,13 +340,14 @@ impl Transport for Native {
             Receipt::Uploaded => Ok(true),
         }
     }
-    fn complete(&self, signal: &Arc<Signal>, result: Result<(), Failure>) {
+    fn complete(&self, signal: &Arc<Signal>, bytes: usize, result: Result<(), Failure>) {
+        lock(&self.0.admission).retire(bytes, result);
         signal.complete(result);
     }
 }
 
 struct Shared {
-    scheduler: Mutex<Scheduler<Native>>,
+    admission: Mutex<Admission<Native>>,
     wake: Event,
     closing: AtomicBool,
 }
@@ -357,14 +358,18 @@ pub(crate) struct NativeScheduler {
 
 impl NativeScheduler {
     pub(crate) fn new() -> HandleResult<Self> {
+        let scheduler = Scheduler::try_new().map_err(|_| HandleError::OutOfResources)?;
         let shared = Arc::new(Shared {
-            scheduler: Mutex::new(Scheduler::new()),
+            admission: Mutex::new(Admission::new().map_err(|_| HandleError::OutOfResources)?),
             wake: Event::new()?,
             closing: AtomicBool::new(false),
         });
-        let worker = Arc::clone(&shared);
+        let worker = Worker {
+            native: Native(Arc::clone(&shared)),
+            scheduler,
+        };
         std::thread::Builder::new()
-            .spawn(move || run(worker))
+            .spawn(move || worker.run())
             .map_err(|_| HandleError::OutOfResources)?;
         Ok(Self { shared })
     }
@@ -376,18 +381,21 @@ impl NativeScheduler {
         trace_start: Option<u64>,
     ) -> Result<Arc<Signal>, AdmissionError<Failure>> {
         let signal = Arc::new(Signal::new(trace_start).map_err(|_| AdmissionError::OutOfMemory)?);
-        // Retirement can release the last physical attachment and enter the
-        // kernel's mapping gate. Logical admission must not wait behind it.
-        let mut scheduler = try_lock(&self.shared.scheduler).ok_or(AdmissionError::Busy)?;
-        scheduler.enqueue(chunks, owner, Arc::clone(&signal))?;
-        drop(scheduler);
+        let job = Job::prepare(chunks, owner, Arc::clone(&signal))?;
+        {
+            // An exclusive synchronous detach can hold this guard. Admission
+            // must never wait behind it. Native dispatch uses a private queue.
+            let mut admission = try_lock(&self.shared.admission).ok_or(AdmissionError::Busy)?;
+            admission.check(&job)?;
+            admission.push(job);
+        }
         self.shared.wake.notify();
         Ok(signal)
     }
 
     pub(crate) fn wait_idle(&self) -> HandleResult<()> {
         let signal = {
-            let scheduler = lock(&self.shared.scheduler);
+            let scheduler = lock(&self.shared.admission);
             if scheduler.failure().is_some() {
                 return Err(HandleError::SystemError(-1));
             }
@@ -405,7 +413,7 @@ impl NativeScheduler {
     }
 
     pub(crate) fn is_idle(&self) -> Result<bool, IrSubmitError> {
-        try_idle(&self.shared.scheduler)
+        try_idle(&self.shared.admission)
             .map(|guard| guard.is_some())
             .map_err(Into::into)
     }
@@ -416,7 +424,7 @@ impl NativeScheduler {
     ) -> Result<R, IrSubmitError> {
         // Retain this guard through detach: another session sharing the
         // context cannot admit work between the idle check and retirement.
-        let _guard = try_idle(&self.shared.scheduler)
+        let _guard = try_idle(&self.shared.admission)
             .map_err(IrSubmitError::from)?
             .ok_or(IrSubmitError::ResourceBusy)?;
         operation()
@@ -426,7 +434,7 @@ impl NativeScheduler {
         &self,
         operation: impl FnOnce() -> Result<R, IrSubmitError>,
     ) -> Result<R, IrSubmitError> {
-        let _guard = crate::retirement::wait_idle_guard(&self.shared.scheduler, |signal| {
+        let _guard = crate::retirement::wait_idle_guard(&self.shared.admission, |signal| {
             signal.wait(None).map(|_| ()).map_err(|_| Failure::Unavailable)
         })
         .map_err(IrSubmitError::from)?;
@@ -443,62 +451,74 @@ impl Drop for NativeScheduler {
     }
 }
 
-struct WorkerGuard(Arc<Shared>);
-impl Drop for WorkerGuard {
-    fn drop(&mut self) {
-        let mut scheduler = lock(&self.0.scheduler);
-        if !scheduler.is_empty() {
-            scheduler.fail(&Native, Failure::Unavailable);
-        }
-    }
+struct Worker {
+    native: Native,
+    scheduler: Scheduler<Native>,
 }
 
-fn run(shared: Arc<Shared>) {
-    let _guard = WorkerGuard(Arc::clone(&shared));
-    // One wake handle plus at most sixteen native completion handles.
-    let mut handles = Vec::new();
-    if handles.try_reserve_exact(17).is_err() {
-        lock(&shared.scheduler).fail(&Native, Failure::Backend(HandleError::OutOfResources));
-        return;
+impl Worker {
+    fn fail(&mut self, error: Failure) {
+        let pending = lock(&self.native.0.admission).fail(error);
+        self.scheduler.fail(&self.native, error);
+        for job in pending {
+            job.finish(&self.native, Err(error));
+        }
     }
-    loop {
-        if let Err(error) = shared.wake.consume() {
-            lock(&shared.scheduler).fail(&Native, Failure::Backend(error));
+
+    fn run(mut self) {
+        let mut handles = Vec::new();
+        if handles.try_reserve_exact(17).is_err() {
+            self.fail(Failure::Backend(HandleError::OutOfResources));
             return;
         }
-        handles.clear();
-        handles.push(shared.wake.poll_handle());
-        let (progressed, pending) = {
-            let mut scheduler = lock(&shared.scheduler);
-            let progressed = scheduler.advance(&Native);
-            if scheduler.failure().is_some()
-                || scheduler.is_empty() && shared.closing.load(Ordering::Acquire)
-            {
+        loop {
+            let shared = &self.native.0;
+            if let Err(error) = shared.wake.consume() {
+                self.fail(Failure::Backend(error));
                 return;
             }
-            handles.extend(scheduler.receipts().filter_map(|receipt| match receipt {
+            {
+                let mut admission = lock(&shared.admission);
+                admission.transfer(&mut self.scheduler);
+                if self.scheduler.is_empty() && shared.closing.load(Ordering::Acquire) {
+                    return;
+                }
+            }
+            let progressed = self.scheduler.advance(&self.native);
+            if let Some(error) = self.scheduler.failure() {
+                self.fail(error);
+                return;
+            }
+            if progressed {
+                continue;
+            }
+            handles.clear();
+            handles.push(shared.wake.poll_handle());
+            handles.extend(self.scheduler.receipts().filter_map(|receipt| match receipt {
                 Receipt::Native(completion) => Some(PollHandle::new(
                     completion.as_handle().as_raw() as u32,
                     POLLIN,
                 )),
                 Receipt::Uploaded => None,
             }));
-            (progressed, !scheduler.is_empty())
-        };
-        if progressed {
-            continue;
+            // A hardware Busy without a local fence may need a timed retry.
+            let timeout = if !self.scheduler.is_empty() && handles.len() == 1 {
+                1_000_000
+            } else {
+                100_000_000
+            };
+            if let Err(error) = poll(&mut handles, timeout) {
+                self.fail(Failure::Backend(HandleError::SystemError(error)));
+                return;
+            }
         }
-        // With no local fence, Busy may come from another context on the
-        // shared device. Only the worker retries that transport-level pressure.
-        let timeout = if pending && handles.len() == 1 {
-            1_000_000
-        } else {
-            100_000_000
-        };
-        if let Err(error) = poll(&mut handles, timeout) {
-            lock(&shared.scheduler)
-                .fail(&Native, Failure::Backend(HandleError::SystemError(error)));
-            return;
+    }
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        if !lock(&self.native.0.admission).is_empty() {
+            self.fail(Failure::Unavailable);
         }
     }
 }
@@ -509,6 +529,7 @@ mod tests {
     use core::sync::atomic::AtomicUsize;
 
     struct TestTransport {
+        admission: Arc<Mutex<Admission<TestTransport>>>,
         completed: AtomicBool,
     }
 
@@ -539,44 +560,110 @@ mod tests {
         fn poll(&self, _: &()) -> Result<bool, u32> {
             Ok(self.completed.load(Ordering::Relaxed))
         }
-        fn complete(&self, _: &(), _: Result<(), u32>) {}
+        fn complete(&self, _: &(), bytes: usize, result: Result<(), u32>) {
+            lock(&self.admission).retire(bytes, result);
+        }
+    }
+
+    #[test]
+    fn admission_remains_available_during_native_submit_and_counts_worker_jobs() {
+        use crate::scheduler::{MAX_PENDING_BYTES, MAX_SUBMISSIONS};
+        use std::sync::mpsc;
+
+        struct Paused {
+            entered: mpsc::Sender<()>,
+            resume: mpsc::Receiver<()>,
+        }
+        impl Transport for Paused {
+            type Chunk = usize;
+            type Owner = ();
+            type Receipt = ();
+            type Signal = usize;
+            type Error = u32;
+
+            fn size(bytes: &usize) -> usize {
+                *bytes
+            }
+            fn ready(&self, _: &usize) -> Result<bool, u32> {
+                Ok(true)
+            }
+            fn submit(&self, _: &(), _: &usize) -> Result<(), DispatchError<u32>> {
+                self.entered.send(()).unwrap();
+                self.resume.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(())
+            }
+            fn poll(&self, _: &()) -> Result<bool, u32> {
+                Ok(false)
+            }
+            fn complete(&self, _: &usize, _: usize, _: Result<(), u32>) {}
+        }
+
+        let admission = Mutex::new(Admission::<Paused>::new().unwrap());
+        let mut worker = Scheduler::try_new().unwrap();
+        lock(&admission).push(Job::prepare(vec![MAX_PENDING_BYTES - 1], (), 0).unwrap());
+        lock(&admission).transfer(&mut worker);
+        let (entered, in_submit) = mpsc::channel();
+        let (resume, paused) = mpsc::channel();
+        std::thread::scope(|scope| {
+            let handle = scope.spawn(move || {
+                worker.advance(&Paused {
+                    entered,
+                    resume: paused,
+                })
+            });
+            in_submit.recv().unwrap();
+            let mut guard = try_lock(&admission).expect("submit must not own the admission lock");
+            let too_many_bytes = Job::prepare(vec![2], (), 1).unwrap();
+            assert_eq!(guard.check(&too_many_bytes), Err(AdmissionError::Busy));
+            for i in 1..MAX_SUBMISSIONS {
+                let job = Job::prepare(vec![usize::from(i == 1)], (), i).unwrap();
+                guard.check(&job).unwrap();
+                guard.push(job);
+            }
+            let checkpoint = Job::prepare(vec![], (), MAX_SUBMISSIONS).unwrap();
+            assert_eq!(guard.check(&checkpoint), Err(AdmissionError::Busy));
+            assert_eq!(guard.last_signal(), Some(&(MAX_SUBMISSIONS - 1)));
+            drop(guard);
+            resume.send(()).unwrap();
+            assert!(handle.join().unwrap());
+        });
     }
 
     #[test]
     fn idle_requires_native_completion_and_owner_retirement() {
+        let scheduler = Arc::new(Mutex::new(Admission::<TestTransport>::new().unwrap()));
         let transport = TestTransport {
+            admission: Arc::clone(&scheduler),
             completed: AtomicBool::new(false),
         };
         let drops = Arc::new(AtomicUsize::new(0));
-        let scheduler = Mutex::new(Scheduler::<TestTransport>::new());
+        let mut worker = Scheduler::try_new().unwrap();
         assert!(try_idle(&scheduler).unwrap().is_some());
-        lock(&scheduler)
-            .enqueue(alloc::vec![()], Owner(Arc::clone(&drops)), ())
-            .unwrap();
+        let job = Job::prepare(vec![()], Owner(Arc::clone(&drops)), ()).unwrap();
+        lock(&scheduler).push(job);
         assert!(try_idle(&scheduler).unwrap().is_none());
-        lock(&scheduler).advance(&transport);
+        lock(&scheduler).transfer(&mut worker);
+        assert!(try_idle(&scheduler).unwrap().is_none());
+        worker.advance(&transport);
         assert!(try_idle(&scheduler).unwrap().is_none());
         assert_eq!(drops.load(Ordering::Relaxed), 0);
         transport.completed.store(true, Ordering::Relaxed);
-        lock(&scheduler).advance(&transport);
+        worker.advance(&transport);
         assert!(try_idle(&scheduler).unwrap().is_some());
         assert_eq!(drops.load(Ordering::Relaxed), 1);
     }
 
     #[test]
     fn failed_dispatch_is_never_reported_as_idle() {
-        let transport = TestTransport {
-            completed: AtomicBool::new(false),
-        };
-        let scheduler = Mutex::new(Scheduler::<TestTransport>::new());
-        lock(&scheduler).fail(&transport, 7);
+        let scheduler = Mutex::new(Admission::<TestTransport>::new().unwrap());
+        lock(&scheduler).fail(7);
         assert!(lock(&scheduler).is_empty());
         assert!(matches!(try_idle(&scheduler), Err(7)));
     }
 
     #[test]
     fn idle_check_returns_immediately_when_guard_is_held() {
-        let scheduler = Mutex::new(Scheduler::<TestTransport>::new());
+        let scheduler = Mutex::new(Admission::<TestTransport>::new().unwrap());
         let guard = try_idle(&scheduler).unwrap().unwrap();
         // The same lock also excludes enqueue and dispatch through detach.
         assert!(try_lock(&scheduler).is_none());

@@ -33,7 +33,26 @@ impl<T: Clone> RegUse<T> {
 }
 
 fn generate_dep_graph(sm: &ShaderModelInfo, instrs: &[Instr]) -> DepGraph {
-    let mut g = DepGraph::new((0..instrs.len()).map(|_| Default::default()));
+    let last_latency = instrs.last().map_or(0, |last| sm.exec_latency(&last.op));
+    let mut g = DepGraph::new(instrs.iter().map(|instr| {
+        let dst_latency = (0..instr.dsts().len())
+            .map(|i| sm.worst_latency(&instr.op, i))
+            .max()
+            .unwrap_or(0);
+        NodeLabel {
+            exec_latency: sm.exec_latency(&instr.op),
+            ready_cycle: max(
+                dst_latency,
+                estimate_variable_latency(sm, &instr.op) + last_latency,
+            ),
+            ..Default::default()
+        }
+    }));
+    // A block with zero or one instruction has no dependency edges. Keep
+    // the node latencies so static cycle accounting uses the same path.
+    if instrs.len() <= 1 {
+        return g;
+    }
 
     // Maps registers to RegUse<ip, src_dst_idx>.  Predicates are
     // represented by src_idx = usize::MAX.
@@ -118,20 +137,6 @@ fn generate_dep_graph(sm: &ShaderModelInfo, instrs: &[Instr]) -> DepGraph {
         uses.for_each_instr_src_mut(instr, |i, c| {
             c.add_read((ip, i));
         });
-
-        // Initialize this node's distance to the end
-        let mut ready_cycle = (0..instr.dsts().len())
-            .map(|i| sm.worst_latency(&instr.op, i))
-            .max()
-            .unwrap_or(0);
-
-        let var_latency = estimate_variable_latency(sm, &instr.op)
-            + sm.exec_latency(&instrs[instrs.len() - 1].op);
-        ready_cycle = max(ready_cycle, var_latency);
-
-        let label = &mut g.nodes[ip].label;
-        label.exec_latency = sm.exec_latency(&instr.op);
-        label.ready_cycle = ready_cycle;
     }
 
     g

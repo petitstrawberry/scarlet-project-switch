@@ -124,7 +124,11 @@ fn sm52_vertex_passthrough() {
 #[test]
 fn sm52_fragment_passthrough() {
     let sm = ShaderModelInfo::new(52, 64);
-    let bin = compile_graphics_ir(fragment(&sm)).unwrap();
+    let bin = api::compile_graphics_ir_with_assembly(fragment(&sm), false).unwrap();
+    assert_eq!(
+        !bin.assembly.is_empty(),
+        api::GetDebugFlags::print(&api::DEBUG)
+    );
     assert_eq!(
         bin.code,
         [

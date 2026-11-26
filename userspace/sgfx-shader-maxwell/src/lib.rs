@@ -40,7 +40,7 @@ pub struct CompiledShader {
     pub code: Vec<u32>,
     pub header: [u32; 20],
     pub metadata: sgfx_nak::ShaderMetadata,
-    /// Final allocated NAK assembly, retained for diagnostics and compiler tests.
+    /// Final allocated NAK assembly. Driver compiles omit it unless `NAK_DEBUG=print`.
     pub assembly: String,
 }
 impl Deref for CompiledShader {
@@ -56,18 +56,37 @@ pub fn validate_shader_module(desc: &ShaderModuleDesc) -> Result<(), ShaderCompi
 }
 
 /// Compile an arbitrary supported graphics entry point with the same semantic
-/// validation and resource reflection as the VirGL implementation.
+/// validation and resource reflection as the VirGL implementation. Includes the
+/// final assembly listing in all build profiles.
 pub fn compile_shader(
     desc: &ShaderModuleDesc,
     stage: ShaderStage,
     entry_point: &str,
+) -> Result<CompiledShader, ShaderCompileError> {
+    compile_shader_impl(desc, stage, entry_point, true)
+}
+
+/// Compile for driver submission, omitting the diagnostic assembly listing by default.
+pub fn compile_shader_for_driver(
+    desc: &ShaderModuleDesc,
+    stage: ShaderStage,
+    entry_point: &str,
+) -> Result<CompiledShader, ShaderCompileError> {
+    compile_shader_impl(desc, stage, entry_point, false)
+}
+
+fn compile_shader_impl(
+    desc: &ShaderModuleDesc,
+    stage: ShaderStage,
+    entry_point: &str,
+    retain_assembly: bool,
 ) -> Result<CompiledShader, ShaderCompileError> {
     let reflection = sgfx_codegen_virgl::programmable::compile_shader(desc, stage, entry_point)
         .map_err(|error| ShaderCompileError(error.0))?;
     let program = tgsi::parse(&reflection.tgsi).map_err(ShaderCompileError)?;
     let sm = sgfx_nak::ir::ShaderModelInfo::new(52, 64);
     let shader = lower::lower(&sm, &program).map_err(ShaderCompileError)?;
-    let compiled = sgfx_nak::compile_graphics_ir(shader)
+    let compiled = sgfx_nak::api::compile_graphics_ir_with_assembly(shader, retain_assembly)
         .map_err(|error| ShaderCompileError(error.to_string()))?;
     if compiled.code.len() > 16 * 1024 {
         return Err(ShaderCompileError(

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Genuine graphics programs for the driver's canonical R8 storage convention.
 
-use crate::{CompiledShader, ShaderCompileError, compile_shader};
+use crate::{CompiledShader, ShaderCompileError, compile_shader_for_driver};
 use sgfx_core::ir::{ShaderModuleDesc, ShaderStage};
 
 const FULLSCREEN_VERTEX: &str = r#"
@@ -19,8 +19,8 @@ fn compile_pair(fragment: String) -> Result<(CompiledShader, CompiledShader), Sh
     let fragment = ShaderModuleDesc::wgsl(fragment)
         .map_err(|e| ShaderCompileError(format!("conversion fragment: {e:?}")))?;
     Ok((
-        compile_shader(&vertex, ShaderStage::Vertex, "main")?,
-        compile_shader(&fragment, ShaderStage::Fragment, "main")?,
+        compile_shader_for_driver(&vertex, ShaderStage::Vertex, "main")?,
+        compile_shader_for_driver(&fragment, ShaderStage::Fragment, "main")?,
     ))
 }
 

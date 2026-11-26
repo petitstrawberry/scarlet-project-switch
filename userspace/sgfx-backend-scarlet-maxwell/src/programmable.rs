@@ -8,7 +8,7 @@ use crate::resource::{ContextResources, RawBuffer, RawImage};
 use crate::{IrSubmitError, UnsupportedIrFeature, ir};
 use alloc::{rc::Rc, sync::Arc, vec, vec::Vec};
 use maxwell_program_wire as program_wire;
-use sgfx_shader_maxwell::{CompiledShader, ShaderCompileError, compile_shader};
+use sgfx_shader_maxwell::{CompiledShader, ShaderCompileError, compile_shader_for_driver};
 
 const DRAW_HEADER_SIZE: usize = 256;
 const DRAW_RECORD_SIZES: [usize; 6] = [32, 40, 16, 48, 64, 48];
@@ -339,7 +339,7 @@ fn compile_pipeline(
             return Ok(Rc::clone(stage));
         }
         let module = resources.shader_module(reference)?;
-        let shader = compile_shader(&module, entry.stage(), entry.entry_point())
+        let shader = compile_shader_for_driver(&module, entry.stage(), entry.entry_point())
             .map_err(IrSubmitError::ShaderCompile)?;
         Ok(Rc::new(CompiledStage {
             entry: entry.clone(),
@@ -1385,7 +1385,7 @@ impl ContextResources {
         for patch in &mut patches {
             patch.destination += inline_offset;
         }
-        let metadata = Arc::new(RawBuffer::create(&self.context, bytes.len() as u64)?);
+        let metadata = self.draw_metadata_buffer(bytes.len())?;
         let mut resources = Vec::new();
         resources
             .try_reserve(64)
@@ -1704,7 +1704,7 @@ fn compile_conversion_shaders(kind: u8) -> Result<(CompiledShader, CompiledShade
     .map_err(IrSubmitError::ShaderCompile)?;
     if kind == 2 || kind == 5 {
         let module=ir::ShaderModuleDesc::wgsl(alloc::string::String::from(if kind==2 {"@group(0) @binding(0) var source:texture_2d<f32>; @fragment fn main(@builtin(position) p:vec4<f32>)->@location(0) vec4<f32>{let c=textureLoad(source,vec2<i32>(p.xy),0);return vec4<f32>(c.r,c.g,0.0,1.0);}"}else{"struct Mapping{destination:vec4<f32>,source_rect:vec4<f32>} @group(0) @binding(0) var source:texture_2d<f32>; @group(0) @binding(1) var source_sampler:sampler; @group(0) @binding(2) var<uniform> mapping:Mapping; @fragment fn main(@builtin(position) p:vec4<f32>)->@location(0) vec4<f32>{let unit=(p.xy-mapping.destination.xy)/mapping.destination.zw;let uv=mapping.source_rect.xy+unit*mapping.source_rect.zw;let c=textureSampleLevel(source,source_sampler,uv,0.0);return vec4<f32>(c.r,c.g,0.0,1.0);}"})).map_err(IrSubmitError::InvalidIr)?;
-        fragment = compile_shader(&module, ir::ShaderStage::Fragment, "main")
+        fragment = compile_shader_for_driver(&module, ir::ShaderStage::Fragment, "main")
             .map_err(IrSubmitError::ShaderCompile)?;
     }
     Ok((vertex, fragment))
@@ -1854,7 +1854,7 @@ impl ContextResources {
             &inline,
         )?;
         program_wire::draw::Draw::parse(&bytes).map_err(compile_error)?;
-        let metadata = Arc::new(RawBuffer::create(&self.context, bytes.len() as u64)?);
+        let metadata = self.draw_metadata_buffer(bytes.len())?;
         let mut resources = Vec::new();
         declare_range(
             &mut resources,
@@ -2300,7 +2300,7 @@ mod tests {
     #[test]
     fn native_packages_match_flattened_constants_and_stage_metadata() {
         let desc=ir::ShaderModuleDesc::wgsl(alloc::string::String::from("struct U{color:vec4<f32>} @group(0) @binding(0) var<uniform> u:U; @fragment fn main()->@location(0) vec4<f32>{return u.color;}")).unwrap();
-        let shader = compile_shader(&desc, ir::ShaderStage::Fragment, "main").unwrap();
+        let shader = compile_shader_for_driver(&desc, ir::ShaderStage::Fragment, "main").unwrap();
         let bytes = encode_program(&shader).unwrap();
         let package = program_wire::Program::parse(&bytes).unwrap();
         assert_eq!(package.metadata.stage, program_wire::Stage::Fragment);

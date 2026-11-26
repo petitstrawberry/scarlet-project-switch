@@ -1,14 +1,13 @@
 //! Synchronous resource retirement while preserving asynchronous admission.
-use crate::scheduler::{Scheduler, Transport};
+use crate::scheduler::{Admission, Transport};
 use std::sync::{Mutex, MutexGuard};
 
 // Synchronous import retirement must also exclude admission after waiting.
-// A completed receipt can become visible while the worker still holds this
-// mutex and is dropping its owners; try_idle would report spurious Busy then.
+// The admission guard covers pending jobs as well as the worker-owned prefix.
 pub(crate) fn wait_idle_guard<T: Transport>(
-    scheduler: &Mutex<Scheduler<T>>,
+    scheduler: &Mutex<Admission<T>>,
     mut wait: impl FnMut(T::Signal) -> Result<(), T::Error>,
-) -> Result<MutexGuard<'_, Scheduler<T>>, T::Error>
+) -> Result<MutexGuard<'_, Admission<T>>, T::Error>
 where
     T::Signal: Clone,
 {
@@ -34,7 +33,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scheduler::DispatchError;
+    use crate::scheduler::{DispatchError, Job, Scheduler};
     use std::sync::{
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -48,6 +47,7 @@ mod tests {
         }
     }
     struct Fake {
+        admission: Arc<Mutex<Admission<Fake>>>,
         complete: AtomicBool,
     }
     impl Transport for Fake {
@@ -68,27 +68,29 @@ mod tests {
         fn poll(&self, _: &()) -> Result<bool, u32> {
             Ok(self.complete.load(Ordering::Relaxed))
         }
-        fn complete(&self, _: &(), _: Result<(), u32>) {}
+        fn complete(&self, _: &(), bytes: usize, result: Result<(), u32>) {
+            self.admission.lock().unwrap().retire(bytes, result);
+        }
     }
 
     #[test]
     fn wait_allows_worker_retirement_then_excludes_admission() {
+        let scheduler = Arc::new(Mutex::new(Admission::<Fake>::new().unwrap()));
         let transport = Fake {
+            admission: Arc::clone(&scheduler),
             complete: AtomicBool::new(false),
         };
         let drops = Arc::new(AtomicUsize::new(0));
-        let scheduler = Mutex::new(Scheduler::<Fake>::new());
-        scheduler
-            .lock()
-            .unwrap()
-            .enqueue(vec![()], Owner(Arc::clone(&drops)), ())
-            .unwrap();
+        let mut worker = Scheduler::try_new().unwrap();
+        let job = Job::prepare(vec![()], Owner(Arc::clone(&drops)), ()).unwrap();
+        scheduler.lock().unwrap().push(job);
+        scheduler.lock().unwrap().transfer(&mut worker);
         let mut waited = false;
         let guard = wait_idle_guard(&scheduler, |_| {
             waited = true;
             assert_eq!(drops.load(Ordering::Relaxed), 0);
             transport.complete.store(true, Ordering::Relaxed);
-            scheduler.try_lock().unwrap().advance(&transport);
+            worker.advance(&transport);
             Ok(())
         })
         .unwrap();
@@ -100,7 +102,7 @@ mod tests {
 
     #[test]
     fn retired_work_waits_through_worker_mutex_contention() {
-        let scheduler = Arc::new(Mutex::new(Scheduler::<Fake>::new()));
+        let scheduler = Arc::new(Mutex::new(Admission::<Fake>::new().unwrap()));
         let worker_guard = scheduler.lock().unwrap();
         let other = Arc::clone(&scheduler);
         let (started_tx, started_rx) = mpsc::channel();
@@ -120,11 +122,8 @@ mod tests {
 
     #[test]
     fn failed_dispatch_never_allows_detachment() {
-        let transport = Fake {
-            complete: AtomicBool::new(false),
-        };
-        let scheduler = Mutex::new(Scheduler::<Fake>::new());
-        scheduler.lock().unwrap().fail(&transport, 7);
+        let scheduler = Mutex::new(Admission::<Fake>::new().unwrap());
+        scheduler.lock().unwrap().fail(7);
         assert!(matches!(
             wait_idle_guard(&scheduler, |_| panic!("failed work must not wait")),
             Err(7)
