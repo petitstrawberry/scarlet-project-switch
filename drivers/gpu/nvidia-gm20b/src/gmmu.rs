@@ -24,7 +24,7 @@ const VA_B: usize = 2 * PAGE;
 // and ScarletUI allocations share this serialized channel's address space.
 const PDE_SPAN: usize = 1 << 26;
 const PTE_TABLE_PAGES: usize = PDE_SPAN / PAGE * 8 / PAGE;
-const PDE_COUNT: usize = 8;
+const PDE_COUNT: usize = 16;
 pub const VA_LIMIT: u32 = (PDE_COUNT * PDE_SPAN) as u32;
 const MC_ELPG_ENABLE: usize = 0x20c;
 const ELPG_MEMORY_UNITS: u32 = 0x20100004; // HUB, PFB and XBAR, GM20B hw_mc.
@@ -438,8 +438,20 @@ impl Gmmu {
         self.fifo.idle()?;
         self.gr.as_ref().ok_or("GR missing")?.idle()
     }
-    pub fn invalidate_all(&self) -> Result<(), &'static str> {
-        self.publish_page_table()?;
+    fn invalidate_all(&self) -> Result<(), &'static str> {
+        clean(&self.table);
+        self.invalidate_engines()
+    }
+
+    /// Publish the changed PTEs before invalidating all engines' translations.
+    /// The caller serializes edits, and each 4 KiB mapping has one 8-byte PTE.
+    pub(super) fn publish_mapping(&self, va: usize, pages: usize) -> Result<(), &'static str> {
+        arch::clean_dcache_to_poc_range(self.table.as_vaddr() + (va / PAGE) * 8, pages * 8);
+        self.invalidate_engines()
+    }
+
+    fn invalidate_engines(&self) -> Result<(), &'static str> {
+        self.invalidate_ltc()?;
         self.wait(MMU_CTRL, |v| v & 0x00ff0000 != 0)?;
         self.write(
             INVALIDATE_PDB,
@@ -463,11 +475,12 @@ impl Gmmu {
             store(&self.table, word, 0);
             store(&self.table, word + 1, 0);
         }
-        self.invalidate_all()
+        self.publish_mapping(va, count)
     }
 
     fn invalidate(&self) -> Result<(), &'static str> {
-        self.publish_page_table()?;
+        clean(&self.table);
+        self.invalidate_ltc()?;
         self.wait(MMU_CTRL, |value| value & 0x00ff0000 != 0)?;
         self.write(
             INVALIDATE_PDB,
@@ -479,8 +492,7 @@ impl Gmmu {
         Ok(())
     }
 
-    fn publish_page_table(&self) -> Result<(), &'static str> {
-        clean(&self.table);
+    fn invalidate_ltc(&self) -> Result<(), &'static str> {
         // The CPU mapping is not coherent with the GPU's L2.  Nouveau's
         // gk20a instance-memory release invalidates LTC after CPU writes;
         // a GMMU TLB invalidate alone can still reuse a cached old PTE.

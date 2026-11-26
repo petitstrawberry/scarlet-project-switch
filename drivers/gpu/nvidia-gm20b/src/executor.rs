@@ -233,7 +233,7 @@ impl State {
         if let Err(error) = self
             .dma()
             .map_private_kind(va, memory.pages.as_ref().unwrap(), page_kind)
-            .and_then(|_| self.dma().invalidate_all())
+            .and_then(|_| self.dma().publish_mapping(va, count))
         {
             self.fault();
             return Err(error);
@@ -379,7 +379,7 @@ impl State {
                     if d.modifier == 0 { 0 } else { 0xfe },
                 )?;
             }
-            self.dma().invalidate_all()
+            self.dma().publish_mapping(va, (size as usize).div_ceil(4096))
         })();
         if let Err(error) = result {
             self.fault();

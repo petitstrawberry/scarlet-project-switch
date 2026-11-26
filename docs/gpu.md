@@ -33,8 +33,8 @@ required to clear. Failed isolation or MC drain retains DMA allocations.
 Firmware-owned GPU/VPR/WPR carveouts and global SMMU state remain intact.
 
 GPU address bit 34 selects SMMU translation. Private allocations use physical
-memory below that bit. One retained directory and eight small-page tables
-cover a 512 MiB GPU virtual address space; VA zero remains invalid.
+memory below that bit. One retained directory and sixteen small-page tables
+cover a 1 GiB GPU virtual address space. VA zero remains invalid.
 Page-table publication, cache maintenance and TLB invalidation precede use.
 Private BAR1 read/write/remap checks establish physical backing before
 command execution is admitted.
