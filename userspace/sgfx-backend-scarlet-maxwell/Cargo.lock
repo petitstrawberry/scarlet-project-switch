@@ -268,7 +268,7 @@ dependencies = [
 [[package]]
 name = "sgfx-codegen-virgl"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/sgfx?rev=73330c2c6edc59f0b3a0081b96a5ad379086cbc5#73330c2c6edc59f0b3a0081b96a5ad379086cbc5"
+source = "git+https://github.com/petitstrawberry/sgfx?rev=61e5ddd0f0e31309d2468ace3c4afe67d949fa72#61e5ddd0f0e31309d2468ace3c4afe67d949fa72"
 dependencies = [
  "naga",
  "sgfx-core",
@@ -277,7 +277,7 @@ dependencies = [
 [[package]]
 name = "sgfx-core"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/sgfx?rev=77e64a81115d78fab7c63671c2a6c16aac060c05#77e64a81115d78fab7c63671c2a6c16aac060c05"
+source = "git+https://github.com/petitstrawberry/sgfx?rev=3a6a987aaa5284056d4b1dcb0cd45326d30b3fe1#3a6a987aaa5284056d4b1dcb0cd45326d30b3fe1"
 
 [[package]]
 name = "sgfx-nak"

@@ -6,7 +6,11 @@ use sgfx_core::{
     backend::{CommandExecutor, CommandSubmitter, CompletionStatus, SubmitError},
     ir,
 };
-use std::{rc::Rc, time::Duration};
+use std::{
+    rc::Rc,
+    sync::atomic::{AtomicU32, Ordering},
+    time::Duration,
+};
 
 mod driver;
 pub use driver::sgfx_backend_get_driver_api_v2;
@@ -36,6 +40,11 @@ fn core_batch(batch: abi::Batch) -> ir::abi::Batch {
 
 fn error(e: maxwell::IrSubmitError) -> i32 {
     use maxwell::IrSubmitError as E;
+    // Preserve the detailed rejection before translating it to the C ABI status.
+    static REPORTED: AtomicU32 = AtomicU32::new(0);
+    if REPORTED.fetch_add(1, Ordering::Relaxed) < 8 {
+        eprintln!("[sgfx-maxwell] request failed: {e:?}");
+    }
     match e {
         E::InvalidIr(e) => ir_error(e),
         E::ResourceTableMismatch

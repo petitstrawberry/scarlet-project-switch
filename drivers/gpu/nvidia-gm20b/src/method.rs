@@ -209,30 +209,29 @@ pub fn fixed_viewport_native(v: [f32; 6], width: u32, height: u32) -> Option<Nat
 /// Allowed portable state bits in a canonical SGFX draw record.
 /// Bit 0 is blend, bits 2..4 are cull/front-face and bit 5 is alpha-mask.
 /// Bit 1 selects linear minification, bit 6 selects a different magnification
-/// filter, and bits 7..8 / 9..10 encode ClampToEdge=0, Repeat=1, MirrorRepeat=2.
+/// filter, and bits 7..8 / 9..10 encode edge clamp, repeat, mirror, or border.
 /// The differential filter bit preserves existing records with equal filters.
 pub const DRAW_STATE_MASK: u32 = 0xfff;
 pub const DRAW_SAMPLER_MASK: u32 = (1 << 1) | (1 << 6) | (3 << 7) | (3 << 9) | (1 << 11);
 
 pub const fn draw_state_valid(flags: u32) -> bool {
-    flags & !DRAW_STATE_MASK == 0
-        && (flags >> 2) & 3 != 3
-        && (flags >> 7) & 3 != 3
-        && (flags >> 9) & 3 != 3
+    flags & !DRAW_STATE_MASK == 0 && (flags >> 2) & 3 != 3
 }
 
-const fn sampler_wrap(mode: u32) -> u32 {
+pub(crate) const fn sampler_wrap(mode: u32) -> u32 {
     match mode {
         0 => 2,
         1 => 0,
-        _ => 1,
+        2 => 1,
+        _ => 3,
     }
 }
 
 /// Construct a bounded sampler descriptor from portable SGFX draw state.
 ///
 /// Mesa nv50_state.c / g80_texture.xml.h at e881540692daac6532cefec76699f7a025563767:
-/// TSC wrap fields start at bits 0/3/6, Repeat=0, Mirror=1, ClampToEdge=2;
+/// TSC wrap fields start at bits 0/3/6, Repeat=0, Mirror=1, ClampToEdge=2, Border=3.
+/// The zero-filled border color words encode transparent black.
 /// mag/min filters occupy bits 0/4 of word 1, nearest=1 and linear=2.
 /// Mip filtering remains disabled because the fixed image view has one level.
 pub const fn draw_sampler_descriptor(flags: u32) -> Option<[u32; 8]> {

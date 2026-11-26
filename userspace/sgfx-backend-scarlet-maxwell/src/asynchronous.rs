@@ -5,6 +5,7 @@ use gpu_raw::{GPU_ABI_VERSION, GPU_RESULT_SUCCESS, GpuQueue};
 use sgfx_codegen_maxwell as codegen;
 use sgfx_core::backend::SubmitError;
 
+use crate::completion::monotonic_time_ns;
 use crate::dispatch::Chunk;
 use crate::execute::validate_fixed_command_subset;
 use crate::normalization::{NormalizeVertices, VertexSelection};
@@ -41,6 +42,7 @@ impl ContextResources {
         queue: &Arc<GpuQueue>,
         commands: &ir::CommandBuffer<'r, 'data>,
     ) -> Result<Submission, SubmitError<IrSubmitError, Submission>> {
+        let trace_start = crate::execute::submit_trace_enabled().then(monotonic_time_ns);
         validate_fixed_command_subset(commands).map_err(SubmitError::Rejected)?;
         crate::programmable::validate_negotiated_commands(context, commands).map_err(SubmitError::Rejected)?;
         if context.raw.as_handle().as_raw() != self.context_id() {
@@ -63,6 +65,7 @@ impl ContextResources {
         }
         // Materialize every logical resource and validate/compile every chunk
         // before accepting work. Borrowed uploads become owned bytes before logical admission.
+        let validated_at = trace_start.map(|_| monotonic_time_ns());
         let chunks = self
             .prepare_async(context, commands, limits.max_opaque_command_size as usize)
             .map_err(SubmitError::Rejected)?;
@@ -84,7 +87,36 @@ impl ContextResources {
             }),
         });
         let dispatcher = &self.context.dispatcher;
-        match dispatcher.enqueue(owner, chunks) {
+        let mut program_draws = 0;
+        let mut program_buffer_bytes = 0u64;
+        if trace_start.is_some() {
+            for chunk in &chunks {
+                if let Chunk::ProgrammableDraw(draw) = chunk {
+                    program_draws += 1;
+                    program_buffer_bytes += draw.snapshot_bytes();
+                }
+            }
+        }
+        let prepared_at = trace_start.map(|_| monotonic_time_ns());
+        let chunk_count = chunks.len();
+        let admission = dispatcher.enqueue(owner, chunks, trace_start);
+        if let (Some(start), Some(validated), Some(prepared)) =
+            (trace_start, validated_at, prepared_at)
+        {
+            let outcome = match &admission {
+                Ok(_) => "accepted",
+                Err(AdmissionError::Busy) => "busy",
+                Err(_) => "rejected",
+            };
+            std::println!(
+                "[gm20b-userspace] async start_ns={start} outcome={outcome} commands={} chunks={chunk_count} program_draws={program_draws} program_buffer_bytes={program_buffer_bytes} preflight_us={} prepare_us={} enqueue_us={}",
+                commands.commands().len(),
+                (validated - start) / 1000,
+                (prepared - validated) / 1000,
+                (monotonic_time_ns() - prepared) / 1000,
+            );
+        }
+        match admission {
             Ok(signal) => Ok(Submission::new(signal)),
             Err(AdmissionError::Busy) => Err(SubmitError::Busy),
             Err(AdmissionError::TooLarge) => {

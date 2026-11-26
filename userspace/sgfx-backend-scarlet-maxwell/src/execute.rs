@@ -25,7 +25,7 @@ const PIPELINE_OBJECT_BASE: u32 = 1 << 24;
 // negotiated ABI limit.
 const MAX_DRAWS_PER_SUBMIT: usize = 512;
 
-fn submit_trace_enabled() -> bool {
+pub(crate) fn submit_trace_enabled() -> bool {
     static TRACE_CACHE: AtomicU8 = AtomicU8::new(u8::MAX);
     let cached = TRACE_CACHE.load(Ordering::Relaxed);
     if cached != u8::MAX {
@@ -923,6 +923,9 @@ pub(crate) fn append_image_resource(
                 | ir::TextureFormat::Rg8Unorm
                 | ir::TextureFormat::Bgra8UnormSrgb
                 | ir::TextureFormat::Rgba8UnormSrgb => ir::TextureFormat::Bgra8Unorm,
+                ir::TextureFormat::Rgba16Float | ir::TextureFormat::Rgba32Float => {
+                    return Err(IrSubmitError::Unsupported(UnsupportedIrFeature::ImageLayout));
+                }
             },
             extent: descriptor.extent(),
             usage,
@@ -968,6 +971,8 @@ fn require_texture_upload_format(format: ir::TextureFormat) -> Result<(), IrSubm
         | ir::TextureFormat::Bgra8UnormSrgb
         | ir::TextureFormat::Rgba8UnormSrgb => Ok(()),
         ir::TextureFormat::Nv12
+        | ir::TextureFormat::Rgba16Float
+        | ir::TextureFormat::Rgba32Float
         | ir::TextureFormat::Depth32Float => Err(IrSubmitError::Unsupported(
             UnsupportedIrFeature::TextureUpload,
         )),

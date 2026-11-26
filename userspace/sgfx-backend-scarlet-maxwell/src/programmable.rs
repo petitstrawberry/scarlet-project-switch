@@ -210,12 +210,31 @@ fn encode_program(shader: &CompiledShader) -> Result<Vec<u8>, IrSubmitError> {
 }
 
 pub(crate) struct CompiledPipeline {
-    pub(crate) topology: ir::PrimitiveTopology,
-    pub(crate) vertex: CompiledShader,
-    pub(crate) fragment: CompiledShader,
-    pub(crate) vertex_package: Vec<u8>,
-    pub(crate) fragment_package: Vec<u8>,
-    pub(crate) vertex_buffers: Vec<ir::VertexBufferLayout>,
+    topology: ir::PrimitiveTopology,
+    vertex: Rc<CompiledStage>,
+    fragment: Rc<CompiledStage>,
+    vertex_buffers: Vec<ir::VertexBufferLayout>,
+}
+
+struct CompiledStage {
+    entry: ir::ShaderEntryPoint,
+    shader: CompiledShader,
+    spirv: bool,
+    package: Vec<u8>,
+    uploaded: core::cell::RefCell<Option<Arc<RawBuffer>>>,
+}
+
+impl CompiledStage {
+    fn upload(&self, context: &Arc<crate::ContextInner>) -> Result<Arc<RawBuffer>, IrSubmitError> {
+        let mut uploaded = self.uploaded.borrow_mut();
+        if let Some(buffer) = uploaded.as_ref() {
+            return Ok(Arc::clone(buffer));
+        }
+        let buffer = Arc::new(RawBuffer::create(context, self.package.len() as u64)?);
+        buffer.write(0, &self.package)?;
+        *uploaded = Some(Arc::clone(&buffer));
+        Ok(buffer)
+    }
 }
 
 impl ContextResources {
@@ -232,7 +251,8 @@ impl ContextResources {
         {
             return Ok(Rc::clone(compiled));
         }
-        let compiled = compile_pipeline(&self.resources, id)?;
+        let compiled =
+            compile_pipeline(&self.resources, id, &self.programmable_pipelines.borrow())?;
         let mut cache = self.programmable_pipelines.borrow_mut();
         cache
             .try_reserve(1)
@@ -245,6 +265,7 @@ impl ContextResources {
 fn compile_pipeline(
     resources: &ir::ResourceTable,
     id: ir::ProgrammableRenderPipelineId,
+    cached: &[(ir::ProgrammableRenderPipelineId, Rc<CompiledPipeline>)],
 ) -> Result<Rc<CompiledPipeline>, IrSubmitError> {
     let reference = resources.programmable_render_pipeline_ref(id)?;
     let pipeline = resources.programmable_render_pipeline_shared(reference)?;
@@ -276,13 +297,7 @@ fn compile_pipeline(
             .vertex_buffers()
             .iter()
             .flat_map(|layout| layout.attributes())
-            .any(|a| {
-                a.location() >= 16
-                    || matches!(
-                        a.format(),
-                        ir::VertexFormat::Uint16x2 | ir::VertexFormat::Float32
-                    )
-            })
+            .any(|a| a.location() >= 16 || vertex_format(a.format()) == 0)
     {
         return Err(IrSubmitError::Unsupported(
             UnsupportedIrFeature::VertexLayout,
@@ -312,19 +327,32 @@ fn compile_pipeline(
             ));
         }
     }
-    let compile = |entry: &ir::ShaderEntryPoint| {
-        let module = resources.shader_module(resources.shader_module_ref(entry.module())?)?;
-        compile_shader(&module, entry.stage(), entry.entry_point())
-            .map(|shader| {
-                (
-                    shader,
-                    matches!(module.source(), ir::ShaderSource::SpirV(_)),
-                )
-            })
-            .map_err(IrSubmitError::ShaderCompile)
+    let compile = |entry: &ir::ShaderEntryPoint| -> Result<Rc<CompiledStage>, IrSubmitError> {
+        let reference = resources.shader_module_ref(entry.module())?;
+        // Entry equality includes table identity, module generation, stage and name.
+        // Pipeline-specific interface and binding checks still run below.
+        if let Some(stage) = cached
+            .iter()
+            .flat_map(|(_, p)| [&p.vertex, &p.fragment])
+            .find(|s| &s.entry == entry)
+        {
+            return Ok(Rc::clone(stage));
+        }
+        let module = resources.shader_module(reference)?;
+        let shader = compile_shader(&module, entry.stage(), entry.entry_point())
+            .map_err(IrSubmitError::ShaderCompile)?;
+        Ok(Rc::new(CompiledStage {
+            entry: entry.clone(),
+            package: encode_program(&shader)?,
+            shader,
+            spirv: matches!(module.source(), ir::ShaderSource::SpirV(_)),
+            uploaded: core::cell::RefCell::new(None),
+        }))
     };
-    let (vertex, vertex_spirv) = compile(pipeline.vertex())?;
-    let (fragment, fragment_spirv) = compile(pipeline.fragment())?;
+    let vertex_stage = compile(pipeline.vertex())?;
+    let fragment_stage = compile(pipeline.fragment())?;
+    let vertex = &vertex_stage.shader;
+    let fragment = &fragment_stage.shader;
     let attributes = || {
         pipeline
             .vertex_buffers()
@@ -388,7 +416,8 @@ fn compile_pipeline(
         // WGSL's stricter cross-stage interpolation matching rule.
         if input.components != output.components
             || input.scalar != output.scalar
-            || !(vertex_spirv && fragment_spirv) && input.interpolation != output.interpolation
+            || !(vertex_stage.spirv && fragment_stage.spirv)
+                && input.interpolation != output.interpolation
         {
             #[cfg(feature = "std")]
             if std::env::var_os("SGFX_VULKAN_TRACE").is_some() {
@@ -400,13 +429,13 @@ fn compile_pipeline(
         }
     }
     // Each stage is bounded independently and uses VirGL shader continuations.
-    if [&vertex, &fragment]
+    if [vertex, fragment]
         .iter()
         .any(|shader| shader.tgsi.len() > 256 * 1024)
     {
         return Err(IrSubmitError::SubmissionTooLarge);
     }
-    for shader in [&vertex, &fragment] {
+    for shader in [vertex, fragment] {
         let visibility = match shader.stage {
             ir::ShaderStage::Vertex => ir::ShaderStages::VERTEX,
             ir::ShaderStage::Fragment => ir::ShaderStages::FRAGMENT,
@@ -540,10 +569,8 @@ fn compile_pipeline(
     }
     let compiled = Rc::new(CompiledPipeline {
         topology: pipeline.topology(),
-        vertex_package: encode_program(&vertex)?,
-        fragment_package: encode_program(&fragment)?,
-        vertex,
-        fragment,
+        vertex: vertex_stage,
+        fragment: fragment_stage,
         vertex_buffers: pipeline.vertex_buffers().to_vec(),
     });
     Ok(compiled)
@@ -567,6 +594,20 @@ struct UniformPatch {
     size: usize,
 }
 impl PreparedDraw {
+    /// Buffer bytes declared to the kernel for this draw, including SGMD and shaders.
+    pub(crate) fn snapshot_bytes(&self) -> u64 {
+        self.resources
+            .iter()
+            .filter(|resource| {
+                resource.attachment_token == self.metadata.attachment_token
+                    || self
+                        ._buffers
+                        .iter()
+                        .any(|b| b.attachment_token == resource.attachment_token)
+            })
+            .map(|resource| resource.range_size)
+            .sum()
+    }
     pub(crate) fn budget_bytes(&self) -> usize {
         // Account for the immutable template, the unique native metadata
         // allocation, and the dispatch-time snapshot. Source/program owners
@@ -781,6 +822,31 @@ fn append_range(bytes: &mut Vec<u8>, buffer: &RawBuffer, offset: u64, size: u64)
     push_u64(bytes, offset);
     push_u64(bytes, size);
 }
+
+fn vertex_stream_size(
+    layout: &ir::VertexBufferLayout,
+    available: u64,
+    end_vertex: Option<u32>,
+) -> Result<u64, IrSubmitError> {
+    // Indexed draws resolve their vertices from the ordered index snapshot.
+    let Some(end) = end_vertex else {
+        return Ok(available);
+    };
+    let last = end.checked_sub(1).ok_or(ir::Error::OutOfBounds)?;
+    let stride = u64::from(layout.stride());
+    let attribute_end = layout
+        .attributes()
+        .iter()
+        .map(|a| u64::from(a.offset()) + u64::from(a.format().byte_size()))
+        .max()
+        .unwrap_or(0);
+    if u64::from(last) * stride + attribute_end > available {
+        return Err(ir::Error::OutOfBounds.into());
+    }
+    // Keep the original binding origin and first vertex for shaders which
+    // read VertexID. The kernel checks whole strides and snapshots this range.
+    Ok(available.min(u64::from(end) * stride))
+}
 fn vertex_format(format: ir::VertexFormat) -> u32 {
     match format {
         ir::VertexFormat::Float32x2 => 1,
@@ -794,7 +860,7 @@ fn vertex_format(format: ir::VertexFormat) -> u32 {
         ir::VertexFormat::Sint16x4 => 20,
         ir::VertexFormat::Snorm10_10_10_2 => 21,
         // Rejected by the layout validation before a draw is prepared.
-        ir::VertexFormat::Uint16x2 | ir::VertexFormat::Float32 => 0,
+        _ => 0,
     }
 }
 fn compare(compare: ir::CompareFunction) -> u32 {
@@ -828,6 +894,8 @@ fn blend_op(op: ir::BlendOp) -> u32 {
         ir::BlendOp::Add => 0,
         ir::BlendOp::Subtract => 1,
         ir::BlendOp::ReverseSubtract => 2,
+        ir::BlendOp::Min => 3,
+        ir::BlendOp::Max => 4,
     }
 }
 fn sampler_flags(s: ir::SamplerDesc) -> u32 {
@@ -835,8 +903,7 @@ fn sampler_flags(s: ir::SamplerDesc) -> u32 {
         ir::AddressMode::ClampToEdge => 0,
         ir::AddressMode::Repeat => 1,
         ir::AddressMode::MirrorRepeat => 2,
-        // Rejected before sampler recording; the fixed TSC has no border color.
-        ir::AddressMode::ClampToBorder => 0,
+        ir::AddressMode::ClampToBorder => 3,
     };
     u32::from(s.mag_filter() == ir::FilterMode::Linear)
         | u32::from(s.min_filter() == ir::FilterMode::Linear) << 1
@@ -846,8 +913,7 @@ fn sampler_flags(s: ir::SamplerDesc) -> u32 {
         | s.compare().map_or(0, |v| (1 << 9) | (compare(v) << 10))
 }
 
-/// SGMD samples ordinary color/depth attachments. Shared multi-plane NV12
-/// images belong to the fixed YCbCr path and have no programmable descriptor.
+/// SGMD samples the supported color and depth attachment formats.
 fn programmable_sample_format(format: ir::TextureFormat) -> Result<u32, IrSubmitError> {
     match format {
         ir::TextureFormat::Bgra8Unorm
@@ -857,7 +923,7 @@ fn programmable_sample_format(format: ir::TextureFormat) -> Result<u32, IrSubmit
         ir::TextureFormat::R8Unorm => Ok(2),
         ir::TextureFormat::Rg8Unorm => Ok(3),
         ir::TextureFormat::Depth32Float => Ok(4),
-        ir::TextureFormat::Nv12 => Err(IrSubmitError::Unsupported(
+        ir::TextureFormat::Nv12 | ir::TextureFormat::Rgba16Float | ir::TextureFormat::Rgba32Float => Err(IrSubmitError::Unsupported(
             UnsupportedIrFeature::ImageLayout,
         )),
     }
@@ -896,45 +962,21 @@ impl ContextResources {
             ir::PrimitiveTopology::TriangleStrip => 1,
             ir::PrimitiveTopology::TriangleFan => 2,
             // Rejected by pipeline validation above.
-            ir::PrimitiveTopology::LineList | ir::PrimitiveTopology::LineStrip => 0,
+            ir::PrimitiveTopology::PointList
+            | ir::PrimitiveTopology::LineList
+            | ir::PrimitiveTopology::LineStrip => unreachable!("unsupported topology was validated"),
         };
         header[5] = count;
         header[6] = instances;
         header[7] = first;
         header[8] = base.unwrap_or(0) as u32;
         header[9] = first_instance;
-        let uploaded = if let Some((_, vertex, fragment)) = self
-            .programmable_programs
-            .iter()
-            .find(|(id, _, _)| *id == reference.id())
-        {
-            [Arc::clone(vertex), Arc::clone(fragment)]
-        } else {
-            let vertex = Arc::new(RawBuffer::create(
-                &self.context,
-                pipeline.vertex_package.len() as u64,
-            )?);
-            vertex.write(0, &pipeline.vertex_package)?;
-            let fragment = Arc::new(RawBuffer::create(
-                &self.context,
-                pipeline.fragment_package.len() as u64,
-            )?);
-            fragment.write(0, &pipeline.fragment_package)?;
-            self.programmable_programs
-                .try_reserve(1)
-                .map_err(|_| IrSubmitError::OutOfMemory)?;
-            self.programmable_programs.push((
-                reference.id(),
-                Arc::clone(&vertex),
-                Arc::clone(&fragment),
-            ));
-            [vertex, fragment]
-        };
-        for (stage, buffer) in [0, 4].into_iter().zip(&uploaded) {
+        for (stage, program) in [(0, &pipeline.vertex), (4, &pipeline.fragment)] {
+            let buffer = program.upload(&self.context)?;
             push_u32(&mut sections[0], stage);
             push_u32(&mut sections[0], 0);
-            append_range(&mut sections[0], buffer, 0, buffer.logical_size);
-            buffers.push(Arc::clone(buffer));
+            append_range(&mut sections[0], &buffer, 0, buffer.logical_size);
+            buffers.push(buffer);
         }
         for (slot, layout) in pipeline.vertex_buffers.iter().enumerate() {
             let (reference, offset) = state.vertices[slot].ok_or(ir::Error::VertexBufferNotSet)?;
@@ -943,7 +985,12 @@ impl ContextResources {
                 return Err(ir::Error::InvalidUsage.into());
             }
             let buffer = Arc::clone(self.buffer(reference)?);
-            append_range(&mut sections[1], &buffer, offset, desc.size() - offset);
+            let size = vertex_stream_size(
+                layout,
+                desc.size() - offset,
+                base.is_none().then_some(first + count),
+            )?;
+            append_range(&mut sections[1], &buffer, offset, size);
             push_u32(&mut sections[1], layout.stride());
             push_u32(&mut sections[1], 0);
             push_u64(&mut sections[1], 0);
@@ -955,24 +1002,6 @@ impl ContextResources {
                     vertex_format(attr.format()),
                 ] {
                     push_u32(&mut sections[2], word);
-                }
-            }
-            if base.is_none() {
-                let end = u64::from(first + count - 1)
-                    .checked_mul(u64::from(layout.stride()))
-                    .and_then(|n| {
-                        n.checked_add(
-                            layout
-                                .attributes()
-                                .iter()
-                                .map(|a| u64::from(a.offset() + a.format().byte_size()))
-                                .max()
-                                .unwrap_or(0),
-                        )
-                    })
-                    .ok_or(ir::Error::Overflow)?;
-                if end > desc.size() - offset {
-                    return Err(ir::Error::OutOfBounds.into());
                 }
             }
             buffers.push(buffer);
@@ -1022,9 +1051,10 @@ impl ContextResources {
                 .map(|e| e.resource())
                 .ok_or_else(|| ir::Error::BindingLayoutMismatch.into())
         };
-        for (stage_index, (stage, shader)) in [(0, &pipeline.vertex), (4, &pipeline.fragment)]
-            .into_iter()
-            .enumerate()
+        for (stage_index, (stage, shader)) in
+            [(0, &pipeline.vertex.shader), (4, &pipeline.fragment.shader)]
+                .into_iter()
+                .enumerate()
         {
             let bank_start = inline.len();
             let bank_size = constant_bank_size(shader)? as usize;
@@ -1169,13 +1199,6 @@ impl ContextResources {
                         ir::AddressMode::ClampToEdge,
                     )
                 };
-                if matches!(sampler.address_u(), ir::AddressMode::ClampToBorder)
-                    || matches!(sampler.address_v(), ir::AddressMode::ClampToBorder)
-                {
-                    return Err(IrSubmitError::Unsupported(
-                        UnsupportedIrFeature::ResourceBindings,
-                    ));
-                }
                 if sampler.compare().is_some() != binding.comparison {
                     return Err(ir::Error::BindingLayoutMismatch.into());
                 }
@@ -1357,7 +1380,7 @@ impl ContextResources {
         }
         let slices = core::array::from_fn(|index| sections[index].as_slice());
         let bytes = encode_draw_sections(&header, slices, &inline)?;
-        program_wire::draw::Draw::parse(&bytes).map_err(compile_error)?;
+        let draw = program_wire::draw::Draw::parse(&bytes).map_err(compile_error)?;
         let inline_offset = u32::from_le_bytes(bytes[120..124].try_into().unwrap()) as usize;
         for patch in &mut patches {
             patch.destination += inline_offset;
@@ -1373,7 +1396,6 @@ impl ContextResources {
             range_size: bytes.len() as u64,
             access: maxwell_submit_wire::ACCESS_READ,
         });
-        let draw = program_wire::draw::Draw::parse(&bytes).map_err(compile_error)?;
         for index in 0..draw.program_count() {
             let range = draw.program(index).unwrap().range;
             declare_range(
@@ -1621,6 +1643,7 @@ pub(crate) fn validate_negotiated_commands(
         }
         if let ir::Command::ResourceBarrier(barrier) = command {
             let invalid = match barrier {
+                ir::ResourceBarrier::Global => false,
                 ir::ResourceBarrier::Buffer { before, after, .. } => [before, after]
                     .iter()
                     .any(|access| matches!(access, ir::BufferAccess::StorageReadWrite)),
@@ -2135,6 +2158,94 @@ fn patch_uniform_bytes<T>(
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
+    #[test]
+    fn shared_shader_entries_still_validate_each_pipeline_and_module_generation() {
+        let table = ir::ResourceTable::new();
+        let source =
+            "@vertex fn vs(@location(0) p: vec4<f32>) -> @builtin(position) vec4<f32> { return p; }
+                      @fragment fn a() -> @location(0) vec4<f32> { return vec4<f32>(1.0); }
+                      @fragment fn b() -> @location(0) vec4<f32> { return vec4<f32>(0.0); }";
+        let module = || {
+            table
+                .define_shader_module(ir::ShaderModuleDesc::wgsl(source.into()).unwrap())
+                .unwrap()
+        };
+        let make = |module, fragment: &str, with_position: bool| {
+            let vertices = with_position.then(|| {
+                ir::VertexBufferLayout::new(
+                    16,
+                    vec![ir::VertexAttribute::new(0, VertexFormat::Float32x4, 0)],
+                )
+                .unwrap()
+            });
+            table
+                .define_programmable_render_pipeline(
+                    ir::ProgrammableRenderPipelineDesc::new(
+                        ir::ShaderEntryPoint::new(module, ir::ShaderStage::Vertex, "vs".into())
+                            .unwrap(),
+                        ir::ShaderEntryPoint::new(
+                            module,
+                            ir::ShaderStage::Fragment,
+                            fragment.into(),
+                        )
+                        .unwrap(),
+                        ir::PipelineLayoutDesc::new(vec![]).unwrap(),
+                        TextureFormat::Bgra8Unorm,
+                        vertices,
+                        PrimitiveTopology::TriangleList,
+                        ir::BlendState::REPLACE,
+                        ir::RasterState::new(ir::CullMode::None, ir::FrontFace::CounterClockwise),
+                    )
+                    .unwrap(),
+                )
+                .unwrap()
+                .id()
+        };
+        let old = module();
+        let a = make(old, "a", true);
+        let b = make(old, "b", true);
+        let invalid = make(old, "a", false);
+        let first = compile_pipeline(&table, a, &[]).unwrap();
+        let cache = [(a, first)];
+        let second = compile_pipeline(&table, b, &cache).unwrap();
+        assert!(Rc::ptr_eq(&cache[0].1.vertex, &second.vertex));
+        assert!(!Rc::ptr_eq(&cache[0].1.fragment, &second.fragment));
+        assert!(matches!(
+            compile_pipeline(&table, invalid, &cache),
+            Err(IrSubmitError::InvalidIr(ir::Error::InvalidDescriptor))
+        ));
+
+        for id in [a, b, invalid] {
+            table.release_programmable_render_pipeline(id).unwrap();
+        }
+        table.release_shader_module(old.id()).unwrap();
+        let replacement = module();
+        assert_eq!(replacement.slot(), old.slot());
+        let fresh = compile_pipeline(&table, make(replacement, "a", true), &cache).unwrap();
+        assert!(!Rc::ptr_eq(&cache[0].1.vertex, &fresh.vertex));
+        assert!(!Rc::ptr_eq(&cache[0].1.fragment, &fresh.fragment));
+    }
+    #[test]
+    fn glass_vertex_stream_excludes_unused_frame_capacity() {
+        let layout = ir::VertexBufferLayout::new(
+            40,
+            vec![ir::VertexAttribute::new(0, ir::VertexFormat::Float32x4, 0)],
+        )
+        .unwrap();
+        let capacity = 196_608 * 40;
+        // A six-vertex draw at first_vertex 12 keeps that shader-visible ID.
+        assert_eq!(
+            vertex_stream_size(&layout, capacity, Some(18)).unwrap(),
+            720
+        );
+        assert_eq!(
+            vertex_stream_size(&layout, capacity, None).unwrap(),
+            capacity
+        );
+        // Do not extend a short binding beyond its last attribute or its end.
+        assert_eq!(vertex_stream_size(&layout, 696, Some(18)).unwrap(), 696);
+        assert!(vertex_stream_size(&layout, 695, Some(18)).is_err());
+    }
     #[test]
     fn programmable_samples_reject_nv12_before_native_descriptor_creation() {
         assert!(matches!(

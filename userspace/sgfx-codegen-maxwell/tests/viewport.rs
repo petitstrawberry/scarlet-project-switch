@@ -84,6 +84,43 @@ fn compile_ops(
 }
 
 #[test]
+fn fixed_draw_rebases_only_the_fetched_vertices() {
+    let (mut resources, pipeline, mut ops) = fixture();
+    let vertex = resources[1].id;
+    let binding_offset = 32;
+    let first_vertex = 24_000;
+    let start = binding_offset + u64::from(first_vertex) * 16;
+    resources[1].size = start + 6 * 16;
+    ops.push(Operation::SetVertexBuffer {
+        buffer: vertex,
+        offset: binding_offset,
+    });
+    ops.push(Operation::Draw {
+        first_vertex,
+        vertex_count: 6,
+    });
+    ops.push(Operation::EndRenderPass);
+    let commands = compile_ops(&resources, &pipeline, &ops, 64).unwrap();
+    assert_eq!(&commands.words[24..26], &[0, 6]);
+    assert_eq!(commands.words[28], 96);
+    let binding = &commands.fixups[1];
+    assert_eq!(binding.object, ObjectRef::External(vertex));
+    assert_eq!((binding.object_offset, binding.required_size), (start, 96));
+    let access = commands
+        .accesses
+        .iter()
+        .find(|a| a.object == binding.object)
+        .unwrap();
+    assert_eq!((access.offset, access.size), (start, 96));
+
+    resources[1].size -= 1;
+    assert_eq!(
+        compile_ops(&resources, &pipeline, &ops, 64),
+        Err(CompileError::OutOfBounds)
+    );
+}
+
+#[test]
 fn native_viewport_is_emitted_for_each_draw_without_composing_the_transform() {
     let (resources, pipeline, mut ops) = fixture();
     let viewport = Viewport::new(2.25, 27.5, 17.5, -20.25, 0.8, 0.2).unwrap();

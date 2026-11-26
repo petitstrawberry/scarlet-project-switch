@@ -642,6 +642,9 @@ fn require_image_surface(
             TextureFormat::Rgba8UnormSrgb => 5,
             TextureFormat::Depth32Float => 6,
             TextureFormat::Nv12 => 7,
+            TextureFormat::Rgba16Float | TextureFormat::Rgba32Float => {
+                return Err(CompileError::UnsupportedFeature);
+            }
         },
         mip_levels: image.subresources.map_or(1, |l| l.descriptor.mip_levels),
     })
@@ -769,22 +772,24 @@ fn emit_draw(
     draw: DrawCall,
 ) -> Result<(), CompileError> {
     let (pass, pipeline, vertex, uniforms) = require_draw_state(state)?;
-    let (vertex_size, draw_count) = match draw {
+    let (vertex_offset, vertex_size, draw_count) = match draw {
         DrawCall::NonIndexed {
             vertex_count,
             first_vertex,
         } => {
-            let end_vertex = first_vertex
+            first_vertex
                 .checked_add(vertex_count)
                 .ok_or(CompileError::Overflow)?;
-            (
-                u64::from(end_vertex)
-                    .checked_mul(u64::from(pipeline.descriptor.vertex_buffer().stride()))
-                    .ok_or(CompileError::Overflow)?,
-                vertex_count,
-            )
+            let stride = u64::from(pipeline.descriptor.vertex_buffer().stride());
+            // Fixed shaders fetch attributes only. Rebase the stream and issue
+            // the draw at zero so the kernel snapshots just the fetched range.
+            let start = vertex
+                .offset
+                .checked_add(u64::from(first_vertex) * stride)
+                .ok_or(CompileError::OutOfBounds)?;
+            (start, u64::from(vertex_count) * stride, vertex_count)
         }
-        DrawCall::Indexed(indexed) => (indexed.vertex_size, indexed.index_count),
+        DrawCall::Indexed(indexed) => (vertex.offset, indexed.vertex_size, indexed.index_count),
     };
     if draw_count == 0 || !draw_count.is_multiple_of(3) {
         return Err(CompileError::UnsupportedFeature);
@@ -807,7 +812,7 @@ fn emit_draw(
     let vertex_resource = find_resource(input.resources, vertex.object)?;
     require_buffer_usage(vertex_resource, BufferUsage::VERTEX)?;
     let stride = pipeline.descriptor.vertex_buffer().stride();
-    validate_range(vertex_resource.size, vertex.offset, vertex_size)?;
+    validate_range(vertex_resource.size, vertex_offset, vertex_size)?;
     u32::try_from(vertex_size).map_err(|_| CompileError::OutOfBounds)?;
     if state
         .scissor
@@ -883,7 +888,7 @@ fn emit_draw(
         blend: pipeline.descriptor.blend(),
         color_write_mask: state.color_write_mask,
         vertex: vertex.object,
-        vertex_offset: vertex.offset,
+        vertex_offset,
         vertex_size,
         stride,
         attributes,
@@ -1090,17 +1095,18 @@ fn validate_sample_state(
     }
     let min_linear = sampler.min_filter() == FilterMode::Linear;
     let mag_linear = sampler.mag_filter() == FilterMode::Linear;
-    if matches!(sampler.address_u(), AddressMode::ClampToBorder)
-        || matches!(sampler.address_v(), AddressMode::ClampToBorder)
+    if image.format == TextureFormat::Nv12
+        && [sampler.address_u(), sampler.address_v()].contains(&AddressMode::ClampToBorder)
     {
-        // The fixed Maxwell sampler record has no border-color payload.
+        // The YCbCr shader converts its samples to RGB, so zero plane values
+        // do not represent a transparent black border.
         return Err(CompileError::UnsupportedFeature);
     }
     let address = |mode| match mode {
         AddressMode::ClampToEdge => 0,
         AddressMode::Repeat => 1,
         AddressMode::MirrorRepeat => 2,
-        AddressMode::ClampToBorder => 0,
+        AddressMode::ClampToBorder => 3,
     };
     // Retain legacy records: bit 1 alone still means both filters are linear.
     // Bit 6 selects different min/mag filters; bits 7..10 carry the portable
@@ -1216,6 +1222,8 @@ fn convert_upload_row(
         | TextureFormat::Nv12
         | TextureFormat::Bgra8UnormSrgb
         | TextureFormat::Rgba8UnormSrgb
+        | TextureFormat::Rgba16Float
+        | TextureFormat::Rgba32Float
         | TextureFormat::Depth32Float => Err(CompileError::UnsupportedFeature),
     }
 }

@@ -365,6 +365,45 @@ fn arbitrary_transform_preserves_layout_push_constants_and_system_values() {
 }
 
 #[test]
+fn rounded_corner_early_returns_have_executable_fallthrough_edges() {
+    // A reduced version of the distance function shared by erase and glass.
+    // VirGL represents an early return with a result and a returned flag.
+    let desc = ShaderModuleDesc::wgsl(
+        r#"
+fn distance(q: vec2<f32>) -> f32 {
+    if q.x > 0.0 && q.y > 0.0 { return 24.0 - length(q); }
+    if q.x > q.y { return 24.0 - q.x; }
+    return 24.0 - q.y;
+}
+@fragment fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    let q = abs(pos.xy - vec2(96.0, 48.0)) - vec2(72.0, 32.0) + vec2(24.0);
+    return vec4(0.0, 0.0, 0.0, clamp(distance(q) + 0.5, 0.0, 1.0));
+}
+"#
+        .into(),
+    )
+    .unwrap();
+    let reflection =
+        sgfx_codegen_virgl::programmable::compile_shader(&desc, ShaderStage::Fragment, "main")
+            .unwrap();
+    let program = tgsi::parse(&reflection.tgsi).unwrap();
+    let sm = sgfx_nak::ir::ShaderModelInfo::new(52, 64);
+    let shader = lower::lower(&sm, &program).unwrap();
+    let blocks = &shader.functions[0].blocks;
+    for (index, block) in blocks.iter().enumerate() {
+        // The encoder emits blocks in this order. Falling through to an
+        // intervening edge block executes another arm's phi copies.
+        if block.falls_through() {
+            assert_eq!(
+                blocks.succ_indices(index)[0],
+                index + 1,
+                "fallthrough from block {index} misses its CFG successor"
+            );
+        }
+    }
+}
+
+#[test]
 fn function_calls_loops_branching_discard_and_multiple_targets_compile() {
     let shader = compile(
         r#"
@@ -733,4 +772,22 @@ fn outputless_discard_shader_is_a_valid_fragment_program() {
     };
     assert_eq!(io.writes_color, 0);
     assert!(shader.assembly.contains("kill"));
+}
+
+#[test]
+fn compiles_and_validates_glass_sized_uniform_array() {
+    let shader = compile(
+        r#"
+        struct Parameters {
+            kernel: array<vec4<f32>, 65>,
+        };
+        @group(0) @binding(0) var<uniform> p: Parameters;
+
+        @fragment fn main(@location(0) @interpolate(flat) index: u32) -> @location(0) vec4<f32> {
+            return p.kernel[index];
+        }
+        "#,
+        ShaderStage::Fragment,
+    );
+    assert_eq!(shader.uniform_buffers[0].required_size, 65 * 16);
 }

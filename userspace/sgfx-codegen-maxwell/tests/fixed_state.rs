@@ -238,6 +238,7 @@ fn all_filter_and_address_combinations_have_exact_portable_records() {
         AddressMode::ClampToEdge,
         AddressMode::Repeat,
         AddressMode::MirrorRepeat,
+        AddressMode::ClampToBorder,
     ];
     for (min, &min_filter) in filters.iter().enumerate() {
         for (mag, &mag_filter) in filters.iter().enumerate() {
@@ -261,21 +262,6 @@ fn all_filter_and_address_combinations_have_exact_portable_records() {
                 }
             }
         }
-    }
-}
-
-#[test]
-fn border_sampling_is_rejected_instead_of_becoming_edge_clamping() {
-    for (u, v) in [
-        (AddressMode::ClampToBorder, AddressMode::ClampToEdge),
-        (AddressMode::ClampToEdge, AddressMode::ClampToBorder),
-    ] {
-        let result = draw(
-            SamplerDesc::new(FilterMode::Nearest, FilterMode::Nearest, u, v),
-            None,
-            48,
-        );
-        assert!(matches!(result, Err(CompileError::UnsupportedFeature)));
     }
 }
 

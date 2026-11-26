@@ -152,13 +152,15 @@ impl Event {
 pub(crate) struct Signal {
     result: Mutex<Option<Result<(), Failure>>>,
     event: Event,
+    trace_start: Option<u64>,
 }
 
 impl Signal {
-    fn new() -> HandleResult<Self> {
+    fn new(trace_start: Option<u64>) -> HandleResult<Self> {
         Ok(Self {
             result: Mutex::new(None),
             event: Event::new()?,
+            trace_start,
         })
     }
 
@@ -178,6 +180,14 @@ impl Signal {
         loop {
             let status = self.poll()?;
             if status == CompletionStatus::Complete {
+                if let Some(start) = self.trace_start {
+                    let observed = monotonic_time_ns();
+                    std::println!(
+                        "[gm20b-userspace] receipt start_ns={start} wait_us={} observed_age_us={}",
+                        (observed - started) / 1000,
+                        (observed - start) / 1000,
+                    );
+                }
                 return Ok(status);
             }
             let remaining = remaining_timeout_ns(timeout, started, monotonic_time_ns());
@@ -363,8 +373,9 @@ impl NativeScheduler {
         &self,
         owner: Arc<DispatchOwner>,
         chunks: Vec<Chunk>,
+        trace_start: Option<u64>,
     ) -> Result<Arc<Signal>, AdmissionError<Failure>> {
-        let signal = Arc::new(Signal::new().map_err(|_| AdmissionError::OutOfMemory)?);
+        let signal = Arc::new(Signal::new(trace_start).map_err(|_| AdmissionError::OutOfMemory)?);
         // Retirement can release the last physical attachment and enter the
         // kernel's mapping gate. Logical admission must not wait behind it.
         let mut scheduler = try_lock(&self.shared.scheduler).ok_or(AdmissionError::Busy)?;

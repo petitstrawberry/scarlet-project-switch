@@ -684,9 +684,10 @@ fn color_bytes_per_pixel(
         | ir::TextureFormat::Rgba8UnormSrgb => Ok(4),
         ir::TextureFormat::R8Unorm => Ok(1),
         ir::TextureFormat::Rg8Unorm => Ok(2),
-        ir::TextureFormat::Nv12 | ir::TextureFormat::Depth32Float => {
-            Err(IrSubmitError::Unsupported(feature))
-        }
+        ir::TextureFormat::Nv12
+        | ir::TextureFormat::Depth32Float
+        | ir::TextureFormat::Rgba16Float
+        | ir::TextureFormat::Rgba32Float => Err(IrSubmitError::Unsupported(feature)),
     }
 }
 

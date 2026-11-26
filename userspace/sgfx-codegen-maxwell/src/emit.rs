@@ -24,12 +24,13 @@ fn blend_factor(factor: BlendFactor) -> u32 {
     }
 }
 
-fn blend_operation(operation: BlendOp) -> u32 {
-    match operation {
+fn blend_operation(operation: BlendOp) -> Result<u32, CompileError> {
+    Ok(match operation {
         BlendOp::Add => 0,
         BlendOp::Subtract => 1,
         BlendOp::ReverseSubtract => 2,
-    }
+        BlendOp::Min | BlendOp::Max => return Err(CompileError::UnsupportedFeature),
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -260,10 +261,10 @@ impl Emitter {
             blend_words[23..29].copy_from_slice(&[
                 blend_factor(color.source_factor()),
                 blend_factor(color.destination_factor()),
-                blend_operation(color.operation()),
+                blend_operation(color.operation())?,
                 blend_factor(alpha.source_factor()),
                 blend_factor(alpha.destination_factor()),
-                blend_operation(alpha.operation()),
+                blend_operation(alpha.operation())?,
             ]);
             self.record(blend_words)?;
         }
@@ -322,11 +323,8 @@ impl Emitter {
             w[61] = u32::from(depth.write_enabled);
         }
         match s.draw {
-            DrawCall::NonIndexed {
-                first_vertex,
-                vertex_count,
-            } => {
-                w[24] = first_vertex;
+            DrawCall::NonIndexed { vertex_count, .. } => {
+                // The vertex relocation starts at the first fetched record.
                 w[25] = vertex_count;
             }
             DrawCall::Indexed(i) => {

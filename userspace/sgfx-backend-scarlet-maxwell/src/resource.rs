@@ -435,7 +435,6 @@ impl Drop for RawBuffer {
 
 pub(crate) struct ContextResources {
     pub(crate) conversion_programs: Vec<(u8, Arc<crate::programmable::ConversionPrograms>)>,
-    pub(crate) programmable_programs: Vec<(ir::ProgrammableRenderPipelineId, Arc<RawBuffer>, Arc<RawBuffer>)>,
     pub(crate) programmable_pipelines: core::cell::RefCell<Vec<(ir::ProgrammableRenderPipelineId, Rc<crate::programmable::CompiledPipeline>)>>,
     pub(crate) resources: Rc<ir::ResourceTable>,
     pub(crate) context: Arc<ContextInner>,
@@ -453,7 +452,6 @@ impl ContextResources {
     ) -> Result<Self, IrSubmitError> {
         Ok(Self {
             conversion_programs: Vec::new(),
-            programmable_programs: Vec::new(),
             programmable_pipelines: core::cell::RefCell::new(Vec::new()),
             resources,
             context,

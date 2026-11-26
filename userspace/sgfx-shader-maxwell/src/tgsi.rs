@@ -23,6 +23,7 @@ pub enum RegisterFile {
     In,
     Out,
     Const,
+    Addr,
     Temp,
     Samp,
     SView,
@@ -36,6 +37,7 @@ impl RegisterFile {
             "IN" => Ok(Self::In),
             "OUT" => Ok(Self::Out),
             "CONST" => Ok(Self::Const),
+            "ADDR" => Ok(Self::Addr),
             "TEMP" => Ok(Self::Temp),
             "SAMP" => Ok(Self::Samp),
             "SVIEW" => Ok(Self::SView),
@@ -49,6 +51,7 @@ impl RegisterFile {
         match self {
             Self::In | Self::Out => 32,
             Self::Const | Self::Temp => 1024,
+            Self::Addr => 1,
             // VirGL bounds the combined storage-buffer and sampled-image bank.
             Self::Samp | Self::SView => 16,
             Self::Sv => 2,
@@ -152,6 +155,7 @@ pub enum Property {
 pub struct Operand {
     pub file: RegisterFile,
     pub index: u16,
+    pub indexed: bool,
     /// Source lane selection; defaults to xyzw, with scalar swizzles replicated.
     pub swizzle: [u8; 4],
     /// Destination lane mask, with x in bit 0; defaults to all four lanes.
@@ -375,7 +379,7 @@ fn parse_declaration(text: &str, stage: Stage) -> Result<Declaration, String> {
                 _ => return Err("unsupported sampler-view scalar type".into()),
             });
         }
-        RegisterFile::Temp | RegisterFile::Const | RegisterFile::Samp => {
+        RegisterFile::Temp | RegisterFile::Const | RegisterFile::Addr | RegisterFile::Samp => {
             if parts.len() != 1 || (file == RegisterFile::Samp && first != last) {
                 return Err("unexpected register declaration qualifier or range".into());
             }
@@ -510,10 +514,17 @@ fn parse_operand(text: &str, destination: bool) -> Result<Operand, String> {
     if destination && (negate || absolute) {
         return Err("modifier on destination operand".into());
     }
-    let (file, index, _, suffix) = parse_register(text, false)?;
+    let (file, index, suffix, indexed) = if let Some(rest) = text.strip_prefix("CONST[ADDR[0].x+") {
+        let (index, suffix) = rest.split_once(']').ok_or("unclosed indexed constant")?;
+        (RegisterFile::Const, number(index)?, suffix, true)
+    } else {
+        let (file, index, _, suffix) = parse_register(text, false)?;
+        (file, index, suffix, false)
+    };
     let mut operand = Operand {
         file,
         index,
+        indexed,
         swizzle: [0, 1, 2, 3],
         mask: 15,
         negate,
@@ -566,10 +577,9 @@ fn opcode_signature(opcode: &str) -> Result<(usize, bool, bool), String> {
             Ok((0, false, false))
         }
         "UIF" => Ok((1, false, false)),
-        "MOV" | "INEG" | "NOT" | "F2I" | "F2U" | "I2F" | "U2F" | "IABS" | "ABS" | "FLR"
-        | "CEIL" | "ROUND" | "TRUNC" | "FRC" | "SQRT" | "RSQ" | "SIN" | "COS" | "EX2" | "LG2" => {
-            Ok((2, true, false))
-        }
+        "MOV" | "UARL" | "INEG" | "NOT" | "F2I" | "F2U" | "I2F" | "U2F" | "IABS" | "ABS"
+        | "FLR" | "CEIL" | "ROUND" | "TRUNC" | "FRC" | "SQRT" | "RSQ" | "SIN" | "COS" | "EX2"
+        | "LG2" => Ok((2, true, false)),
         "ADD" | "SUB" | "MUL" | "DIV" | "UADD" | "UMUL" | "IDIV" | "UDIV" | "IMOD" | "UMOD"
         | "FSEQ" | "FSNE" | "FSLT" | "FSGE" | "USEQ" | "USNE" | "ISLT" | "ISGE" | "USLT"
         | "USGE" | "AND" | "OR" | "XOR" | "SHL" | "USHR" | "ISHR" | "SGE" | "IMIN" | "UMIN"
@@ -617,8 +627,20 @@ fn parse_instruction(text: &str) -> Result<Instr, String> {
 fn validate_operands(program: &Program, instruction: &Instr) -> Result<(), String> {
     let (_, destination, texture) = opcode_signature(&instruction.opcode)?;
     for (index, operand) in instruction.args.iter().enumerate() {
+        if operand.indexed
+            && (instruction.opcode != "MOV"
+                || index != 1
+                || program.declaration(RegisterFile::Addr, 0).is_none())
+        {
+            return Err("indexed constant requires a MOV source and declared ADDR[0]".into());
+        }
         if destination && index == 0 {
-            if !matches!(operand.file, RegisterFile::Temp | RegisterFile::Out) {
+            let writable = if instruction.opcode == "UARL" {
+                operand.file == RegisterFile::Addr && operand.mask == 1
+            } else {
+                matches!(operand.file, RegisterFile::Temp | RegisterFile::Out)
+            };
+            if !writable {
                 return Err("destination register is not writable".into());
             }
         } else if texture && index == 2 {
@@ -629,8 +651,11 @@ fn validate_operands(program: &Program, instruction: &Instr) -> Result<(), Strin
             {
                 return Err("texture instruction requires an unmodified SAMP operand".into());
             }
-        } else if matches!(operand.file, RegisterFile::Samp | RegisterFile::SView) {
-            return Err("sampler register in arithmetic operand".into());
+        } else if matches!(
+            operand.file,
+            RegisterFile::Samp | RegisterFile::SView | RegisterFile::Addr
+        ) {
+            return Err("register file cannot be read directly".into());
         }
         if operand.file == RegisterFile::Imm {
             if usize::from(operand.index) >= program.immediates.len() {

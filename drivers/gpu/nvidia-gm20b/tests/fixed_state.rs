@@ -103,11 +103,11 @@ fn viewport_applies_only_to_an_adjacent_fixed_draw_and_cannot_leak() {
 
 #[test]
 fn all_portable_sampler_states_generate_exact_bounded_tsc_fields() {
-    let wraps = [2, 0, 1]; // ClampToEdge, Repeat, MirrorRepeat in G80 TSC.
+    let wraps = [2, 0, 1, 3]; // Edge clamp, repeat, mirror, border in G80 TSC.
     for min in 0..2 {
         for mag in 0..2 {
-            for u in 0..3 {
-                for v in 0..3 {
+            for u in 0..4 {
+                for v in 0..4 {
                     let flags = (min << 1) | (u32::from(min != mag) << 6) | (u << 7) | (v << 9);
                     let descriptor = method::draw_sampler_descriptor(flags).unwrap();
                     assert_eq!(
@@ -130,8 +130,8 @@ fn all_portable_sampler_states_generate_exact_bounded_tsc_fields() {
 }
 
 #[test]
-fn unassigned_address_modes_cull_values_and_state_bits_are_rejected() {
-    for flags in [3 << 7, 3 << 9, 3 << 2, 1 << 12, 1 << 31, u32::MAX] {
+fn unassigned_cull_values_and_state_bits_are_rejected() {
+    for flags in [3 << 2, 1 << 12, 1 << 31, u32::MAX] {
         assert!(!method::draw_state_valid(flags));
         assert_eq!(method::draw_sampler_descriptor(flags), None);
     }

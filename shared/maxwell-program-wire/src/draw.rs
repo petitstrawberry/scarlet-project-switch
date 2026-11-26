@@ -210,7 +210,7 @@ fn stage(v: u32) -> bool {
 }
 
 /// Flags: mag/min/mip linear bits 0/1/2, S/T/R wraps bits 3..8
-/// (0 clamp, 1 repeat, 2 mirror), comparison enable bit 9/function 10..12.
+/// (0 edge clamp, 1 repeat, 2 mirror, 3 border), comparison enable bit 9/function 10..12.
 pub fn sampler_valid(flags: u32) -> bool {
     flags
         & !(0x1fff
@@ -220,7 +220,6 @@ pub fn sampler_valid(flags: u32) -> bool {
         == 0
         && matches!((flags >> SAMPLER_LOGICAL_SHIFT) & 15, 0 | 2 | 3 | 4)
         && (flags >> SAMPLER_DIMENSION_SHIFT) <= 4
-        && (3..=7).step_by(2).all(|shift| ((flags >> shift) & 3) < 3)
         && (flags & (1 << 9) != 0 || flags & (7 << 10) == 0)
 }
 
@@ -698,14 +697,13 @@ mod tests {
 
     #[test]
     fn sampler_and_vertex_format_are_canonical() {
-        for s in 0..3 {
-            for t in 0..3 {
-                for r in 0..3 {
+        for s in 0..4 {
+            for t in 0..4 {
+                for r in 0..4 {
                     assert!(sampler_valid((s << 3) | (t << 5) | (r << 7)));
                 }
             }
         }
-        assert!(!sampler_valid(3 << 3));
         assert!(!sampler_valid(1 << 14));
         assert!(!sampler_valid(1 << 10));
         assert!(sampler_valid((1 << 9) | (7 << 10)));

@@ -280,11 +280,7 @@ pub fn indexed_bounds(
 
 fn sampler(image: draw::Image) -> [u32; 8] {
     let flags = image.sampler;
-    let wrap = |shift: u32| match (flags >> shift) & 3 {
-        0 => 2u32,
-        1 => 0,
-        _ => 1,
-    };
+    let wrap = |shift: u32| crate::method::sampler_wrap((flags >> shift) & 3);
     let mut tsc = [0u32; 8];
     tsc[0] = 0x26000 | wrap(3) | wrap(5) << 3 | wrap(7) << 6 | flags & 0x1e00;
     tsc[1] = if flags & 1 != 0 { 2 } else { 1 }

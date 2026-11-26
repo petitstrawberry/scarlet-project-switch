@@ -152,6 +152,9 @@ pub fn lower<'a>(sm: &'a ShaderModelInfo, program: &Program) -> Result<Shader<'a
     }
     for decl in &program.declarations {
         match decl.file {
+            RegisterFile::Addr => {
+                lanes.insert((RegisterFile::Addr, 0, 0), prolog.copy(0.into()));
+            }
             RegisterFile::Temp | RegisterFile::Out => {
                 for index in decl.first..=decl.last {
                     for c in 0..4 {
@@ -275,6 +278,7 @@ pub fn lower<'a>(sm: &'a ShaderModelInfo, program: &Program) -> Result<Shader<'a
         .iter()
         .map(|imm| (imm.index, imm.values))
         .collect();
+    let mut indexed_lanes = 0;
     for (i, instr) in program.instructions.iter().enumerate() {
         let mut b = SSAInstrBuilder::new(sm, &mut alloc);
         // A loop header pushes the continue target on every iteration.
@@ -289,11 +293,26 @@ pub fn lower<'a>(sm: &'a ShaderModelInfo, program: &Program) -> Result<Shader<'a
                 let cond = source(&instr.args[0], 0, &lanes, &immediates)?;
                 let pred = b.isetp(IntCmpType::U32, IntCmpOp::Ne, cond, 0.into());
                 let end = control.if_end[&i];
-                let otherwise = control
-                    .if_else
-                    .get(&i)
-                    .map(|index| index + 1)
-                    .unwrap_or(end);
+                let (otherwise, else_jump) = if let Some(&index) = control.if_else.get(&i) {
+                    let target = index + 1;
+                    (
+                        target,
+                        Instr::new(OpBra {
+                            target: instr_labels[target],
+                            cond: true.into(),
+                        }),
+                    )
+                } else {
+                    // Reconverge the empty arm directly. If it branches to
+                    // ENDIF, CFG layout can place its phi copies between the
+                    // last instruction of the true arm and its ENDIF/SYNC.
+                    (
+                        end + 1,
+                        Instr::new(OpSync {
+                            target: instr_labels[end + 1],
+                        }),
+                    )
+                };
                 // NAK's SSA repair requires every conditional edge to be
                 // non-critical. Give both arms a real single-successor block,
                 // including the empty false arm of a WGSL if without else.
@@ -317,10 +336,7 @@ pub fn lower<'a>(sm: &'a ShaderModelInfo, program: &Program) -> Result<Shader<'a
                     BasicBlock {
                         label: else_label,
                         uniform: false,
-                        instrs: vec![Instr::new(OpBra {
-                            target: instr_labels[otherwise],
-                            cond: true.into(),
-                        })],
+                        instrs: vec![else_jump],
                     },
                 );
                 cfg.add_edge(then_key, next);
@@ -419,6 +435,47 @@ pub fn lower<'a>(sm: &'a ShaderModelInfo, program: &Program) -> Result<Shader<'a
                 }
                 cfg.add_edge(i, next);
             }
+            "UARL" => {
+                let value = source(&instr.args[1], 0, &lanes, &immediates)?;
+                b.copy_to(lanes[&(RegisterFile::Addr, 0, 0)].into(), value);
+                cfg.add_edge(i, next);
+            }
+            "MOV" if instr.args[1].indexed => {
+                let dst = &instr.args[0];
+                let src = &instr.args[1];
+                let first = src.index;
+                let last = program
+                    .declaration(RegisterFile::Const, first)
+                    .ok_or("undeclared indexed constant")?
+                    .last;
+                indexed_lanes += u32::from(last - first + 1) * dst.mask.count_ones();
+                if indexed_lanes > 2048 {
+                    return Err("indexed constants exceed Maxwell select limit".into());
+                }
+                let address: Src = lanes[&(RegisterFile::Addr, 0, 0)].into();
+                let mut values = [Src::ZERO; 4];
+                // Keep every constant access immediate so the kernel can verify
+                // its byte range independently of the runtime address.
+                for register in first..=last {
+                    let slot = u32::from(register - src.index);
+                    let selected =
+                        b.isetp(IntCmpType::U32, IntCmpOp::Eq, address.clone(), slot.into());
+                    for (lane, value) in values.iter_mut().enumerate() {
+                        if dst.mask & (1 << lane) != 0 {
+                            let constant = constant(register, src.swizzle[lane]);
+                            *value = b.sel(selected.into(), constant, value.clone()).into();
+                        }
+                    }
+                }
+                for (lane, value) in values.into_iter().enumerate() {
+                    let lane = lane as u8;
+                    if dst.mask & (1 << lane) != 0 {
+                        let value = alu::lower(&mut b, "MOV", &[source_modifiers(src, value)])?;
+                        b.copy_to(destination(dst, lane, &lanes)?.into(), value);
+                    }
+                }
+                cfg.add_edge(i, next);
+            }
             opcode => {
                 let dst = &instr.args[0];
                 // All source components are captured before writes so vector
@@ -473,22 +530,26 @@ fn source(
         RegisterFile::Imm => {
             imm.get(&arg.index).ok_or("undeclared TGSI immediate")?[c as usize].into()
         }
-        RegisterFile::Const => SrcRef::CBuf(CBufRef {
-            buf: CBuf::Binding(0),
-            offset: arg
-                .index
-                .checked_mul(16)
-                .and_then(|v| v.checked_add(u16::from(c) * 4))
-                .ok_or("constant offset overflow")?,
-        })
-        .into(),
+        RegisterFile::Const => constant(arg.index, c),
         _ => lanes
             .get(&(arg.file, arg.index, c))
             .copied()
             .ok_or_else(|| format!("undeclared TGSI source {:?}[{}].{}", arg.file, arg.index, c))?
             .into(),
     };
-    Ok(if arg.negate {
+    Ok(source_modifiers(arg, value))
+}
+
+fn constant(register: u16, component: u8) -> Src {
+    SrcRef::CBuf(CBufRef {
+        buf: CBuf::Binding(0),
+        offset: register * 16 + u16::from(component) * 4,
+    })
+    .into()
+}
+
+fn source_modifiers(arg: &Operand, value: Src) -> Src {
+    if arg.negate {
         if arg.absolute {
             value.fabs().fneg()
         } else {
@@ -498,7 +559,7 @@ fn source(
         value.fabs()
     } else {
         value
-    })
+    }
 }
 fn destination(arg: &Operand, c: u8, lanes: &Lanes) -> Result<SSAValue, String> {
     if !matches!(arg.file, RegisterFile::Temp | RegisterFile::Out) {
