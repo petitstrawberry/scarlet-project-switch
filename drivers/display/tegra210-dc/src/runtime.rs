@@ -3,7 +3,7 @@
 //! NVIDIA 7d95822acda1f6dab3f3d1d099b43ff9e0d0e626 dc/{window,ext/dev}.c, and Hekate
 //! v6.5.3 bdk/display/di.{h,inl}. DC register numbers are word offsets.
 
-use alloc::{boxed::Box, sync::Arc, vec};
+use alloc::{boxed::Box, string::String, sync::Arc, vec, vec::Vec};
 use core::{
     any::Any,
     sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
@@ -16,7 +16,8 @@ use scarlet::{
         gpu::GPU_IMAGE_MODIFIER_NVIDIA_BLOCK_LINEAR_16BX2_H4,
         graphics::{
             FramebufferConfig, GpuDisplayResource, GpuPresentOptions, GraphicsDevice, PixelFormat,
-            manager::GraphicsManager, output::DisplayRegion,
+            manager::GraphicsManager,
+            output::{ConnectorInfo, ConnectorKind, DisplayRegion},
         },
         manager::{DeviceManager, DriverPriority},
         platform::{
@@ -39,6 +40,7 @@ use scarlet_driver_tegra210::{cell, delay_us};
 
 use crate::{backlight::Backlight, block_linear};
 
+const DC0_PHYS: u64 = 0x5420_0000;
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
 const STRIDE: u32 = WIDTH * 4;
@@ -859,6 +861,22 @@ impl GraphicsDevice for Display {
     fn get_display_name(&self) -> &'static str {
         "Tegra210 DSI"
     }
+    fn display_device_key(&self) -> Option<String> {
+        Some(alloc::format!("platform:{DC0_PHYS:x}"))
+    }
+    fn connectors(&self) -> Vec<ConnectorInfo> {
+        // Probe only adopts the built-in panel on DC0's firmware DSI scanout.
+        vec![ConnectorInfo {
+            index: 0,
+            name: self.get_display_name().into(),
+            kind: ConnectorKind::Internal,
+            connected: true,
+            width: self.config.width,
+            height: self.config.height,
+            refresh_mhz: 0,
+            physical_size_mm: None,
+        }]
+    }
     fn get_framebuffer_config(&self) -> Result<FramebufferConfig, &'static str> {
         Ok(self.config.clone())
     }
@@ -1060,7 +1078,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
     let resource = device
         .get_resources()
         .iter()
-        .find(|r| r.res_type == PlatformDeviceResourceType::MEM && r.start == 0x54200000)
+        .find(|r| r.res_type == PlatformDeviceResourceType::MEM && r.start == DC0_PHYS)
         .ok_or("only the inherited DC0 DSI scanout is supported")?;
     if resource.size()? < 0x40000 || cell(device, "scarlet,boot-scanout", 0) != Some(1) {
         return Err("missing Tegra DC firmware scanout contract");
