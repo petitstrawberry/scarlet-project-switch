@@ -12,7 +12,7 @@ firmware properties remain intact; existing drivers keep every dependency hook.
 | --- | --- | --- |
 | `scarlet-driver-tegra210` | CAR, pinmux, GPIO, PMC, I2C controllers, UARTB/C | Declared FDT resources/phandles, bounded polling and bus recovery |
 | `scarlet-driver-max77620` | PMIC on I2C5, RTC at address 0x68 | RTC read latch and wall-clock seed; LDO6 touch supply |
-| `scarlet-driver-stm-ftm4` | STM FTM4 on I2C3 at 0x49 | Ten-contact type-B `/dev/touchscreenN` stream |
+| `scarlet-driver-stm-ftm4` | STM FTM4 on I2C3 at 0x49 | Ten-contact type-B `/dev/touchscreenN` stream and boot-time `SW_TABLET_MODE` on `/dev/switchN` |
 | `scarlet-driver-joycon` | Official attached left/right Joy-Con rails | Combined native `/dev/gamepadN`, buttons, both sticks and hat |
 | `scarlet-driver-switch-buttons` | GPIO PX7/PX6, active low | Debounced volume down/up on `/dev/buttonsN` |
 

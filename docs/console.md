@@ -2,9 +2,10 @@
 
 `projects/aarch64-switch-l4t` uses Scarlet's init and stemd to start
 `scarlet-seat`. On a fresh rootfs, the greeter prompts for initial administrator
-setup. After sign-in, the standard session starts `scarlet-shell --mode desktop`
-and a Switch session service selects tablet posture. The project and
-boot-directory names retain `console` for compatibility with existing installations.
+setup. The built-in touchscreen driver reports tablet posture at boot, allowing
+the greeter to show the software keyboard when no external keyboard is connected.
+After sign-in, the standard session starts `scarlet-shell --mode desktop`.
+The SD boot directory retains `scarlet-console` for existing installations.
 The initramfs bootstraps an ext2 root on `/dev/mmcblk0p4`; install that root
 filesystem as described in [storage](storage.md).
 

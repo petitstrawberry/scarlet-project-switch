@@ -1,3 +1,0 @@
-# Use the Switch touchscreen layout in the signed-in desktop session.
-[service.switch-posture]
-exec = "/bin/tabletctl posture tablet"

@@ -4,9 +4,14 @@ use alloc::{boxed::Box, string::ToString, sync::Arc, vec};
 use scarlet::{
     device::{
         i2c::{I2cAddress, I2cBus, I2cMessage},
-        input::event_device::{
-            EventDevice, INPUT_CAP_DIRECT_TOUCH, INPUT_CAP_INTERNAL, INPUT_CAP_KEY,
-            InputDeviceKind, InputDeviceMetadata,
+        input::{
+            event_device::{
+                EventDevice, INPUT_CAP_DIRECT_TOUCH, INPUT_CAP_INTERNAL, INPUT_CAP_KEY,
+                InputDeviceKind, InputDeviceMetadata,
+            },
+            event_types::{EV_SW, EV_SYN},
+            switch_codes::SW_TABLET_MODE,
+            syn_codes::SYN_REPORT,
         },
         manager::{DeviceManager, DriverPriority, PROBE_DEFER},
         platform::{PlatformDeviceDriver, PlatformDeviceInfo},
@@ -106,10 +111,20 @@ impl Touch {
         ] {
             metadata = metadata.with_absolute_axis(code, range.0, range.1)?;
         }
+        let posture_metadata = InputDeviceMetadata::new(InputDeviceKind::Switch, INPUT_CAP_INTERNAL)
+            .with_switch(SW_TABLET_MODE)?;
+        let posture = Arc::new(EventDevice::new_with_metadata("switch", posture_metadata));
+        // Seed the state before publishing the device so SWS can sample it on open.
+        posture.push_events(&[(EV_SW, SW_TABLET_MODE, 1), (EV_SYN, SYN_REPORT, 0)]);
+
+        let devices = DeviceManager::get_manager();
         let event = Arc::new(EventDevice::new_with_metadata("touchscreen", metadata));
         let name = event.get_name().to_string();
-        DeviceManager::get_manager().register_device_with_name(name.clone(), event.clone());
+        let posture_name = posture.get_name().to_string();
+        devices.register_device_with_name(name.clone(), event.clone());
+        devices.register_device_with_name(posture_name.clone(), posture);
         scarlet::println!("stm-ftm4: /dev/{} ready, ten contacts", name);
+        scarlet::println!("stm-ftm4: /dev/{} tablet posture active", posture_name);
         Ok(event)
     }
     fn emit(
