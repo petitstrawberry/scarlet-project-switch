@@ -38,13 +38,13 @@ nix develop --accept-flake-config
 
 python3 scripts/prepare-bootstack.py \
   --source "/Volumes/SWITCH SD/switchroot/ubuntu-noble"
-cargo scarlet image --project projects/aarch64-switch-l4t-console --release
+cargo scarlet image --project projects/aarch64-switch-l4t --release
 ```
 
 The console boot files are written to
-`projects/aarch64-switch-l4t-console/.scarlet/l4t/`. The import verifies the
+`projects/aarch64-switch-l4t/.scarlet/l4t/`. The import verifies the
 Noble firmware against the checked-in pins and stores it under
-`projects/aarch64-switch-l4t-console/firmware/bootstack/`, outside build caches.
+`projects/aarch64-switch-l4t/firmware/bootstack/`, outside build caches.
 
 ## Install and boot
 
@@ -76,7 +76,7 @@ for USB boot, logs and networking.
 ## Repository layout
 
 ```text
-projects/aarch64-switch-l4t-console/   desktop console, initramfs and ext2 image
+projects/aarch64-switch-l4t/   desktop console, initramfs and ext2 image
 drivers/                              Switch and Tegra210 drivers
 userspace/                            diagnostic test init and SGFX Maxwell backend
 shared/                               Maxwell wire format and shader pack

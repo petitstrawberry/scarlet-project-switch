@@ -90,7 +90,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--console", action="store_true", help="check every executable in the actual SWS console RAMDisk")
     args = parser.parse_args()
-    project = ROOT / "projects/aarch64-switch-l4t-console" if args.console else PROJECT
+    project = ROOT / "projects/aarch64-switch-l4t" if args.console else PROJECT
     boot = project / (".scarlet/l4t/switchroot/scarlet-console" if args.console else ".scarlet/boot")
     cache = ROOT / ".cache"
     cache.mkdir(exist_ok=True)

@@ -10,7 +10,7 @@ PROJECT = Path(__file__).resolve().parent
 ROOT = PROJECT.parents[1]
 spec = importlib.util.spec_from_file_location(
     "package_l4t",
-    ROOT / "projects/aarch64-switch-l4t-console/tools/package_l4t.py",
+    ROOT / "projects/aarch64-switch-l4t/tools/package_l4t.py",
 )
 package = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(package)

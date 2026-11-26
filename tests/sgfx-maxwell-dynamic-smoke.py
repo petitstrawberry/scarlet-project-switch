@@ -68,7 +68,7 @@ def prepare(args, output, commands):
     audit = module("maxwell_dynamic_builder", ROOT / "scripts/build-sgfx-maxwell.py")
     elf = module("maxwell_dynamic_elf", distribution / "tools/elf_audit.py")
     boot = module("maxwell_dynamic_boot", ROOT / "tests/qemu-smoke.py")
-    package = module("maxwell_dynamic_package", ROOT / "projects/aarch64-switch-l4t-console/tools/package_l4t.py")
+    package = module("maxwell_dynamic_package", ROOT / "projects/aarch64-switch-l4t/tools/package_l4t.py")
     staging = output / "staging"
     staging.mkdir(parents=True, exist_ok=True)
     for directory in ("bin", "dev", "system/lib/sgfx"):
@@ -186,7 +186,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scarlet-source", type=Path, required=True)
     parser.add_argument("--sgfx-source", type=Path, required=True)
-    parser.add_argument("--library", type=Path, default=ROOT / "projects/aarch64-switch-l4t-console/.scarlet/sgfx-maxwell/libsgfx_scarlet_maxwell.so")
+    parser.add_argument("--library", type=Path, default=ROOT / "projects/aarch64-switch-l4t/.scarlet/sgfx-maxwell/libsgfx_scarlet_maxwell.so")
     parser.add_argument("--kernel", type=Path, default=ROOT / "tests/boot-probe/bsp/target/aarch64-switch-none-elf/release/scarlet")
     parser.add_argument("--loader", type=Path, help="reuse a built pinned interpreter instead of building one")
     parser.add_argument("--output", type=Path, default=ROOT / ".cache/qa/sgfx-maxwell-dynamic")

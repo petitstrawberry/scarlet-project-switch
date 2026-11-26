@@ -16,7 +16,7 @@ def main():
                         default=ROOT / ".cache/network-perf/upstream-integration/tests")
     args = parser.parse_args()
     core = args.core.resolve(strict=True)
-    project = ROOT / "projects/aarch64-switch-l4t-console/scarlet.toml"
+    project = ROOT / "projects/aarch64-switch-l4t/scarlet.toml"
     revision = tomllib.loads(project.read_text())["bsp"]["kernel"]["source"]["rev"]
     actual = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=core,
                                      text=True).strip()

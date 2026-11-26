@@ -35,7 +35,7 @@ The packager combines the Nix-built monitor with the pinned Noble U-Boot as
 the EL1 guest twice: fallback-enabled for normal SD boot, and `--no-fallback`
 for development. It verifies the pinned U-Boot and bootstack, console image
 hashes, USB settings and the distinct fallback policies. Both entries go into
-one SD package under `projects/aarch64-switch-l4t-console/.scarlet/switchvisor/`.
+one SD package under `projects/aarch64-switch-l4t/.scarlet/switchvisor/`.
 
 The normal entry starts U-Boot after the USB preboot window (currently two
 seconds), then reads `uImage` and `initramfs` from `/switchroot/scarlet-console/`.
@@ -166,7 +166,7 @@ scripts/start-switchvisor.py /path/to/hekate.bin
 The launcher selects `SCR-SWD`, waits up to 60 seconds for the guest CDC port,
 deploys the existing guest bundle, and opens minicom at 115200 baud. Capture
 starts when minicom opens, after deployment, and is saved under
-`projects/aarch64-switch-l4t-console/.scarlet/logs/`. Exit with **Ctrl-A, X**.
+`projects/aarch64-switch-l4t/.scarlet/logs/`. Exit with **Ctrl-A, X**.
 Use `--console /dev/cu.usbmodem...` if the guest port has another name;
 `--bundle`, `--log`, and `--timeout` override their defaults. Build and install
 the SD package first using the steps above.
@@ -176,7 +176,7 @@ The equivalent individual commands are:
 ```sh
 nxboot --hekate id SCR-SWD /path/to/hekate.bin
 switchvisorctl deploy \
-  projects/aarch64-switch-l4t-console/.scarlet/switchvisor/bundle.json
+  projects/aarch64-switch-l4t/.scarlet/switchvisor/bundle.json
 ```
 
 `deploy` verifies CRC32 for every uploaded image, commits the bundle, and
@@ -214,10 +214,10 @@ scripts so their root arguments match the selected profile.
 With the full SD distribution installed, rebuild only the boot image:
 
 ```sh
-cargo scarlet image --project projects/aarch64-switch-l4t-console --release --image initramfs
+cargo scarlet image --project projects/aarch64-switch-l4t --release --image initramfs
 switchvisorctl reboot-rcm
 nxboot --hekate id SCR-SWD /path/to/hekate.bin
-switchvisorctl deploy projects/aarch64-switch-l4t-console/.scarlet/switchvisor/bundle.json
+switchvisorctl deploy projects/aarch64-switch-l4t/.scarlet/switchvisor/bundle.json
 ```
 
 The existing SD full root remains the userspace distribution. A RAM desktop

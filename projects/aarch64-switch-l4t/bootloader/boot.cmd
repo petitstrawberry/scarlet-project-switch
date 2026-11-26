@@ -138,6 +138,23 @@ if test "${scarlet_switchvisor}" != 1; then
     fdt set /i2c@7000c000/bm92t@18 scarlet,usb-host
 fi
 if test "${scarlet_switchvisor}" = 1; then
+    if test "${scarlet_switchvisor_control}" = 1; then
+        if load mmc ${devnum}:${distro_bootpart} 0x8c000000 ${boot_dir}/switchvisor-control.dtbo; then
+            fdt addr ${fdtraddr}
+            fdt resize 8192
+            if fdt apply 0x8c000000; then
+                echo Switchvisor guest control enabled
+            else
+                echoe Switchvisor control overlay failed
+                sleep 3
+                reset
+            fi
+        else
+            echoe Switchvisor control overlay read failed
+            sleep 3
+            reset
+        fi
+    fi
     if test "${scarlet_switchvisor_net}" = 1; then
         if load mmc ${devnum}:${distro_bootpart} 0x8c000000 ${boot_dir}/usb-net.dtbo; then
             fdt addr ${fdtraddr}

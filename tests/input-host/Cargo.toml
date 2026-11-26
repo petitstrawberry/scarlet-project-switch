@@ -5,4 +5,4 @@ edition = "2024"
 publish = false
 
 [dependencies]
-sws-protocol = { git = "https://github.com/petitstrawberry/Scarlet", rev = "79f6736eeb4fb595b8baf74cdc6fa245dd8d74e9", default-features = false, features = ["std"] }
+sws-protocol = { git = "https://github.com/petitstrawberry/Scarlet", rev = "34e337b9c10ccdcbc97ef51e684d89d4c4625f8c", default-features = false, features = ["std"] }

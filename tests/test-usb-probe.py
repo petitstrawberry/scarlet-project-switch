@@ -17,7 +17,7 @@ import time
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
-PRODUCTION = ROOT / "projects/aarch64-switch-l4t-console"
+PRODUCTION = ROOT / "projects/aarch64-switch-l4t"
 RESULT = ROOT / ".cache/usb-probe-qa"
 REV = tomllib.loads((PRODUCTION / "scarlet.toml").read_text())["bsp"]["kernel"]["source"]["rev"]
 PASS = "USB_PROBE_QA_PASS ordinary=deferred private=probed metadata=preserved"

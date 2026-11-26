@@ -12,7 +12,7 @@ from pathlib import Path
 import subprocess
 
 ROOT=Path(__file__).resolve().parents[1]
-PROJECT=ROOT/"projects/aarch64-switch-l4t-console"
+PROJECT=ROOT/"projects/aarch64-switch-l4t"
 spec=importlib.util.spec_from_file_location("console_preview",ROOT/"tests/qemu-console.py")
 console=importlib.util.module_from_spec(spec);spec.loader.exec_module(console)
 def prepare_scroll(out,reuse_image=None):

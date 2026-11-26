@@ -1,11 +1,10 @@
 # Console setup
 
-`projects/aarch64-switch-l4t-console` uses Scarlet's normal init, stemd, SWS
-and Scarlet Desktop. Its session starts `scarlet-shell --mode desktop` with
-tablet posture and posture-derived focused windowing. The board startup script
-`/etc/sws/start-desktop.sh` applies this policy before starting the supervised
-desktop session. The project and boot-directory names retain `console` for
-compatibility with existing installations.
+`projects/aarch64-switch-l4t` uses Scarlet's init and stemd to start
+`scarlet-seat`. On a fresh rootfs, the greeter prompts for initial administrator
+setup. After sign-in, the standard session starts `scarlet-shell --mode desktop`
+and a Switch session service selects tablet posture. The project and
+boot-directory names retain `console` for compatibility with existing installations.
 The initramfs bootstraps an ext2 root on `/dev/mmcblk0p4`; install that root
 filesystem as described in [storage](storage.md).
 
@@ -48,7 +47,7 @@ Run from the repository root:
 nix develop --accept-flake-config
 python3 scripts/prepare-bootstack.py \
   --source "/Volumes/SWITCH SD/switchroot/ubuntu-noble"
-cargo scarlet image --project projects/aarch64-switch-l4t-console --release
+cargo scarlet image --project projects/aarch64-switch-l4t --release
 ```
 
 Use a directory containing the pinned Switchroot Noble 5.1.2 boot files.
@@ -57,7 +56,7 @@ use `--source /path/to/linux-firmware` instead of `--download`.
 
 cargo-scarlet resolves the upstream bundles, builds the kernel, creates the
 initramfs and ext2 root image, and packages the Hekate boot files under
-`projects/aarch64-switch-l4t-console/.scarlet/l4t/`. Packaging enforces the
+`projects/aarch64-switch-l4t/.scarlet/l4t/`. Packaging enforces the
 224 MiB initramfs loading limit. The generated manifest contains the source
 and artifact identities for that build.
 

@@ -1,5 +1,5 @@
 [package]
-name = "aarch64-switch-l4t-console-project"
+name = "aarch64-switch-l4t-project"
 version = "0.1.0"
 edition = "2024"
 

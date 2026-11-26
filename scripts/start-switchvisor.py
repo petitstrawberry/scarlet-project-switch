@@ -12,7 +12,7 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
-STATE = ROOT / "projects/aarch64-switch-l4t-console/.scarlet"
+STATE = ROOT / "projects/aarch64-switch-l4t/.scarlet"
 CONSOLE = Path("/dev/cu.usbmodemSWV00011")
 
 

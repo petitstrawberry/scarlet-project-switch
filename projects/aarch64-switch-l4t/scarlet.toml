@@ -1,7 +1,7 @@
 schema_version = 2
 
 [project]
-name = "scarlet-aarch64-switch-l4t-console"
+name = "scarlet-aarch64-switch-l4t"
 
 [userspace]
 cargo-config = ".scarlet/userspace.toml"
@@ -11,10 +11,11 @@ path = "bsp"
 package = "scarlet"
 
 [bsp.kernel]
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "79f6736eeb4fb595b8baf74cdc6fa245dd8d74e9" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "34e337b9c10ccdcbc97ef51e684d89d4c4625f8c" }
 features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true, sync-debug = false }
 
 [modules]
+"scarlet-switchvisor" = { path = "../../drivers/virtual/switchvisor", enabled = true }
 "scarlet-driver-tegra210-pcie" = { path = "../../drivers/pcie/tegra210", enabled = true }
 "scarlet-driver-brcmfmac" = { path = "../../drivers/network/brcmfmac", enabled = true }
 "scarlet-driver-switch-power" = { path = "../../drivers/power/switch-power", enabled = true }
@@ -42,17 +43,22 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "79f6736eeb4fb595b8baf74cdc6fa245dd8d74e9" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "34e337b9c10ccdcbc97ef51e684d89d4c4625f8c" }
 subdir = "bundles/base"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "79f6736eeb4fb595b8baf74cdc6fa245dd8d74e9" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "34e337b9c10ccdcbc97ef51e684d89d4c4625f8c" }
 subdir = "bundles/cli-utils"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "79f6736eeb4fb595b8baf74cdc6fa245dd8d74e9" }
+source = { git = "https://github.com/petitstrawberry/switchvisor", rev = "164f3f1bce0f3613013ddf06cf2024a3ddb6da84" }
+subdir = "scarlet"
+
+[[images.initramfs.layers]]
+kind = "bundle"
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "34e337b9c10ccdcbc97ef51e684d89d4c4625f8c" }
 subdir = "bundles/wireless"
 
 [[images.initramfs.layers]]
@@ -73,6 +79,7 @@ command = "tools/package-l4t.sh"
 # Persistent distribution for the existing Scarlet MBR partition. This is a
 # filesystem image, never a replacement partition table for the shared SD.
 [images.rootfs]
+console-root = true
 format = "ext2"
 output = ".scarlet/images/rootfs-switch-full.ext2"
 
@@ -82,8 +89,13 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.rootfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "79f6736eeb4fb595b8baf74cdc6fa245dd8d74e9" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "34e337b9c10ccdcbc97ef51e684d89d4c4625f8c" }
 subdir = "bundles/full"
+
+[[images.rootfs.layers]]
+kind = "bundle"
+source = { git = "https://github.com/petitstrawberry/switchvisor", rev = "164f3f1bce0f3613013ddf06cf2024a3ddb6da84" }
+subdir = "scarlet"
 
 [[images.rootfs.layers]]
 kind = "bundle"

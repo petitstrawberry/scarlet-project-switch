@@ -12,7 +12,7 @@ import sys
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
+PROJECT = ROOT / "projects/aarch64-switch-l4t"
 PLUGIN = ROOT / "userspace/sgfx-backend-scarlet-maxwell-plugin"
 TARGET = "aarch64-unknown-scarlet"
 LIBRARY = "libsgfx_scarlet_maxwell.so"

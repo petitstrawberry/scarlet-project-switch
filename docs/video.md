@@ -44,7 +44,7 @@ update` resolved both player layers with exactly those two features.
 
 ```sh
 nix develop --command cargo scarlet build \
-  --project projects/aarch64-switch-l4t-console --release
+  --project projects/aarch64-switch-l4t --release
 nix develop --command cargo test --manifest-path tests/nvdec-qa/Cargo.toml
 nix develop --command cargo test --manifest-path drivers/video/tegra210-nvdec/Cargo.toml
 nix develop --command cargo test --manifest-path drivers/soc/tegra210/Cargo.toml

@@ -20,7 +20,7 @@ def run(scarlet, output, target_dir=None):
     output.mkdir(parents=True, exist_ok=True)
     (output / "result.json").unlink(missing_ok=True)
     env = os.environ.copy()
-    env["CARGO_HOME"] = str(ROOT / "projects/aarch64-switch-l4t-console/.scarlet/cache/cargo-home")
+    env["CARGO_HOME"] = str(ROOT / "projects/aarch64-switch-l4t/.scarlet/cache/cargo-home")
     env.pop("CARGO_TARGET_DIR", None)
     if target_dir:
         env["CARGO_TARGET_DIR"] = str(target_dir)
@@ -48,7 +48,7 @@ brcmfmac = {{ package = "scarlet-driver-brcmfmac", path = {json.dumps(str(ROOT /
 [patch."https://github.com/petitstrawberry/Scarlet"]
 scarlet = {{ path = {json.dumps(str(scarlet / 'kernel'))} }}
 ''')
-        target = ROOT / "projects/aarch64-switch-l4t-console/bsp/targets/aarch64-switch-none-elf.json"
+        target = ROOT / "projects/aarch64-switch-l4t/bsp/targets/aarch64-switch-none-elf.json"
         with (output / "native-adapter.log").open("w") as log:
             subprocess.run(["cargo", "check", "--manifest-path", str(work / "Cargo.toml"),
                             "--target", str(target), "-Z", "unstable-options", "-Z", "build-std=core,compiler_builtins,alloc",

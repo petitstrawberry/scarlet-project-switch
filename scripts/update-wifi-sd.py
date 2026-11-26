@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
+PROJECT = ROOT / "projects/aarch64-switch-l4t"
 spec = importlib.util.spec_from_file_location("rootfs_install", ROOT/"scripts/install-rootfs.py")
 disk = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(disk)

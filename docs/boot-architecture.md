@@ -1,7 +1,7 @@
 # L4T boot contract
 
 Scarlet uses the existing Hekate and pinned Switchroot Noble BL31/BL33
-boot stack. The console project is `projects/aarch64-switch-l4t-console`.
+boot stack. The console project is `projects/aarch64-switch-l4t`.
 
 ```text
 RCM -> Hekate L4T -> BL31 -> U-Boot

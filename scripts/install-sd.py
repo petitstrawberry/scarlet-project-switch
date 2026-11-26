@@ -15,8 +15,8 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-CONSOLE_PACKAGE = ROOT / "projects/aarch64-switch-l4t-console/.scarlet/l4t"
-SWITCHVISOR_PACKAGE = ROOT / "projects/aarch64-switch-l4t-console/.scarlet/switchvisor"
+CONSOLE_PACKAGE = ROOT / "projects/aarch64-switch-l4t/.scarlet/l4t"
+SWITCHVISOR_PACKAGE = ROOT / "projects/aarch64-switch-l4t/.scarlet/switchvisor"
 EXPECTED_BYTES = 123773911040
 EXPECTED_PARTITIONS = {1: 105054208 * 512, 2: 32 * 1024**3,
                        3: 61143040 * 512, 4: 4 * 1024**3}

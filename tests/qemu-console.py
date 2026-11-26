@@ -20,7 +20,7 @@ import time
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
+PROJECT = ROOT / "projects/aarch64-switch-l4t"
 spec = importlib.util.spec_from_file_location("smoke", ROOT / "tests/qemu-smoke.py")
 smoke = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(smoke)

@@ -46,7 +46,7 @@ hang. A returned PMC request is reported as a failure after one second.
 Inside `nix develop`, build the production project, then run:
 
 ```sh
-cargo scarlet image --project projects/aarch64-switch-l4t-console --release
+cargo scarlet image --project projects/aarch64-switch-l4t --release
 cargo test --manifest-path drivers/rtc/max77620/Cargo.toml
 cargo test --manifest-path drivers/soc/tegra210/Cargo.toml
 tests/test-system-power.sh

@@ -65,7 +65,7 @@ The Scarlet allocation is 4 GiB at byte range
 ## Root filesystem
 
 The console manifest defines an ext2 image at
-`projects/aarch64-switch-l4t-console/.scarlet/images/rootfs-switch-full.ext2`.
+`projects/aarch64-switch-l4t/.scarlet/images/rootfs-switch-full.ext2`.
 Its layers use `Scarlet/bundles/full/bundle.toml` with the project's pinned
 application sources, NVDEC player, GM20B firmware and board configuration
 under `rootfs/`. The initramfs contains only the standard `base` and

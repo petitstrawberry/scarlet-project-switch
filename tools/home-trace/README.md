@@ -36,7 +36,7 @@ This avoids streaming the records over UART. Verify both files contain
 before interpreting a capture. Treat RFB and physical-panel results separately.
 
 After collecting the logs, restore the normal service file from
-`projects/aarch64-switch-l4t-console/rootfs/etc/stemd.d/services/01-sws.toml`
+`projects/aarch64-switch-l4t/rootfs/etc/stemd.d/services/01-sws.toml`
 with the same verified staging procedure, then reboot. The normal desktop
 startup script is not modified. Remove the two diagnostic scripts after the
 normal service file has been restored. No SD backup or UMS session is needed.

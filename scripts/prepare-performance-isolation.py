@@ -17,7 +17,7 @@ import zlib
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
+PROJECT = ROOT / "projects/aarch64-switch-l4t"
 
 
 def require(condition, message):

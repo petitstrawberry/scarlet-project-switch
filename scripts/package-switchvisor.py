@@ -12,7 +12,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
+PROJECT = ROOT / "projects/aarch64-switch-l4t"
 CONSOLE = PROJECT / ".scarlet/l4t"
 OUTPUT = PROJECT / ".scarlet/switchvisor"
 BOOT_DIRECTORY = "switchroot/scarlet-switchvisor"
@@ -60,6 +60,8 @@ def build_distribution(destination, usb_net, *, development=False):
     (destination / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     for name in ("usb-uart.dtbo", "usb-net.dtbo") if usb_net else ("usb-uart.dtbo",):
         shutil.copyfile(data / name, destination / name)
+    if (data / "switchvisor-control.dtbo").is_file():
+        shutil.copyfile(data / "switchvisor-control.dtbo", destination / "switchvisor-control.dtbo")
 
 
 def main():
@@ -141,10 +143,14 @@ def package_distribution(dist, dev_dist):
             shutil.copyfile(directory / "bl33.bin", boot / "bl33.bin")
             for name in overlay_names:
                 shutil.copyfile(directory / name, boot / name)
+            guest_control = directory / "switchvisor-control.dtbo"
+            if guest_control.is_file():
+                shutil.copyfile(guest_control, boot / guest_control.name)
             # Device ownership is independent of where the kernel came from.
             # The normal entry reuses the installed console images. Development
             # receives them in the USB bundle and never falls back to SD.
             script = (b"setenv scarlet_switchvisor 1\n"
+                      + f"setenv scarlet_switchvisor_control {int(guest_control.is_file())}\n".encode()
                       + f"setenv scarlet_switchvisor_payload {int(uploaded)}\n".encode()
                       + f"setenv scarlet_kernel_dir /{SOURCE_DIRECTORY}\n".encode()
                       + f"setenv scarlet_switchvisor_net {int(bool(usb_net.get('enabled')))}\n".encode()

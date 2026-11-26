@@ -20,7 +20,7 @@ jobs:
           python3 - <<'PY'
           import os, tomllib
           from pathlib import Path
-          manifest = tomllib.loads(Path('projects/aarch64-switch-l4t-console/scarlet.toml').read_text())
+          manifest = tomllib.loads(Path('projects/aarch64-switch-l4t/scarlet.toml').read_text())
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write('revision=' + manifest['bsp']['kernel']['source']['rev'] + '\n')
           PY
@@ -51,4 +51,4 @@ jobs:
             python3 tests/test-wireless-cores.py --scarlet "$PWD/.cache/ci-scarlet"
           '
       - name: Build the production kernel without imported firmware
-        run: nix develop .#ci --accept-flake-config -c cargo scarlet build --project projects/aarch64-switch-l4t-console --release
+        run: nix develop .#ci --accept-flake-config -c cargo scarlet build --project projects/aarch64-switch-l4t --release

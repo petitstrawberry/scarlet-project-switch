@@ -5,7 +5,7 @@ import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / 'projects/aarch64-switch-l4t-console'
+PROJECT = ROOT / 'projects/aarch64-switch-l4t'
 
 
 class SourceTests(unittest.TestCase):

@@ -245,7 +245,7 @@ class BuildTests(unittest.TestCase):
         self.assertFalse((self.project / ".scarlet/sgfx-maxwell" / builder.LIBRARY).exists())
 
     def test_bundle_passes_the_staging_directory_from_project_cwd(self):
-        bundle = ROOT / "projects/aarch64-switch-l4t-console/bundles/sgfx-maxwell.toml"
+        bundle = ROOT / "projects/aarch64-switch-l4t/bundles/sgfx-maxwell.toml"
         layer, = tomllib.loads(bundle.read_text())["layers"]
         self.assertEqual(layer["kind"], "script")
         self.assertEqual(layer["to"], "/lib/sgfx")

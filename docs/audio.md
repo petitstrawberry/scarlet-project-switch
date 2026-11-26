@@ -50,7 +50,7 @@ The console project enables the audio module. Build normally:
 
 ```sh
 nix develop --command cargo scarlet build \
-  --project projects/aarch64-switch-l4t-console --release
+  --project projects/aarch64-switch-l4t --release
 ```
 
 Use [audio-qa](../tests/audio-qa/README.md) for the manual stereo, resampling

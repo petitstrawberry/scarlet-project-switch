@@ -6,7 +6,7 @@ import subprocess
 from linux_vulkan_package import validate_build
 
 ROOT = Path(__file__).resolve().parents[1]
-PROJECT = ROOT / "projects/aarch64-switch-l4t-console"
+PROJECT = ROOT / "projects/aarch64-switch-l4t"
 
 
 def main():

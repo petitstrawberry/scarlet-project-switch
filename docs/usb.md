@@ -397,7 +397,7 @@ Build normally using [the console instructions](console.md):
 
 ```sh
 nix develop --command cargo scarlet build \
-  --project projects/aarch64-switch-l4t-console --release
+  --project projects/aarch64-switch-l4t --release
 ```
 
 `cargo scarlet image` also rebuilds the images and packages the boot files.

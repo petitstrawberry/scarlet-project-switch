@@ -1,1 +1,1 @@
-include!("../../../projects/aarch64-switch-l4t-console/bsp/build.rs");
+include!("../../../projects/aarch64-switch-l4t/bsp/build.rs");
