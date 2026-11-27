@@ -5,9 +5,9 @@ edition = "2024"
 publish = false
 
 [dependencies]
-scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "4453b096b4f244dce85d556c5e1514aca0cdefd3", default-features = false, features = ["std"] }
-sws-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "4453b096b4f244dce85d556c5e1514aca0cdefd3", default-features = false, features = ["std"] }
-sws-protocol = { git = "https://github.com/petitstrawberry/Scarlet", rev = "4453b096b4f244dce85d556c5e1514aca0cdefd3", default-features = false, features = ["std"] }
+scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "09eb89e49503eaebb61a4e0923e72f58845126e4", default-features = false, features = ["std"] }
+sws-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "09eb89e49503eaebb61a4e0923e72f58845126e4", default-features = false, features = ["std"] }
+sws-protocol = { git = "https://github.com/petitstrawberry/Scarlet", rev = "09eb89e49503eaebb61a4e0923e72f58845126e4", default-features = false, features = ["std"] }
 
 [profile.release]
 panic = "abort"

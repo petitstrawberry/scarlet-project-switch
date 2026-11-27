@@ -1,0 +1,14 @@
+[package]
+name = "joycond"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-only"
+
+[[bin]]
+name = "joycond"
+path = "src/main.rs"
+
+[dependencies]
+scarlet-switch-joycon-abi = { path = "../joycon-abi" }
+scarlet-abi = { git = "https://github.com/petitstrawberry/Scarlet", rev = "09eb89e49503eaebb61a4e0923e72f58845126e4" }
+scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "09eb89e49503eaebb61a4e0923e72f58845126e4", default-features = false, features = ["std"] }

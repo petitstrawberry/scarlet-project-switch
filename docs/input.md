@@ -138,13 +138,20 @@ wireless Joy-Con appeared as `/dev/gamepad1` alongside `/dev/gamepad0`
 for the attached rails. The tester confirmed that the UI responded to
 input from the wireless right Joy-Con.
 
-The Bluetooth bundle installs `btctl` and `joycond` in the initramfs and
-full rootfs. Pair each detached half with `btctl pair <MAC>` and use
+The Bluetooth bundle installs `btctl` and the Switch Joy-Con bundle installs
+`joycond` in the initramfs and full rootfs. Pair each detached half with `btctl pair <MAC>` and use
 `btctl devices` to see both links. Each half initially works upright. For
 a single horizontal controller, hold SL and SR on that half. For a combined
 controller, hold L on the left half and R on the right half together.
 `joycond` publishes the selected grip as a native gamepad. The rail
 controller continues to provide input when the Joy-Con are attached.
+
+Scarlet's Bluetooth host discovers the Classic HID service and its report
+descriptor through SDP and registers the device with the common HID bus.
+The Switch builds the `scarlet-driver-joycon-bt` kernel module to bind the
+Nintendo product IDs and handle initialization, input reports and player
+lights. The module exposes one decoded input stream per wireless half.
+`joycond` uses those streams to select layouts and publish gamepads.
 
 ### Bluetooth firmware
 

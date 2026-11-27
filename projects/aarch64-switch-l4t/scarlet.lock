@@ -466,17 +466,6 @@ type = "path"
 path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/bluetooth"
 
 [[sections.initramfs.layers]]
-kind = "cargo"
-package = "scarlet-bluetooth"
-bin = "joycond"
-to = "/bin/joycond"
-hash = ""
-
-[sections.initramfs.layers.source]
-type = "path"
-path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/bluetooth"
-
-[[sections.initramfs.layers]]
 kind = "script"
 to = "/lib/firmware/brcm"
 hash = "sha256:3ad5a0281d21691693715d7d715c897b0a7549ebc3f3ed52e482fada298a8f62"
@@ -493,6 +482,17 @@ hash = ""
 [sections.initramfs.layers.source]
 type = "path"
 path = "../../scripts/install-bluetooth-firmware.sh"
+
+[[sections.initramfs.layers]]
+kind = "cargo"
+package = "joycond"
+bin = "joycond"
+to = "/bin/joycond"
+hash = ""
+
+[sections.initramfs.layers.source]
+type = "path"
+path = "../../userspace/joycond"
 
 [[sections.initramfs.layers]]
 kind = "script"
@@ -644,17 +644,6 @@ kind = "cargo"
 package = "scarlet-bluetooth"
 bin = "btctl"
 to = "/bin/btctl"
-hash = ""
-
-[sections.rootfs.layers.source]
-type = "path"
-path = ".scarlet/cache/git/3a6ec0c32bdfd41b/user/bluetooth"
-
-[[sections.rootfs.layers]]
-kind = "cargo"
-package = "scarlet-bluetooth"
-bin = "joycond"
-to = "/bin/joycond"
 hash = ""
 
 [sections.rootfs.layers.source]
@@ -1911,9 +1900,20 @@ path = "../../scripts/install-bluetooth-firmware.sh"
 
 [[sections.rootfs.layers]]
 kind = "cargo"
+package = "joycond"
+bin = "joycond"
+to = "/bin/joycond"
+hash = ""
+
+[sections.rootfs.layers.source]
+type = "path"
+path = "../../userspace/joycond"
+
+[[sections.rootfs.layers]]
+kind = "cargo"
 git = "https://github.com/petitstrawberry/Scarlet"
-git_ref = "4453b096b4f244dce85d556c5e1514aca0cdefd3"
-resolved_rev = "4453b096b4f244dce85d556c5e1514aca0cdefd3"
+git_ref = "09eb89e49503eaebb61a4e0923e72f58845126e4"
+resolved_rev = "09eb89e49503eaebb61a4e0923e72f58845126e4"
 package = "video_player"
 bin = "video-player"
 subdir = "user/video_player"
@@ -1928,7 +1928,7 @@ hash = ""
 [sections.rootfs.layers.source]
 type = "git"
 url = "https://github.com/petitstrawberry/Scarlet"
-rev = "4453b096b4f244dce85d556c5e1514aca0cdefd3"
+rev = "09eb89e49503eaebb61a4e0923e72f58845126e4"
 
 [[sections.rootfs.layers]]
 kind = "script"
