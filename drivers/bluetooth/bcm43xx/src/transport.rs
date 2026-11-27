@@ -14,22 +14,53 @@ const DOWNLOAD_MINIDRV: u16 = 0xfc2e;
 const WRITE_RAM: u16 = 0xfc4c;
 const LAUNCH_RAM: u16 = 0xfc4e;
 
-fn wire_address(text: &str) -> Result<[u8; 6], &'static str> {
+fn usable_address(mut addr: [u8; 6]) -> bool {
+    // HCI carries the least significant octet first. The ODIN DT placeholder
+    // (11:22:33:44:55:66) and the pinned HCD's BD_ADDR at offset 0x21
+    // (43:56:A3:00:1F:AC) both fail the individual-address check.
+    addr.reverse();
+    addr[0] & 1 == 0
+        && addr != [addr[0]; 6]
+        && !matches!(
+            addr,
+            [0x98, 0xb6, 0xe9, 0, 0, 1 | 2] // Noble initramfs Wi-Fi/BT defaults
+                | [0, 0x11, 0x22, 0x33, 0x44, 0x55]
+                | [0x02, 0, 0, 0, 0, 0]
+                | [0, 0x20, 0x70, 0x02, 0xa0, 0] // Broadcom btbcm defaults
+                | [0x20, 0x70, 0x02, 0xa0, 0, 0]
+                | [0x20, 0x76, 0xa0, 0, 0x56, 0x79]
+        )
+}
+
+fn is_public_controller_address(addr: [u8; 6]) -> bool {
+    // A locally administered address requires an explicit board handoff.
+    addr[5] & 2 == 0 && usable_address(addr)
+}
+
+fn switchroot_address(lot: u32) -> Result<[u8; 6], &'static str> {
+    if matches!(lot, 0 | u32::MAX) {
+        return Err("ODIN Bluetooth lot code unavailable");
+    }
+    // Switchroot U-Boot 722e2b86, board/nintendo/switch/nintendo-switch.c:
+    // device_bt_mac increments only the last displayed octet, without carry.
+    let [low, middle, high, _] = lot.to_le_bytes();
+    let addr = [low.wrapping_add(1), middle, high, 0xe9, 0xb6, 0x98];
+    usable_address(addr)
+        .then_some(addr)
+        .ok_or("ODIN Bluetooth lot code produces a generic address")
+}
+
+fn wire_address(text: &str) -> Option<[u8; 6]> {
     let mut addr = [0; 6];
     let mut octets = text.split(':');
     for byte in addr.iter_mut().rev() {
-        let octet = octets.next().ok_or("Bluetooth board address truncated")?;
+        let octet = octets.next()?;
         if octet.len() != 2 || !octet.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err("invalid Bluetooth address octet");
+            return None;
         }
-        *byte = u8::from_str_radix(octet, 16).map_err(|_| "invalid Bluetooth address")?;
+        *byte = u8::from_str_radix(octet, 16).ok()?;
     }
-    // The stock ODIN DT contains 11:22:33:44:55:66. The bootloader replaces
-    // it with the factory address. It fails the individual-address test.
-    if octets.next().is_some() || addr == [0; 6] || addr[5] & 1 != 0 {
-        return Err("missing individual Bluetooth board address");
-    }
-    Ok(addr)
+    (octets.next().is_none() && usable_address(addr)).then_some(addr)
 }
 
 fn hcd_records(
@@ -59,7 +90,8 @@ fn hcd_records(
 
 fn bootstrap(
     hcd: &[u8],
-    addr: &[u8; 6],
+    board_address: Option<[u8; 6]>,
+    read_odin_lot: impl FnOnce() -> Result<u32, &'static str>,
     mut command: impl FnMut(u16, &[u8], &mut [u8]) -> Result<(), &'static str>,
     mut delay_ms: impl FnMut(u64),
     rearm_after_launch: impl FnOnce() -> Result<(), &'static str>,
@@ -73,6 +105,16 @@ fn bootstrap(
         return Err("Bluetooth ROM does not identify as Broadcom BCM4356A3");
     }
     let rom_build = bcm_build(&version);
+    // Existing Scarlet bonds use the bootloader's address. If it is absent,
+    // save the cold controller address before PatchRAM can replace it.
+    let expected_address = match board_address {
+        Some(addr) => Some(addr),
+        None => {
+            let mut rom = [0; 6];
+            command(READ_ADDRESS, &[], &mut rom)?;
+            is_public_controller_address(rom).then_some(rom)
+        }
+    };
     command(DOWNLOAD_MINIDRV, &[], &mut [])?;
     delay_ms(50);
     hcd_records(hcd, |op, params| command(op, params, &mut []))?;
@@ -91,10 +133,23 @@ fn bootstrap(
     {
         return Err("Bluetooth patch build not confirmed after Launch RAM");
     }
-    command(WRITE_ADDRESS, addr, &mut [])?;
+    if board_address.is_none() {
+        let mut current = [0; 6];
+        command(READ_ADDRESS, &[], &mut current)?;
+        if is_public_controller_address(current)
+            && expected_address.is_none_or(|addr| addr == current)
+        {
+            return Ok(());
+        }
+    }
+    let addr = match expected_address {
+        Some(addr) => addr,
+        None => switchroot_address(read_odin_lot()?)?,
+    };
+    command(WRITE_ADDRESS, &addr, &mut [])?;
     let mut readback = [0; 6];
     command(READ_ADDRESS, &[], &mut readback)?;
-    if readback != *addr {
+    if readback != addr {
         return Err("Bluetooth board address readback failed");
     }
     Ok(())
@@ -150,9 +205,36 @@ mod board {
 
     struct Transport {
         port: BluetoothUart,
-        address: [u8; 6],
+        board_address: Option<[u8; 6]>,
         lifecycle: Mutex<()>,
         online: AtomicBool,
+    }
+
+    fn read_odin_lot() -> Result<u32, &'static str> {
+        // UARTD discovery has already checked the ODIN root compatible.
+        const BASE: usize = 0x7000_f800;
+        const OPT_LOT_CODE_0: usize = 0x208;
+        let fuse = FdtManager::get_manager()
+            .get_fdt()
+            .and_then(|fdt| fdt.find_node("/efuse@7000f800"))
+            .ok_or("ODIN Bluetooth fuse node missing")?;
+        if !fuse
+            .compatible()
+            .is_some_and(|c| c.all().any(|s| s == "nvidia,tegra210-efuse"))
+            || fuse
+                .property("status")
+                .is_some_and(|p| !matches!(p.as_str(), Some("ok" | "okay")))
+            || !fuse.reg().and_then(|mut r| r.next()).is_some_and(|r| {
+                r.starting_address as usize == BASE && r.size.unwrap_or(0) >= OPT_LOT_CODE_0 + 4
+            })
+        {
+            return Err("unexpected ODIN Bluetooth fuse resource");
+        }
+        let register = scarlet::vm::ioremap((BASE + OPT_LOT_CODE_0) as u64, 4)?;
+        // SAFETY: This is the aligned read-only lot shadow in the checked ODIN resource.
+        let lot = unsafe { scarlet::arch::mmio::read32(register) };
+        scarlet::vm::iounmap(register);
+        Ok(lot)
     }
 
     /// Reserve the DT child's UART. Firmware loading and hardware setup run
@@ -174,17 +256,16 @@ mod board {
                 return Err("unexpected ODIN Bluetooth GPIO wiring");
             }
         }
-        let address = FdtManager::get_manager()
+        let board_address = FdtManager::get_manager()
             .get_fdt()
             .and_then(|fdt| fdt.find_node("/chosen"))
             .and_then(|node| node.property("nvidia,bluetooth-mac"))
             .and_then(|p| p.as_str())
-            .ok_or("Bluetooth board address missing")?;
-        let address = wire_address(address)?;
+            .and_then(wire_address);
         let port = claim_bluetooth_uart(parent, provider)?;
         Ok(Arc::new(Transport {
             port,
-            address,
+            board_address,
             lifecycle: Mutex::new(()),
             online: AtomicBool::new(false),
         }))
@@ -289,7 +370,8 @@ mod board {
                 let mut step = 0;
                 bootstrap(
                     &hcd,
-                    &self.address,
+                    self.board_address,
+                    read_odin_lot,
                     |op, params, result| {
                         step += 1;
                         self.command(&wake, step, op, params, result)
@@ -418,14 +500,28 @@ mod tests {
         );
         for bad in [
             "11:22:33:44:55:66",
+            "43:56:A3:00:1F:AC",
+            "98:B6:E9:00:00:02",
+            "98:B6:E9:00:00:01",
+            "00:11:22:33:44:55",
+            "02:00:00:00:00:00",
+            "00:20:70:02:A0:00",
+            "20:70:02:A0:00:00",
+            "20:76:A0:00:56:79",
+            "AA:AA:AA:AA:AA:AA",
+            "FF:FF:FF:FF:FF:FF",
             "00:00:00:00:00:00",
+            "",
+            "98:B6:E9:01:02",
             "9:B6:E9:01:02:03",
             "99:B6:E9:01:02:03",
             "98:B6:E9:01:02:03:",
             "+0:B6:E9:01:02:03",
         ] {
-            assert!(wire_address(bad).is_err());
+            assert_eq!(wire_address(bad), None, "{bad}");
         }
+        let local = wire_address("02:B6:E9:01:02:03").unwrap();
+        assert!(!is_public_controller_address(local));
     }
 
     #[test]
@@ -528,7 +624,8 @@ mod tests {
             let mut ops = Vec::new();
             let outcome = bootstrap(
                 HCD,
-                &[1; 6],
+                Some([3, 2, 1, 0xe9, 0xb6, 0x98]),
+                || panic!("board address supplied"),
                 |op, _, out| {
                     let launched = ops.contains(&LAUNCH_RAM);
                     ops.push(op);
@@ -571,7 +668,8 @@ mod tests {
             let mut delays = Vec::new();
             let result = bootstrap(
                 HCD,
-                &addr,
+                Some(addr),
+                || panic!("board address supplied"),
                 |op, params, out| {
                     ops.push(op);
                     match op {
@@ -612,6 +710,125 @@ mod tests {
                 );
                 assert_eq!(delays, [100, 50, 250, 100]);
             }
+        }
+    }
+
+    #[test]
+    fn switchroot_address_matches_uboot_and_rejects_unusable_lot_values() {
+        let expected = wire_address("98:B6:E9:12:34:57").unwrap();
+        assert_eq!(switchroot_address(0x0012_3456), Ok(expected));
+        assert_eq!(switchroot_address(0xab12_3456), Ok(expected));
+        assert_eq!(
+            switchroot_address(0xab12_34ff),
+            Ok(wire_address("98:B6:E9:12:34:00").unwrap())
+        );
+        for lot in [0, u32::MAX, 0xab00_0000, 0xab00_0001] {
+            assert!(switchroot_address(lot).is_err());
+        }
+    }
+
+    #[test]
+    fn missing_board_address_uses_controller_before_uboot_lot_fallback() {
+        let public = [3, 2, 1, 0xe9, 0xb6, 0x98];
+        let different = [4, 2, 1, 0xe9, 0xb6, 0x98];
+        let hcd_default = [0xac, 0x1f, 0, 0xa3, 0x56, 0x43];
+        let noble_default = [2, 0, 0, 0xe9, 0xb6, 0x98];
+        let local = [3, 2, 1, 0xe9, 0xb6, 0x02];
+        let provisioned = [0x57, 0x34, 0x12, 0xe9, 0xb6, 0x98];
+        let lot = Some(Ok(0xab12_3456));
+        for (rom, patched, fallback, write, readback, success) in [
+            (public, public, None, None, public, true),
+            (public, hcd_default, None, Some(public), public, true),
+            (public, different, None, Some(public), public, true),
+            (public, hcd_default, None, Some(public), hcd_default, false),
+            ([0; 6], public, None, None, public, true),
+            (
+                local,
+                local,
+                Some(Err("no lot resource")),
+                None,
+                local,
+                false,
+            ),
+            (
+                hcd_default,
+                noble_default,
+                Some(Ok(0)),
+                None,
+                noble_default,
+                false,
+            ),
+            (
+                hcd_default,
+                noble_default,
+                lot,
+                Some(provisioned),
+                provisioned,
+                true,
+            ),
+            (
+                hcd_default,
+                noble_default,
+                lot,
+                Some(provisioned),
+                noble_default,
+                false,
+            ),
+        ] {
+            let mut launched = false;
+            let mut reads = Vec::new();
+            let mut written = None;
+            let mut read_lot = false;
+            let result = bootstrap(
+                HCD,
+                None,
+                || {
+                    read_lot = true;
+                    fallback.expect("usable controller address must bypass the lot register")
+                },
+                |op, params, out| {
+                    match op {
+                        READ_VERSION => {
+                            out[1] = u8::from(launched);
+                            out[4..8].copy_from_slice(&[0x0f, 0, 9, 0x24]);
+                        }
+                        DOWNLOAD_MINIDRV => assert_eq!(reads, [rom]),
+                        LAUNCH_RAM => launched = true,
+                        READ_ADDRESS => {
+                            let value = if written.is_some() {
+                                readback
+                            } else if launched {
+                                patched
+                            } else {
+                                rom
+                            };
+                            out.copy_from_slice(&value);
+                            reads.push(value);
+                        }
+                        WRITE_ADDRESS => {
+                            assert_eq!(reads, [rom, patched]);
+                            assert!(written.is_none());
+                            written = Some(<[u8; 6]>::try_from(params).unwrap());
+                        }
+                        _ => (),
+                    }
+                    Ok(())
+                },
+                |_| (),
+                || Ok(()),
+            );
+            assert_eq!(
+                result.is_ok(),
+                success,
+                "ROM {rom:x?}, patched {patched:x?}"
+            );
+            assert_eq!(written, write);
+            assert_eq!(read_lot, fallback.is_some());
+            let mut expected_reads = Vec::from([rom, patched]);
+            if write.is_some() {
+                expected_reads.push(readback);
+            }
+            assert_eq!(reads, expected_reads);
         }
     }
 }

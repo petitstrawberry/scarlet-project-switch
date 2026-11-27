@@ -768,6 +768,32 @@ impl<'r> DrawState<'r> {
         }
         Ok(false)
     }
+    fn write_viewport_and_scissor(
+        &self,
+        header: &mut [u32; 64],
+        table: &ir::ResourceTable,
+        pass: ir::RenderPassDesc<'r>,
+    ) -> ir::Result<()> {
+        // The render area limits writes. Vertices are in the attachment's
+        // coordinate system even when a blur pass updates a small region.
+        let viewport = match self.viewport {
+            Some(viewport) => viewport.components(),
+            None => {
+                let extent = table.texture(pass.target())?.extent();
+                [0., 0., extent.width() as f32, extent.height() as f32, 0., 1.]
+            }
+        };
+        header[32..38].copy_from_slice(&viewport.map(f32::to_bits));
+        let scissor = self.scissor.unwrap_or(pass.area());
+        header[38..42].copy_from_slice(&[
+            scissor.x(),
+            scissor.y(),
+            scissor.width(),
+            scissor.height(),
+        ]);
+        Ok(())
+    }
+
     pub(crate) fn draw(
         &self,
         command: &ir::Command<'r, '_>,
@@ -1397,25 +1423,7 @@ impl ContextResources {
             }
             images.push(image);
         }
-        let area = pass.area();
-        let viewport = state.viewport.map(ir::Viewport::components).unwrap_or([
-            area.x() as f32,
-            area.y() as f32,
-            area.width() as f32,
-            area.height() as f32,
-            0.,
-            1.,
-        ]);
-        for (i, value) in viewport.into_iter().enumerate() {
-            header[32 + i] = value.to_bits();
-        }
-        let scissor = state.scissor.unwrap_or(area);
-        header[38..42].copy_from_slice(&[
-            scissor.x(),
-            scissor.y(),
-            scissor.width(),
-            scissor.height(),
-        ]);
+        state.write_viewport_and_scissor(&mut header, &table, pass)?;
         let raster = descriptor.raster();
         header[42] = u32::from(raster.front_face() == ir::FrontFace::Clockwise)
             | (match raster.cull_mode() {
@@ -2455,6 +2463,59 @@ mod tests {
             (ir::TextureFormat::Depth32Float, 4),
         ] {
             assert_eq!(programmable_sample_format(format).unwrap(), logical);
+        }
+    }
+    #[test]
+    fn partial_glass_passes_shade_every_requested_row() {
+        let table = ir::ResourceTable::new();
+        let extent = ir::Extent2D::new(1280, 720).unwrap();
+        let descriptor = ir::TextureDesc::new(
+            TextureFormat::Bgra8Unorm,
+            extent,
+            ir::TextureUsage::RENDER_ATTACHMENT,
+        )
+        .unwrap();
+        let target = table.define_texture(descriptor).unwrap();
+        let mut state = DrawState::new();
+        let mut header = [0; 64];
+
+        // Replay the H/V pass bounds emitted for a 1280 x 40 refractive bar
+        // moving from y=320 to 328 (2px blur). blur_vertex normalizes the
+        // capture quad against the full 1280 x 720 scratch attachment.
+        for top in [316, 324] {
+            let capture = ir::PixelRect::new(0, top, 1280, 48).unwrap();
+            let vertical = ir::PixelRect::new(0, top + 3, 1280, 42).unwrap();
+            let pass =
+                ir::RenderPassDesc::new(&table, target, capture, ir::LoadOp::Load, ir::StoreOp::Store)
+                    .unwrap();
+            for clip in [capture, vertical] {
+                state.observe(&ir::Command::BeginRenderPass(pass)).unwrap();
+                state.observe(&ir::Command::SetScissor(Some(clip))).unwrap();
+                state
+                    .write_viewport_and_scissor(&mut header, &table, pass)
+                    .unwrap();
+                assert_eq!(header[38..42], [0, clip.y(), 1280, clip.height()]);
+
+                let project_y = |y: u32| {
+                    f32::from_bits(header[33])
+                        + y as f32 / extent.height() as f32 * f32::from_bits(header[35])
+                };
+                let rows = project_y(top)..project_y(top + capture.height());
+                let shaded = (clip.y()..clip.y() + clip.height())
+                    .filter(|&y| rows.contains(&(y as f32 + 0.5)))
+                    .count();
+                assert_eq!(shaded as u32, clip.height(), "capture={capture:?}, clip={clip:?}");
+            }
+            // An explicit viewport still takes precedence. Resetting the
+            // scissor restores the pass area independently of the viewport.
+            let viewport = ir::Viewport::new(2., 600., 512., -256., 0.25, 0.75).unwrap();
+            state.observe(&ir::Command::SetViewport(viewport)).unwrap();
+            state.observe(&ir::Command::SetScissor(None)).unwrap();
+            state
+                .write_viewport_and_scissor(&mut header, &table, pass)
+                .unwrap();
+            assert_eq!(header[32..38], viewport.components().map(f32::to_bits));
+            assert_eq!(header[38..42], [0, top, 1280, 48]);
         }
     }
     #[test]
