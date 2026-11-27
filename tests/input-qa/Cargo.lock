@@ -626,11 +626,11 @@ dependencies = [
 name = "input-qa"
 version = "0.1.0"
 dependencies = [
- "scarlet-os 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f)",
+ "scarlet-os 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc)",
  "scarlet-ui",
  "scarlet-ui-macros",
- "sws-client 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f)",
- "sws-protocol 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f)",
+ "sws-client 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc)",
+ "sws-protocol 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc)",
 ]
 
 [[package]]
@@ -1438,7 +1438,7 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f#8105761c2571c4d7e36843d87c4ebc904f35205f"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc#79fc62e1c9736b85dd27e49513a8585fe98387cc"
 
 [[package]]
 name = "scarlet-abi"
@@ -1453,10 +1453,10 @@ source = "git+https://github.com/petitstrawberry/Scarlet?rev=d3b1c05127d4df3616f
 [[package]]
 name = "scarlet-os"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f#8105761c2571c4d7e36843d87c4ebc904f35205f"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc#79fc62e1c9736b85dd27e49513a8585fe98387cc"
 dependencies = [
- "scarlet-abi 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f)",
- "scarlet-sys 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f)",
+ "scarlet-abi 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc)",
+ "scarlet-sys 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc)",
 ]
 
 [[package]]
@@ -1479,9 +1479,9 @@ dependencies = [
 [[package]]
 name = "scarlet-sys"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f#8105761c2571c4d7e36843d87c4ebc904f35205f"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc#79fc62e1c9736b85dd27e49513a8585fe98387cc"
 dependencies = [
- "scarlet-abi 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f)",
+ "scarlet-abi 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc)",
 ]
 
 [[package]]
@@ -1880,10 +1880,10 @@ dependencies = [
 [[package]]
 name = "sws-client"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f#8105761c2571c4d7e36843d87c4ebc904f35205f"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc#79fc62e1c9736b85dd27e49513a8585fe98387cc"
 dependencies = [
- "scarlet-os 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f)",
- "sws-protocol 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f)",
+ "scarlet-os 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc)",
+ "sws-protocol 1.0.0 (git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc)",
 ]
 
 [[package]]
@@ -1898,7 +1898,7 @@ dependencies = [
 [[package]]
 name = "sws-protocol"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f#8105761c2571c4d7e36843d87c4ebc904f35205f"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=79fc62e1c9736b85dd27e49513a8585fe98387cc#79fc62e1c9736b85dd27e49513a8585fe98387cc"
 
 [[package]]
 name = "sws-protocol"
