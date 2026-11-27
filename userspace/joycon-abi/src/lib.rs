@@ -12,3 +12,8 @@ pub const SET_JOYCON_PLAYER: u32 = 0x4750_0002;
 /// Duplicate descriptors share the claim, which ends at the last close.
 /// Independent opens of the raw half endpoints can still read their snapshots.
 pub const SCTL_JOYCON_CLAIM_MAPPER: u32 = 0x4750_0003;
+
+/// On MAPPER_PATH, query occupied raw endpoint slots with argument zero.
+/// Bits 0..7 are left slots, bits 8..15 are right slots.
+pub const SCTL_JOYCON_GET_SLOTS: u32 = 0x4750_0004;
+pub const SLOTS_PER_SIDE: usize = 8;

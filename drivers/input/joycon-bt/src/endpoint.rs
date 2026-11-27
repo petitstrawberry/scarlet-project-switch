@@ -11,11 +11,20 @@ use scarlet::{
     shield::authorization::{Management, permits_management},
     sync::Mutex,
 };
-use scarlet_switch_joycon_abi::SET_JOYCON_PLAYER;
+use scarlet_switch_joycon_abi::{SET_JOYCON_PLAYER, SLOTS_PER_SIDE};
 
-const SLOTS_PER_SIDE: usize = 8;
 static LEFT: Mutex<[bool; SLOTS_PER_SIDE]> = Mutex::new([false; SLOTS_PER_SIDE]);
 static RIGHT: Mutex<[bool; SLOTS_PER_SIDE]> = Mutex::new([false; SLOTS_PER_SIDE]);
+
+pub(super) fn occupied_slots() -> u16 {
+    let bits = |pool: &Mutex<[bool; SLOTS_PER_SIDE]>| {
+        pool.lock()
+            .iter()
+            .enumerate()
+            .fold(0u16, |mask, (i, used)| mask | (u16::from(*used) << i))
+    };
+    bits(&LEFT) | (bits(&RIGHT) << SLOTS_PER_SIDE)
+}
 
 struct Slot {
     pool: &'static Mutex<[bool; SLOTS_PER_SIDE]>,

@@ -15,7 +15,7 @@ use scarlet::{
     },
     sync::Mutex,
 };
-use scarlet_switch_joycon_abi::{MAPPER_PATH, SCTL_JOYCON_CLAIM_MAPPER};
+use scarlet_switch_joycon_abi::{MAPPER_PATH, SCTL_JOYCON_CLAIM_MAPPER, SCTL_JOYCON_GET_SLOTS};
 
 static CLAIMED: AtomicBool = AtomicBool::new(false);
 enum Mapper {
@@ -57,16 +57,25 @@ impl Device for Mapper {
 }
 impl ControlOps for Mapper {
     fn supported_control_commands(&self) -> Vec<(u32, &'static str)> {
-        vec![(SCTL_JOYCON_CLAIM_MAPPER, "Claim Joy-Con layout ownership")]
+        vec![
+            (SCTL_JOYCON_CLAIM_MAPPER, "Claim Joy-Con layout ownership"),
+            (SCTL_JOYCON_GET_SLOTS, "Get occupied Joy-Con endpoint slots"),
+        ]
     }
     fn control(&self, cmd: u32, arg: usize) -> Result<i32, &'static str> {
-        if cmd != SCTL_JOYCON_CLAIM_MAPPER || arg != 0 {
+        if arg != 0 {
             return Err("Invalid Joy-Con mapper control");
         }
         super::endpoint::require_seat()?;
         let Self::File(owner) = self else {
             return Err("Open the Joy-Con mapper first");
         };
+        if cmd == SCTL_JOYCON_GET_SLOTS {
+            return Ok(i32::from(super::endpoint::occupied_slots()));
+        }
+        if cmd != SCTL_JOYCON_CLAIM_MAPPER {
+            return Err("Invalid Joy-Con mapper control");
+        }
         let mut held = owner.lock();
         if !*held {
             CLAIMED

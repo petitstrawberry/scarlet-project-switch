@@ -13,7 +13,7 @@ maxwell-native-submit-wire = { path = "../../../shared/maxwell-native-submit-wir
 maxwell-shader-pack = { path = "../../../shared/maxwell-shader-pack" }
 
 [target.'cfg(target_os = "none")'.dependencies]
-scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba", default-features = false, features = ["network"] }
+scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8105761c2571c4d7e36843d87c4ebc904f35205f", default-features = false, features = ["network"] }
 scarlet-driver-tegra210 = { path = "../../soc/tegra210" }
 fdt = "0.1.5"
 maxwell-shader-pack = { path = "../../../shared/maxwell-shader-pack" }

@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba", default-features = false, features = ["std"] }
-scarlet-sys = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba" }
-scarlet-desktop-config = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba", default-features = false, features = ["std"] }
-sbus-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba", default-features = false, features = ["std"] }
+scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8105761c2571c4d7e36843d87c4ebc904f35205f", default-features = false, features = ["std"] }
+scarlet-sys = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8105761c2571c4d7e36843d87c4ebc904f35205f" }
+scarlet-desktop-config = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8105761c2571c4d7e36843d87c4ebc904f35205f", default-features = false, features = ["std"] }
+sbus-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8105761c2571c4d7e36843d87c4ebc904f35205f", default-features = false, features = ["std"] }
 
 [profile.release]
 panic = "abort"

@@ -282,7 +282,7 @@ dependencies = [
 [[package]]
 name = "scarlet"
 version = "1.0.1"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=82b38f7026328a2b839c90004ce2de7655caa6ba#82b38f7026328a2b839c90004ce2de7655caa6ba"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f#8105761c2571c4d7e36843d87c4ebc904f35205f"
 dependencies = [
  "aes",
  "ccm",
@@ -300,7 +300,7 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=82b38f7026328a2b839c90004ce2de7655caa6ba#82b38f7026328a2b839c90004ce2de7655caa6ba"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f#8105761c2571c4d7e36843d87c4ebc904f35205f"
 
 [[package]]
 name = "scarlet-driver-joycon-bt"
@@ -313,7 +313,7 @@ dependencies = [
 [[package]]
 name = "scarlet-os"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=82b38f7026328a2b839c90004ce2de7655caa6ba#82b38f7026328a2b839c90004ce2de7655caa6ba"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f#8105761c2571c4d7e36843d87c4ebc904f35205f"
 dependencies = [
  "scarlet-abi",
  "scarlet-sys",
@@ -326,7 +326,7 @@ version = "0.1.0"
 [[package]]
 name = "scarlet-sys"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=82b38f7026328a2b839c90004ce2de7655caa6ba#82b38f7026328a2b839c90004ce2de7655caa6ba"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f#8105761c2571c4d7e36843d87c4ebc904f35205f"
 dependencies = [
  "scarlet-abi",
 ]
@@ -351,7 +351,7 @@ dependencies = [
 [[package]]
 name = "sws-protocol"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=82b38f7026328a2b839c90004ce2de7655caa6ba#82b38f7026328a2b839c90004ce2de7655caa6ba"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=8105761c2571c4d7e36843d87c4ebc904f35205f#8105761c2571c4d7e36843d87c4ebc904f35205f"
 
 [[package]]
 name = "talc"

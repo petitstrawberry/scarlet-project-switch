@@ -2,6 +2,20 @@ use super::*;
 use joycon_layout::{RX, RY, SYN, X, Y};
 use std::cell::RefCell;
 
+#[test]
+fn discovery_only_visits_occupied_slots_including_holes_and_both_sides() {
+    assert_eq!(occupied_halves(0).next(), None);
+    assert_eq!(
+        occupied_halves(0x0101).collect::<Vec<_>>(),
+        [Id::Left(0), Id::Right(0)]
+    );
+    assert_eq!(
+        occupied_halves(0x8408).collect::<Vec<_>>(),
+        [Id::Right(2), Id::Left(3), Id::Right(7)]
+    );
+    assert_eq!(occupied_halves(u16::MAX).count(), 16);
+}
+
 #[derive(Debug, PartialEq)]
 enum Action {
     Create(GamepadSpec),

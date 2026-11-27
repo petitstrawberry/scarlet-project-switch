@@ -10,7 +10,9 @@ use scarlet_os::handle::HandleError;
 use scarlet_os::handle::capability::StreamError;
 use scarlet_os::poll::{self, POLLIN, PollHandle};
 use scarlet_os::{Handle, InputDevice};
-use scarlet_switch_joycon_abi::{MAPPER_PATH, SCTL_JOYCON_CLAIM_MAPPER, SET_JOYCON_PLAYER};
+use scarlet_switch_joycon_abi::{
+    MAPPER_PATH, SCTL_JOYCON_CLAIM_MAPPER, SCTL_JOYCON_GET_SLOTS, SET_JOYCON_PLAYER, SLOTS_PER_SIDE,
+};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
@@ -238,14 +240,14 @@ struct Daemon {
 }
 
 impl Daemon {
-    fn discover(&mut self) {
-        for slot in 0..8 {
-            for id in [Id::Left(slot), Id::Right(slot)] {
-                if let std::collections::btree_map::Entry::Vacant(entry) = self.raw.entry(id)
-                    && let Ok(raw) = Raw::open(id)
-                {
-                    entry.insert(raw);
-                }
+    fn discover(&mut self, mapper: &Handle) {
+        // Older board modules have only the lease control. Retain discovery on those.
+        let slots = unsafe { mapper.control(SCTL_JOYCON_GET_SLOTS, 0) }.unwrap_or(0xffff) as u16;
+        for id in occupied_halves(slots) {
+            if let std::collections::btree_map::Entry::Vacant(entry) = self.raw.entry(id)
+                && let Ok(raw) = Raw::open(id)
+            {
+                entry.insert(raw);
             }
         }
     }
@@ -267,12 +269,12 @@ impl Daemon {
         }
     }
 
-    fn run(&mut self) -> ! {
+    fn run(&mut self, mapper: &Handle) -> ! {
         let mut rescan = Instant::now();
         let mut pending = Vec::<TimedSample>::new();
         loop {
             if Instant::now() >= rescan {
-                self.discover();
+                self.discover(mapper);
                 self.sync();
                 rescan = Instant::now() + RESCAN;
             }
@@ -290,9 +292,13 @@ impl Daemon {
                     time.saturating_add(1000).saturating_sub(now),
                 ));
             }
-            if poll::poll(&mut fds, wait.as_nanos() as i64).is_err() {
-                std::thread::sleep(RESCAN);
-                continue;
+            match poll::poll(&mut fds, wait.as_nanos() as i64) {
+                Ok(0) if pending.is_empty() => continue,
+                Ok(_) => {}
+                Err(_) => {
+                    std::thread::sleep(RESCAN);
+                    continue;
+                }
             }
             let cutoff = scarlet_os::time::monotonic_time_ns();
             let (frames, gone) = collect_through(&mut self.raw, &mut pending, cutoff, Raw::drain);
@@ -311,6 +317,17 @@ impl Daemon {
     }
 }
 
+fn occupied_halves(slots: u16) -> impl Iterator<Item = Id> {
+    (0..SLOTS_PER_SIDE as u8).flat_map(move |i| {
+        [
+            (slots & (1 << i) != 0).then_some(Id::Left(i)),
+            (slots & (1 << (SLOTS_PER_SIDE + usize::from(i))) != 0).then_some(Id::Right(i)),
+        ]
+        .into_iter()
+        .flatten()
+    })
+}
+
 /// A dedicated physical-seat claim follows the last close, including process
 /// exit. Ordinary uinput producers and the filesystem are independent of it.
 fn claim_instance() -> Result<Handle, String> {
@@ -323,8 +340,8 @@ fn claim_instance() -> Result<Handle, String> {
 }
 
 fn main() -> Result<(), String> {
-    let _instance = claim_instance()?;
-    Daemon::default().run()
+    let mapper = claim_instance()?;
+    Daemon::default().run(&mapper)
 }
 
 #[cfg(test)]
