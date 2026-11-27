@@ -138,10 +138,13 @@ wireless Joy-Con appeared as `/dev/gamepad1` alongside `/dev/gamepad0`
 for the attached rails. The tester confirmed that the UI responded to
 input from the wireless right Joy-Con.
 
-The upstream `bundles/bluetooth` provides `/bin/btctl` directly in initramfs
-and through the desktop bundle in the full rootfs. `btctl status` reports
-`ready` for the controller and `connected`, `encrypted` and `profile-ready`
-for a peer.
+The Bluetooth bundle installs `btctl` and `joycond` in the initramfs and
+full rootfs. Pair each detached half with `btctl pair <MAC>` and use
+`btctl devices` to see both links. Each half initially works upright. For
+a single horizontal controller, hold SL and SR on that half. For a combined
+controller, hold L on the left half and R on the right half together.
+`joycond` publishes the selected grip as a native gamepad. The rail
+controller continues to provide input when the Joy-Con are attached.
 
 ### Bluetooth firmware
 
