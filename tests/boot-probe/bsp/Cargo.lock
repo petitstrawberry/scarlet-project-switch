@@ -266,7 +266,7 @@ dependencies = [
 [[package]]
 name = "scarlet"
 version = "1.0.1"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=062bc12a00893390532afb3b9ba4fe9b46983494#062bc12a00893390532afb3b9ba4fe9b46983494"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=8ce361419ac527b0b501c813862e377c999fc7a4#8ce361419ac527b0b501c813862e377c999fc7a4"
 dependencies = [
  "aes",
  "ccm",
@@ -284,7 +284,7 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=062bc12a00893390532afb3b9ba4fe9b46983494#062bc12a00893390532afb3b9ba4fe9b46983494"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=8ce361419ac527b0b501c813862e377c999fc7a4#8ce361419ac527b0b501c813862e377c999fc7a4"
 
 [[package]]
 name = "scarlet-modules"
