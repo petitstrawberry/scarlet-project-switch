@@ -74,6 +74,9 @@ fdt set /chosen scarlet,boot-mode ${scarlet_boot_mode}
 
 # Board identity and direct PCIe DMA contract for the onboard BCM4356.
 fdt set /chosen nvidia,wifi-mac ${device_wifi_mac}
+if test -n "${device_bt_mac}"; then
+    fdt set /chosen nvidia,bluetooth-mac ${device_bt_mac}
+fi
 fdt set /pcie@1003000 status okay
 fdt set /pcie@1003000 scarlet,pcie-phy-owned
 fdt set /pcie@1003000 scarlet,pcie-direct-dma

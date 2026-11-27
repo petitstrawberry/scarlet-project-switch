@@ -10,10 +10,11 @@ firmware properties remain intact; existing drivers keep every dependency hook.
 
 | Module | Device or provider | Current implementation |
 | --- | --- | --- |
-| `scarlet-driver-tegra210` | CAR, pinmux, GPIO, PMC, I2C controllers, UARTB/C | Declared FDT resources/phandles, bounded polling and bus recovery |
+| `scarlet-driver-tegra210` | CAR, pinmux, GPIO, PMC, I2C controllers, UARTB/C/D | Declared FDT resources/phandles, bounded polling and bus recovery |
 | `scarlet-driver-max77620` | PMIC on I2C5, RTC at address 0x68 | RTC read latch and wall-clock seed; LDO6 touch supply |
 | `scarlet-driver-stm-ftm4` | STM FTM4 on I2C3 at 0x49 | Ten-contact type-B `/dev/touchscreenN` stream and boot-time `SW_TABLET_MODE` on `/dev/switchN` |
 | `scarlet-driver-joycon` | Official attached left/right Joy-Con rails | Combined native `/dev/gamepadN`, buttons, both sticks and hat |
+| `scarlet-driver-bcm-bluetooth` | BCM4356A3 on UARTD | H4 transport, controller patch and board Bluetooth address for Scarlet's Classic Bluetooth stack |
 | `scarlet-driver-switch-buttons` | GPIO PX7/PX6, active low | Debounced volume down/up on `/dev/buttonsN` |
 
 ## Controls and scope
@@ -110,10 +111,66 @@ Joy-Con runtime RX drains a bounded interrupt-fed UART ring. Its worker waits
 for input or the next protocol deadline and publishes each HID transition.
 The ISR performs no packet parsing, allocation or inter-byte waiting.
 
-The driver targets Erista/ODIN SKU 0 and official attached Joy-Con. Sticks
+The rail driver targets Erista/ODIN SKU 0 and official attached Joy-Con. Sticks
 use nominal 12-bit range/center rather than factory/user calibration.
-Bluetooth input, rumble, Joy-Con battery reporting, Hori controllers,
+Rumble, Joy-Con battery reporting, Hori controllers,
 Switch Lite and Tegra USB input are outside this implementation.
+
+## Bluetooth on ODIN
+
+The `brcm,bcm43438-bt` child of `serial@70006300` describes the Bluetooth
+side of the BCM4356A3. UARTD carries H4 at 115200 baud, non-inverted 8N1
+with RTS/CTS. PH4 enables the radio and PH3 holds device wake active low.
+UARTB/C continue to serve the attached Joy-Con rails. [ODIN device tree](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/cf785c4c176499b301170d79fe57b77f365b73cd/kernel-dts/nx-platforms/tegra210-odin-common.dtsi#L479-L492)
+
+On 2026-11-27, a physical ODIN Switch brought `/dev/bluetooth0` to HCI
+ready. Read Local Version reported ROM build 0 at
+step 2. After Launch RAM, UARTD discarded one byte and recorded BREAK
+(`0x10`) before rearming RX. At step 198 the controller reported patch build
+112, Broadcom manufacturer `0x000f` and LMP subversion `0x2409`. HCI
+reported an ACL MTU of 1021 bytes and eight transmit buffers. From a root
+session through the broker, `btctl status` reported `ready=true`.
+
+The same Switch discovered a genuine right Joy-Con by name. The
+`btctl pair` request saved the bond. The peer then reported
+`connected=true encrypted=true profile-ready=true last-error=0`. The
+wireless Joy-Con appeared as `/dev/gamepad1` alongside `/dev/gamepad0`
+for the attached rails. The tester confirmed that the UI responded to
+input from the wireless right Joy-Con.
+
+The upstream `bundles/bluetooth` provides `/bin/btctl` directly in initramfs
+and through the desktop bundle in the full rootfs. `btctl status` reports
+`ready` for the controller and `connected`, `encrypted` and `profile-ready`
+for a peer.
+
+### Bluetooth firmware
+
+Use the local Switchroot **Ubuntu Unity Noble 5.1.2** archive named in the
+firmware manifest, or its extracted rootfs. From the repository root, choose
+the command that matches your source. Archive extraction requires a `tar`
+that reads 7z archives and `debugfs`. [Pinned filename and SHA-256 hashes](../projects/aarch64-switch-l4t/bluetooth-firmware.json)
+
+```sh
+# Extracted rootfs
+python3 scripts/import-wifi-firmware.py --radio bluetooth \
+  --directory /path/to/extracted-rootfs/lib/firmware/brcm
+
+# Original local archive
+python3 scripts/import-wifi-firmware.py --radio bluetooth \
+  --archive /path/to/theofficialgman-ubuntu-unity-noble-5.1.2-2026-05-13.7z
+```
+
+The importer verifies the 39,008-byte `BCM4356A3.hcd` and stores it under
+`projects/aarch64-switch-l4t/firmware/bluetooth/`, which Git ignores. Both
+image bundles install it at `/lib/firmware/brcm/BCM4356A3.hcd`. At startup
+the worker checks the file digest, identifies the ROM by manufacturer and
+LMP subversion, then downloads the patch. Each Write RAM requires a matching
+Command Complete. At the final Launch RAM, the driver parses any complete
+reply queued before a reboot BREAK. It waits 250 ms for the controller to
+restart, waits for quiet RX and asserted CTS, then issues Reset and reads
+the version again. A changed, nonzero build on the same controller permits
+the driver to program and read back the address supplied by U-Boot in
+`/chosen/nvidia,bluetooth-mac`. [Switchroot PatchRAM sequence](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/bluetooth/btbcm.c#L115-L175)
 
 ## Checks
 
@@ -148,8 +205,8 @@ The primary device reference is Switchroot's Linux 5.1.2 release, pinned to `CTC
 Register sequences and wire commands were checked against Hekate v6.5.3,
 commit `e487de8fdd6ca9c3f608d1d18c097a86355912b9`, by naehrwert and CTCaer.
 The external driver crates retain **GPL-2.0-only** licensing for the adapted
-sequences and protocol data. Firmware is imported from the pinned installed
-Noble bootstack rather than added to source control.
+sequences and protocol data. Boot firmware comes from the pinned Noble bootstack. The Bluetooth patch comes
+from the Noble root filesystem as described above.
 
 - [Hekate Tegra I2C](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/soc/i2c.c)
 - [Hekate attached Joy-Con](https://github.com/CTCaer/hekate/blob/e487de8fdd6ca9c3f608d1d18c097a86355912b9/bdk/input/joycon.c)

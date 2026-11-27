@@ -11,10 +11,11 @@ path = "bsp"
 package = "scarlet"
 
 [bsp.kernel]
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8ce361419ac527b0b501c813862e377c999fc7a4" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "a674af5ef75785a71b2d875b6d161145d4029886" }
 features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true, sync-debug = false }
 
 [modules]
+"scarlet-driver-bcm-bluetooth" = { path = "../../drivers/bluetooth/bcm43xx", enabled = true }
 "scarlet-switchvisor" = { path = "../../drivers/virtual/switchvisor", enabled = true }
 "scarlet-driver-tegra210-pcie" = { path = "../../drivers/pcie/tegra210", enabled = true }
 "scarlet-driver-brcmfmac" = { path = "../../drivers/network/brcmfmac", enabled = true }
@@ -43,12 +44,12 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8ce361419ac527b0b501c813862e377c999fc7a4" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "a674af5ef75785a71b2d875b6d161145d4029886" }
 subdir = "bundles/base"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8ce361419ac527b0b501c813862e377c999fc7a4" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "a674af5ef75785a71b2d875b6d161145d4029886" }
 subdir = "bundles/cli-utils"
 
 [[images.initramfs.layers]]
@@ -58,12 +59,21 @@ subdir = "scarlet"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8ce361419ac527b0b501c813862e377c999fc7a4" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "a674af5ef75785a71b2d875b6d161145d4029886" }
 subdir = "bundles/wireless"
 
 [[images.initramfs.layers]]
 kind = "bundle"
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "a674af5ef75785a71b2d875b6d161145d4029886" }
+subdir = "bundles/bluetooth"
+
+[[images.initramfs.layers]]
+kind = "bundle"
 path = "bundles/wifi-firmware.toml"
+
+[[images.initramfs.layers]]
+kind = "bundle"
+path = "bundles/bluetooth-firmware.toml"
 
 [[images.initramfs.layers]]
 kind = "bundle"
@@ -89,7 +99,7 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.rootfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8ce361419ac527b0b501c813862e377c999fc7a4" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "a674af5ef75785a71b2d875b6d161145d4029886" }
 subdir = "bundles/full"
 
 [[images.rootfs.layers]]
@@ -100,6 +110,10 @@ subdir = "scarlet"
 [[images.rootfs.layers]]
 kind = "bundle"
 path = "bundles/wifi-firmware.toml"
+
+[[images.rootfs.layers]]
+kind = "bundle"
+path = "bundles/bluetooth-firmware.toml"
 
 [[images.rootfs.layers]]
 kind = "bundle"

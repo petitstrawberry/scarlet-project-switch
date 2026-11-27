@@ -1,0 +1,18 @@
+{
+  "source": "Switchroot Ubuntu Unity Noble 5.1.2 (2026-05-13), user-provided local archive",
+  "archive": "theofficialgman-ubuntu-unity-noble-5.1.2-2026-05-13.7z",
+  "archive_sha256": "492a5b0edde94e3fec4ad66f8ec83e6e0be769240338c1b4fdc09b4e8b8efcf5",
+  "rootfs_parts": [
+    "switchroot/install/l4t.00",
+    "switchroot/install/l4t.01"
+  ],
+  "source_directory": "/lib/firmware/brcm",
+  "target": "BCM4356A3 Bluetooth UART / Erista ODIN",
+  "files": {
+    "BCM4356A3.hcd": {
+      "size": 39008,
+      "sha256": "761a2c26f2bce5b0c4ed6efa8a3dc07e0ccea1dcd284e82cbfdb421907d27cab"
+    }
+  },
+  "distribution": "Import the controller patch locally from the Switchroot distribution."
+}

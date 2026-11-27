@@ -298,7 +298,7 @@ dependencies = [
 [[package]]
 name = "scarlet"
 version = "1.0.1"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8ce361419ac527b0b501c813862e377c999fc7a4#8ce361419ac527b0b501c813862e377c999fc7a4"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=a674af5ef75785a71b2d875b6d161145d4029886#a674af5ef75785a71b2d875b6d161145d4029886"
 dependencies = [
  "aes",
  "ccm",
@@ -316,7 +316,16 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8ce361419ac527b0b501c813862e377c999fc7a4#8ce361419ac527b0b501c813862e377c999fc7a4"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=a674af5ef75785a71b2d875b6d161145d4029886#a674af5ef75785a71b2d875b6d161145d4029886"
+
+[[package]]
+name = "scarlet-driver-bcm-bluetooth"
+version = "0.1.0"
+dependencies = [
+ "scarlet",
+ "scarlet-driver-tegra210",
+ "sha2",
+]
 
 [[package]]
 name = "scarlet-driver-brcmfmac"
@@ -466,6 +475,7 @@ name = "scarlet-modules"
 version = "0.1.0"
 dependencies = [
  "scarlet",
+ "scarlet-driver-bcm-bluetooth",
  "scarlet-driver-brcmfmac",
  "scarlet-driver-joycon",
  "scarlet-driver-max77620",

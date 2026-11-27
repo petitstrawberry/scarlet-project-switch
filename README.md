@@ -23,21 +23,20 @@ new card.
 The Nix environment supports Apple Silicon macOS, AArch64 Linux and x86-64
 Linux. It includes `switchvisorctl`, `switchvisor-tool`, the Switchvisor EL2
 monitor and `minicom`, with Switchvisor pinned in `flake.lock`.
-Run from this repository; the build downloads the
-dependencies declared in Cargo and Scarlet manifests automatically:
-
-The native Wi-Fi build pins the kernel, drivers and system bundles to the same
-public Scarlet revision, keeping the control ABI and userspace in sync. The project
-manifest includes the Tegra PCIe/BCM4356 modules, hash-checked Wi-Fi firmware in
-both filesystems, and the wireless manager. Import the board firmware with
-`scripts/import-wifi-firmware.py` before building. Settings → Network and
-`wifictl` control connections; credentials remain local user configuration.
+The ODIN BCM4356 uses PCIe for Wi-Fi and UARTD for Bluetooth. The build
+packages the firmware for both radios in the initramfs and SD rootfs. Import
+both sets from the pinned Switchroot Ubuntu Unity Noble 5.1.2 rootfs before
+building. The directory in the example is the extracted rootfs on the build
+host. The importer also accepts the original archive. [Bluetooth firmware instructions](docs/input.md#bluetooth-firmware)
 
 ```sh
 nix develop --accept-flake-config
 
 python3 scripts/prepare-bootstack.py \
   --source "/Volumes/SWITCH SD/switchroot/ubuntu-noble"
+brcm_dir="/path/to/extracted-rootfs/lib/firmware/brcm"
+python3 scripts/import-wifi-firmware.py --radio wifi --directory "$brcm_dir"
+python3 scripts/import-wifi-firmware.py --radio bluetooth --directory "$brcm_dir"
 cargo scarlet image --project projects/aarch64-switch-l4t --release
 ```
 
@@ -45,6 +44,13 @@ The console boot files are written to
 `projects/aarch64-switch-l4t/.scarlet/l4t/`. The import verifies the
 Noble firmware against the checked-in pins and stores it under
 `projects/aarch64-switch-l4t/firmware/bootstack/`, outside build caches.
+
+Settings → Network and `wifictl` control Wi-Fi connections. On a physical
+ODIN Switch, the Bluetooth controller loaded patch build 112 and
+`btctl status` reported `ready=true` for `/dev/bluetooth0`. A genuine
+right Joy-Con paired over Bluetooth, established an encrypted connection,
+and appeared as `/dev/gamepad1` alongside the attached rails. The UI
+responded to input from the wireless controller. [Bluetooth bring-up](docs/input.md#bluetooth-on-odin)
 
 ## Install and boot
 

@@ -3,18 +3,20 @@
 use crate::packet::Registers;
 
 pub(crate) struct RxQueue {
-    bytes: [u8; 512],
+    bytes: alloc::boxed::Box<[u8]>,
     head: usize,
     len: usize,
     errors: u32,
+    pub(crate) fault_lsr: u32,
 }
 impl RxQueue {
-    pub const fn new() -> Self {
+    pub fn new(capacity: usize) -> Self {
         Self {
-            bytes: [0; 512],
+            bytes: alloc::vec![0; capacity].into_boxed_slice(),
             head: 0,
             len: 0,
             errors: 0,
+            fault_lsr: 0,
         }
     }
     pub fn clear(&mut self) {
@@ -25,13 +27,26 @@ impl RxQueue {
     pub fn ready(&self) -> bool {
         self.len != 0 || self.errors != 0
     }
-    pub fn read(&mut self, bytes: &mut [u8]) -> Result<usize, (u32, usize)> {
+    fn pop(&mut self, bytes: &mut [u8]) -> usize {
         let count = bytes.len().min(self.len);
         for byte in &mut bytes[..count] {
             *byte = self.bytes[self.head];
             self.head = (self.head + 1) % self.bytes.len();
         }
         self.len -= count;
+        count
+    }
+    // Only the BCM Launch RAM reply spans a defined reboot boundary. Entries
+    // in the queue precede the faulty character (the ISR stops before RBR).
+    // Keep BREAK pending until the reader consumes the entire valid prefix.
+    pub fn read_launch(&mut self, bytes: &mut [u8]) -> Result<usize, (u32, usize)> {
+        if is_reboot_break(self.errors) && self.len != 0 {
+            return Ok(self.pop(bytes));
+        }
+        self.read(bytes)
+    }
+    pub fn read(&mut self, bytes: &mut [u8]) -> Result<usize, (u32, usize)> {
+        let count = self.pop(bytes);
         if self.errors == 0 {
             return Ok(count);
         }
@@ -47,12 +62,17 @@ impl RxQueue {
             for _ in 0..256 {
                 let status = regs.read(0x14);
                 self.errors |= status & 0x1e;
-                if self.errors != 0 || status & 1 == 0 {
+                if self.errors != 0 {
+                    self.fault_lsr = status;
+                    break;
+                }
+                if status & 1 == 0 {
                     break;
                 }
                 let byte = regs.read(0) as u8;
                 if self.len == self.bytes.len() {
                     // Never splice packets across a software overrun.
+                    self.fault_lsr = status;
                     self.errors |= 2;
                     break;
                 }
@@ -70,6 +90,12 @@ impl RxQueue {
         }
         !was_ready && self.ready()
     }
+}
+
+// A break can also set framing error. Overrun or parity means the stream
+// may already have been damaged before the reboot.
+pub(crate) fn is_reboot_break(errors: u32) -> bool {
+    errors & 0x1e == 0x10 || errors & 0x1e == 0x18
 }
 
 #[cfg(test)]
@@ -115,7 +141,7 @@ mod tests {
     #[test]
     fn fragmented_packets_coalesce_wakes_without_losing_readiness_or_order() {
         let r = Fake::default();
-        let mut q = RxQueue::new();
+        let mut q = RxQueue::new(512);
         r.bytes.borrow_mut().extend(0..200);
         assert!(q.interrupt(&r));
         r.bytes.borrow_mut().extend(200..=255);
@@ -140,7 +166,7 @@ mod tests {
         r.enabled.set(0x15);
         r.fault.set(8);
         r.bytes.borrow_mut().extend([1, 2, 3]);
-        let mut q = RxQueue::new();
+        let mut q = RxQueue::new(512);
         assert!(q.interrupt(&r));
         assert_eq!(r.enabled.get(), 0);
         assert_eq!(r.posts.get(), 1);
@@ -159,11 +185,49 @@ mod tests {
         assert_eq!(bytes, [4, 5]);
     }
     #[test]
+    fn only_launch_can_read_the_clean_prefix_before_reboot_break() {
+        let r = Fake::default();
+        let ack = [4, 0x0e, 4, 1, 0x4e, 0xfc, 0];
+        for (fault, launch, prefix) in [
+            (0xf0, true, true),
+            (0xf8, true, true),
+            (0xf0, false, false),
+            (0xf2, true, false),
+            (0xf4, true, false),
+            (0xe8, true, false),
+        ] {
+            let mut q = RxQueue::new(16);
+            r.fault.set(0);
+            r.bytes.replace(ack.into());
+            assert!(q.interrupt(&r));
+            r.fault.set(fault);
+            r.bytes.borrow_mut().push_back(0); // Faulty RX character stays in hardware.
+            assert!(!q.interrupt(&r));
+            let mut data = [0; 7];
+            if prefix {
+                assert_eq!(q.read_launch(&mut data[..3]), Ok(3));
+                assert_eq!(q.read_launch(&mut data[3..]), Ok(4));
+                assert_eq!(data, ack);
+                assert!(q.ready());
+                assert_eq!(q.read_launch(&mut data), Err((fault & 0x1e, 0)));
+            } else {
+                let result = if launch {
+                    q.read_launch(&mut data)
+                } else {
+                    q.read(&mut data)
+                };
+                assert_eq!(result, Err((fault & 0x1e, 7)));
+            }
+            assert!(!q.ready());
+            assert_eq!(r.bytes.borrow().len(), 1);
+        }
+    }
+    #[test]
     fn continuous_rx_is_bounded_and_overflow_stops_the_source() {
         let r = Fake::default();
         r.enabled.set(0x15);
         r.bytes.borrow_mut().extend((0..800).map(|n| n as u8));
-        let mut q = RxQueue::new();
+        let mut q = RxQueue::new(512);
         assert!(q.interrupt(&r));
         assert_eq!(r.bytes.borrow().len(), 544);
         assert!(!q.interrupt(&r));
