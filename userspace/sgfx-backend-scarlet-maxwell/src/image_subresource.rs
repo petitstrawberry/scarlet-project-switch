@@ -95,7 +95,7 @@ impl ImageUpload {
 }
 
 pub(crate) fn prepare_upload(
-    context: &Arc<crate::ContextInner>,
+    table: &mut crate::resource::ContextResources,
     image: Arc<crate::resource::RawImage>,
     write: ir::TextureWrite<'_>,
 ) -> Result<ImageUpload, IrSubmitError> {
@@ -115,7 +115,7 @@ pub(crate) fn prepare_upload(
         )
         .map_err(|_| IrSubmitError::InvalidIr(ir::Error::OutOfBounds))?;
     let upload = prepare_bgra_upload(image.logical_format, write)?;
-    if !context.device.capabilities.extended {
+    if !table.context.device.capabilities.extended {
         if write.mip_level() != 0
             || write.array_layer() != 0
             || layout.descriptor.mip_levels != 1
@@ -154,19 +154,21 @@ pub(crate) fn prepare_upload(
         & !31;
     let span = u64::from(pitch) * u64::from(rect.height() - 1) + u64::from(row_bytes);
     let staging_size = usize::try_from(span).map_err(|_| IrSubmitError::OutOfMemory)?;
-    let mut staging = Vec::new();
-    staging
-        .try_reserve_exact(staging_size)
-        .map_err(|_| IrSubmitError::OutOfMemory)?;
-    staging.resize(staging_size, 0);
-    for row in 0..rect.height() as usize {
-        let start = row * upload.bytes_per_row as usize;
-        let dst = row * pitch as usize;
-        staging[dst..dst + row_bytes as usize]
-            .copy_from_slice(&upload.pixels[start..start + row_bytes as usize]);
+    let source = table.temporary_buffer(staging_size)?;
+    if rect.height() == 1 || (pitch == row_bytes && upload.bytes_per_row == pitch) {
+        source.write(0, &upload.pixels[..staging_size])?;
+    } else {
+        let mut staging = Vec::new();
+        staging.try_reserve_exact(staging_size).map_err(|_| IrSubmitError::OutOfMemory)?;
+        staging.resize(staging_size, 0);
+        for row in 0..rect.height() as usize {
+            let start = row * upload.bytes_per_row as usize;
+            let dst = row * pitch as usize;
+            staging[dst..dst + row_bytes as usize]
+                .copy_from_slice(&upload.pixels[start..start + row_bytes as usize]);
+        }
+        source.write(0, &staging)?;
     }
-    let source = Arc::new(crate::resource::RawBuffer::create(context, span)?);
-    source.write(0, &staging)?;
     let command = Command {
         opcode: Opcode::Upload,
         source_attachment: source.attachment_token,
@@ -183,13 +185,13 @@ pub(crate) fn prepare_upload(
         flip_x: false,
         flip_y: false,
     };
-    encode_command(context, command, vec![source], vec![image], span as usize)
+    encode_command(table, command, Some((source, staging_size)), vec![image])
         .map(ImageUpload::Native)
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_blit(
-    context: &Arc<crate::ContextInner>,
+    table: &mut crate::resource::ContextResources,
     source: Arc<crate::resource::RawImage>,
     destination: Arc<crate::resource::RawImage>,
     source_mip: u32,
@@ -252,7 +254,7 @@ pub(crate) fn prepare_blit(
         flip_x: flips[0],
         flip_y: flips[1],
     };
-    encode_command(context, command, Vec::new(), vec![source, destination], 0)
+    encode_command(table, command, None, vec![source, destination])
 }
 
 fn physical_blit_compatible(source: ir::TextureFormat, destination: ir::TextureFormat) -> bool {
@@ -268,11 +270,10 @@ fn physical_blit_compatible(source: ir::TextureFormat, destination: ir::TextureF
 }
 
 fn encode_command(
-    context: &Arc<crate::ContextInner>,
+    table: &mut crate::resource::ContextResources,
     command: maxwell_image_layout::wire::Command,
-    mut buffers: Vec<Arc<crate::resource::RawBuffer>>,
+    upload: Option<(Arc<crate::resource::RawBuffer>, usize)>,
     images: Vec<Arc<crate::resource::RawImage>>,
-    payload_bytes: usize,
 ) -> Result<ImageCommands, IrSubmitError> {
     use maxwell_submit_wire::{
         ACCESS_READ, ACCESS_WRITE, AddressEncoding, Relocation, RelocationSource, Resource, Submit,
@@ -281,10 +282,7 @@ fn encode_command(
     command
         .encode_into(&mut record)
         .map_err(|_| IrSubmitError::InvalidIr(ir::Error::InvalidValue))?;
-    let metadata = Arc::new(crate::resource::RawBuffer::create(
-        context,
-        record.len() as u64,
-    )?);
+    let metadata = table.temporary_buffer(record.len())?;
     metadata.write(0, &record)?;
     let mut resources = vec![Resource {
         attachment_token: metadata.attachment_token,
@@ -304,11 +302,12 @@ fn encode_command(
             },
         });
     }
-    for buffer in &buffers {
+    let payload_bytes = upload.as_ref().map_or(0, |(_, size)| *size);
+    if let Some((buffer, size)) = &upload {
         resources.push(Resource {
             attachment_token: buffer.attachment_token,
             range_offset: 0,
-            range_size: buffer.logical_size,
+            range_size: *size as u64,
             access: ACCESS_READ,
         });
     }
@@ -343,7 +342,8 @@ fn encode_command(
         .checked_add(record.len())
         .and_then(|n| n.checked_add(payload_bytes))
         .ok_or(IrSubmitError::OutOfMemory)?;
-    buffers.push(metadata);
+    let mut buffers = vec![metadata];
+    buffers.extend(upload.map(|(buffer, _)| buffer));
     Ok(ImageCommands {
         bytes,
         _buffers: buffers,
@@ -517,7 +517,7 @@ impl crate::resource::ContextResources {
         }
         if physical_blit_compatible(source.logical_format, destination.logical_format) {
             prepare_blit(
-                &self.context,
+                self,
                 source,
                 destination,
                 source_mip,

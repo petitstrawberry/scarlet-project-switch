@@ -66,6 +66,9 @@ const MEM_HIGH_PRIORITY: usize = 0x403;
 const MEM_HIGH_PRIORITY_TIMER: usize = 0x404;
 const ACT_REQ: u32 = 3; // GENERAL and window A.
 const FRAME_END: u32 = 1 << 1;
+// One 60 Hz frame plus a little time for normal IRQ delivery.
+const FLIP_RECHECK_NS: u64 = 18_000_000;
+const FLIP_TIMEOUT_NS: u64 = 100_000_000;
 const VBLANK: u32 = 1 << 2;
 const WINDOW_A_FETCH_EVENTS: u32 = (1 << 8) | (1 << 14);
 const WINDOW_B_FETCH_EVENTS: u32 = (1 << 9) | (1 << 15);
@@ -213,55 +216,7 @@ impl Display {
             }
         }
         if use_irq {
-            let deadline = time::current_time_ns().saturating_add(100_000_000);
-            let task = scarlet::task::mytask().ok_or("DC flip lost its waiting task")?;
-            while !self.flip_complete.load(Ordering::Acquire) {
-                let remaining = deadline.saturating_sub(time::current_time_ns());
-                if remaining == 0 {
-                    // A delayed IRQ is not a failed flip. Recheck the same
-                    // hardware retirement proof as the ISR while excluding
-                    // it, before revoking pending ownership or losing DC.
-                    let (complete, status, activation, mask, enable) = {
-                        let _irq = self.irq_lock.lock();
-                        let status = self.read(INT_STATUS);
-                        self.retire_flip_locked(status);
-                        let complete = self.flip_complete.load(Ordering::Acquire);
-                        let snapshot = (
-                            complete,
-                            status,
-                            self.read(STATE_CONTROL),
-                            self.read(INT_MASK),
-                            self.read(INT_ENABLE),
-                        );
-                        self.write(INT_MASK, self.read(INT_MASK) & !FRAME_END);
-                        self.flip_pending.store(false, Ordering::Release);
-                        snapshot
-                    };
-                    if !complete {
-                        scarlet::println!(
-                            "tegra-dc: flip timeout status={:#x} act={:#x} mask={:#x} enable={:#x}",
-                            status,
-                            activation,
-                            mask,
-                            enable
-                        );
-                        return Err("Tegra DC FRAME_END interrupt timeout");
-                    }
-                    if self.delayed_flip_irqs.fetch_add(1, Ordering::Relaxed) < 4 {
-                        scarlet::println!(
-                            "tegra-dc: retired completed flip after delayed FRAME_END IRQ"
-                        );
-                    }
-                    break;
-                }
-                self.flip_waker.wait_with_condition(
-                    task.get_id(),
-                    task.get_trapframe(),
-                    Some(remaining),
-                    0,
-                    || self.flip_complete.load(Ordering::Acquire),
-                );
-            }
+            self.wait_for_flip_irq()?;
         } else {
             // Native adoption precedes scheduler/IRQ initialization.
             self.wait(STATE_CONTROL, |value| value & request == 0)?;
@@ -270,13 +225,67 @@ impl Display {
         Ok(())
     }
 
-    /// Caller holds irq_lock; both ISR and timeout observation use the same
-    /// post-arm FRAME_END plus cleared activation proof before releasing DMA.
-    fn retire_flip_locked(&self, status: u32) -> bool {
+    fn wait_for_flip_irq(&self) -> Result<(), &'static str> {
+        let start = time::current_time_ns();
+        let deadline = start.saturating_add(FLIP_TIMEOUT_NS);
+        let mut check_at = start.saturating_add(FLIP_RECHECK_NS);
+        let task = scarlet::task::mytask().ok_or("DC flip lost its waiting task")?;
+        while !self.flip_complete.load(Ordering::Acquire) {
+            let now = time::current_time_ns();
+            if now < check_at {
+                self.flip_waker.wait_with_condition(
+                    task.get_id(),
+                    task.get_trapframe(),
+                    Some(check_at - now),
+                    0,
+                    || self.flip_complete.load(Ordering::Acquire),
+                );
+                continue;
+            }
+
+            let irq = self.irq_lock.lock();
+            if self.flip_complete.load(Ordering::Acquire) {
+                break; // ISR won the race with the timer.
+            }
+            let status = self.read(INT_STATUS);
+            let expired = now >= deadline;
+            if self.retire_flip_locked(status, expired) {
+                drop(irq);
+                if self.delayed_flip_irqs.fetch_add(1, Ordering::Relaxed) < 4 {
+                    scarlet::println!(
+                        "tegra-dc: retired completed flip after delayed FRAME_END IRQ"
+                    );
+                }
+                break;
+            }
+            if expired {
+                let activation = self.read(STATE_CONTROL);
+                let mask = self.read(INT_MASK);
+                let enable = self.read(INT_ENABLE);
+                self.write(INT_MASK, mask & !FRAME_END);
+                self.flip_pending.store(false, Ordering::Release);
+                drop(irq);
+                scarlet::println!(
+                    "tegra-dc: flip timeout status={:#x} act={:#x} mask={:#x} enable={:#x}",
+                    status,
+                    activation,
+                    mask,
+                    enable
+                );
+                return Err("Tegra DC FRAME_END interrupt timeout");
+            }
+            check_at = now.saturating_add(FLIP_RECHECK_NS).min(deadline);
+        }
+        Ok(())
+    }
+
+    /// Caller holds irq_lock. An intermediate timer check leaves an unlatched
+    /// FRAME_END sticky and the IRQ armed for the next observation.
+    fn retire_flip_locked(&self, status: u32, ack_unlatched: bool) -> bool {
         let completed = status & FRAME_END != 0
             && self.flip_pending.load(Ordering::Acquire)
             && self.read(STATE_CONTROL) & (ACT_REQ | (1 << 2)) == 0;
-        if status & FRAME_END != 0 {
+        if status & FRAME_END != 0 && (completed || ack_unlatched) {
             self.write(INT_STATUS, FRAME_END);
         }
         if completed {
@@ -773,7 +782,7 @@ impl InterruptCapableDevice for Display {
     fn claim_interrupt(&self) -> InterruptResult<InterruptClaim> {
         let completed = {
             let _irq = self.irq_lock.lock();
-            self.retire_flip_locked(self.read(INT_STATUS))
+            self.retire_flip_locked(self.read(INT_STATUS), true)
         };
         if completed {
             self.flip_waker.wake_one();

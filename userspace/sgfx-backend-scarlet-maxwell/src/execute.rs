@@ -535,7 +535,7 @@ impl ContextResources {
         write: ir::TextureWrite<'_>,
     ) -> Result<(), IrSubmitError> {
         let image = self.texture(reference)?;
-        let transfer = crate::image_subresource::prepare_upload(&self.context, image, write)?;
+        let transfer = crate::image_subresource::prepare_upload(self, image, write)?;
         transfer.submit(queue)?;
         Ok(())
     }

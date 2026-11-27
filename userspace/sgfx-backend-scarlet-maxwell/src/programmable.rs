@@ -12,6 +12,7 @@ use sgfx_shader_maxwell::{CompiledShader, ShaderCompileError, compile_shader_for
 
 const DRAW_HEADER_SIZE: usize = 256;
 const DRAW_RECORD_SIZES: [usize; 6] = [32, 40, 16, 48, 64, 48];
+const VTG_SYSVALS_IN_C: usize = 336;
 
 /// Constructs a bounded, contiguous SGMD record without exposing unchecked
 /// section offsets to the caller. The kernel uses the same record widths.
@@ -162,7 +163,7 @@ fn encode_program(shader: &CompiledShader) -> Result<Vec<u8>, IrSubmitError> {
             metadata.attr_in[i] = header_bits(h, 192 + i * 32, 32);
             metadata.attr_out[i] = header_bits(h, 432 + i * 32, 32);
         }
-        metadata.sysvals_in_c = header_bits(h, 336, 16) as u16;
+        metadata.sysvals_in_c = header_bits(h, VTG_SYSVALS_IN_C, 16) as u16;
         metadata.sysvals_in_d = header_bits(h, 392, 8) as u8;
         metadata.sysvals_out_ab = header_bits(h, 400, 32);
         metadata.sysvals_out_c = header_bits(h, 576, 16) as u16;
@@ -823,6 +824,63 @@ fn append_range(bytes: &mut Vec<u8>, buffer: &RawBuffer, offset: u64, size: u64)
     push_u64(bytes, size);
 }
 
+struct DrawVertexRange {
+    first: u32,
+    skipped_vertices: u32,
+    stream_end: Option<u32>,
+}
+
+impl DrawVertexRange {
+    fn new(
+        first: u32,
+        count: u32,
+        indexed: bool,
+        vertex: &CompiledShader,
+        layouts: &[ir::VertexBufferLayout],
+    ) -> Result<Self, IrSubmitError> {
+        let end = first.checked_add(count).ok_or(ir::Error::InvalidValue)?;
+        // NAK maps VertexID (attribute 0x2fc) to bit 15 of this input mask.
+        // FIRST is shared by all streams, so move every vertex origin together.
+        let rebase = first != 0
+            && !indexed
+            && !layouts.is_empty()
+            && header_bits(&vertex.header, VTG_SYSVALS_IN_C + 15, 1) == 0
+            && layouts
+                .iter()
+                .all(|layout| layout.step_mode() == ir::VertexStepMode::Vertex);
+        Ok(if rebase {
+            Self {
+                first: 0,
+                skipped_vertices: first,
+                stream_end: Some(count),
+            }
+        } else {
+            Self {
+                first,
+                skipped_vertices: 0,
+                stream_end: (!indexed).then_some(end),
+            }
+        })
+    }
+
+    fn stream_range(
+        &self,
+        layout: &ir::VertexBufferLayout,
+        binding_offset: u64,
+        buffer_size: u64,
+    ) -> Result<(u64, u64), IrSubmitError> {
+        let skip = u64::from(self.skipped_vertices) * u64::from(layout.stride());
+        let offset = binding_offset
+            .checked_add(skip)
+            .ok_or(ir::Error::OutOfBounds)?;
+        let available = buffer_size
+            .checked_sub(offset)
+            .ok_or(ir::Error::OutOfBounds)?;
+        let size = vertex_stream_size(layout, available, self.stream_end)?;
+        Ok((offset, size))
+    }
+}
+
 fn vertex_stream_size(
     layout: &ir::VertexBufferLayout,
     available: u64,
@@ -843,8 +901,7 @@ fn vertex_stream_size(
     if u64::from(last) * stride + attribute_end > available {
         return Err(ir::Error::OutOfBounds.into());
     }
-    // Keep the original binding origin and first vertex for shaders which
-    // read VertexID. The kernel checks whole strides and snapshots this range.
+    // The kernel checks whole strides and snapshots the declared range.
     Ok(available.min(u64::from(end) * stride))
 }
 fn vertex_format(format: ir::VertexFormat) -> u32 {
@@ -946,11 +1003,17 @@ impl ContextResources {
         let pass = state.pass.ok_or(ir::Error::InvalidDescriptor)?;
         if count == 0
             || instances == 0
-            || first.checked_add(count).is_none()
             || first_instance.checked_add(instances).is_none()
         {
             return Err(ir::Error::InvalidValue.into());
         }
+        let vertices = DrawVertexRange::new(
+            first,
+            count,
+            base.is_some(),
+            &pipeline.vertex.shader,
+            &pipeline.vertex_buffers,
+        )?;
         let mut sections: [Vec<u8>; 6] = core::array::from_fn(|_| Vec::new());
         let mut inline = Vec::new();
         let mut patches = Vec::new();
@@ -968,7 +1031,7 @@ impl ContextResources {
         };
         header[5] = count;
         header[6] = instances;
-        header[7] = first;
+        header[7] = vertices.first;
         header[8] = base.unwrap_or(0) as u32;
         header[9] = first_instance;
         for (stage, program) in [(0, &pipeline.vertex), (4, &pipeline.fragment)] {
@@ -985,11 +1048,7 @@ impl ContextResources {
                 return Err(ir::Error::InvalidUsage.into());
             }
             let buffer = Arc::clone(self.buffer(reference)?);
-            let size = vertex_stream_size(
-                layout,
-                desc.size() - offset,
-                base.is_none().then_some(first + count),
-            )?;
+            let (offset, size) = vertices.stream_range(layout, offset, desc.size())?;
             append_range(&mut sections[1], &buffer, offset, size);
             push_u32(&mut sections[1], layout.stride());
             push_u32(&mut sections[1], 0);
@@ -1385,7 +1444,7 @@ impl ContextResources {
         for patch in &mut patches {
             patch.destination += inline_offset;
         }
-        let metadata = self.draw_metadata_buffer(bytes.len())?;
+        let metadata = self.temporary_buffer(bytes.len())?;
         let mut resources = Vec::new();
         resources
             .try_reserve(64)
@@ -1854,7 +1913,7 @@ impl ContextResources {
             &inline,
         )?;
         program_wire::draw::Draw::parse(&bytes).map_err(compile_error)?;
-        let metadata = self.draw_metadata_buffer(bytes.len())?;
+        let metadata = self.temporary_buffer(bytes.len())?;
         let mut resources = Vec::new();
         declare_range(
             &mut resources,
@@ -2225,6 +2284,138 @@ mod tests {
         assert!(!Rc::ptr_eq(&cache[0].1.vertex, &fresh.vertex));
         assert!(!Rc::ptr_eq(&cache[0].1.fragment, &fresh.fragment));
     }
+    fn range_test_shader(entry: &str) -> CompiledShader {
+        let source = "
+            @vertex fn position(@location(0) p: vec4<f32>) -> @builtin(position) vec4<f32> {
+                return p;
+            }
+            @vertex fn with_id(@location(0) p: vec4<f32>, @builtin(vertex_index) id: u32)
+                -> @builtin(position) vec4<f32> {
+                return vec4<f32>(p.x + f32(id), p.yzw);
+            }";
+        let module = ir::ShaderModuleDesc::wgsl(source.into()).unwrap();
+        compile_shader_for_driver(&module, ir::ShaderStage::Vertex, entry).unwrap()
+    }
+
+    fn range_test_layout() -> ir::VertexBufferLayout {
+        ir::VertexBufferLayout::new(
+            40,
+            vec![ir::VertexAttribute::new(0, VertexFormat::Float32x4, 0)],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn vertex_range_rebases_slider_fetch_only_when_vertex_id_is_unobserved() {
+        let layouts = [range_test_layout()];
+        for (entry, first, offset, size) in [
+            ("position", 0, 85_680, 240),
+            ("with_id", 2142, 0, 85_920),
+        ] {
+            let shader = range_test_shader(entry);
+            let draw = DrawVertexRange::new(2142, 6, false, &shader, &layouts).unwrap();
+            assert_eq!(draw.first, first);
+            assert_eq!(
+                draw.stream_range(&layouts[0], 0, 86_040).unwrap(),
+                (offset, size)
+            );
+        }
+    }
+
+    #[test]
+    fn vertex_range_preserves_indexed_streams_instance_steps_and_procedural_first() {
+        let shader = range_test_shader("position");
+        let layouts = [range_test_layout()];
+        let indexed = DrawVertexRange::new(7, 3, true, &shader, &layouts).unwrap();
+        assert_eq!(indexed.first, 7);
+        assert_eq!(
+            indexed.stream_range(&layouts[0], 16, 4096).unwrap(),
+            (16, 4080)
+        );
+
+        let instance = range_test_layout()
+            .with_step_mode(ir::VertexStepMode::Instance)
+            .with_instance_divisor(2)
+            .unwrap();
+        let mixed = [range_test_layout(), instance];
+        for layouts in [&mixed[..], &mixed[1..]] {
+            let draw = DrawVertexRange::new(7, 3, false, &shader, layouts).unwrap();
+            assert_eq!(draw.first, 7);
+            for layout in layouts {
+                assert_eq!(draw.stream_range(layout, 16, 4096).unwrap(), (16, 400));
+            }
+        }
+        let procedural = DrawVertexRange::new(7, 3, false, &shader, &[]).unwrap();
+        assert_eq!(procedural.first, 7);
+        let zero = DrawVertexRange::new(0, 3, false, &shader, &layouts).unwrap();
+        assert_eq!(zero.stream_range(&layouts[0], 16, 4096).unwrap(), (16, 120));
+    }
+
+    #[test]
+    fn vertex_range_preserves_gaps_binding_offsets_and_short_final_stride() {
+        let shader = range_test_shader("position");
+        let layouts = [
+            range_test_layout(),
+            ir::VertexBufferLayout::new(
+                24,
+                vec![
+                    ir::VertexAttribute::new(2, VertexFormat::Uint32, 4),
+                    ir::VertexAttribute::new(5, VertexFormat::Uint32, 16),
+                ],
+            )
+            .unwrap(),
+        ];
+        // Two disjoint draws from two bindings, with padding between attributes.
+        for first in [12, 51] {
+            let draw = DrawVertexRange::new(first, 6, false, &shader, &layouts).unwrap();
+            assert_eq!(draw.first, 0);
+            for (layout, binding) in layouts.iter().zip([128, 8192]) {
+                let stride = u64::from(layout.stride());
+                let start = binding + u64::from(first) * stride;
+                let full_end = start + 6 * stride;
+                assert_eq!(
+                    draw.stream_range(layout, binding, full_end).unwrap(),
+                    (start, 6 * stride)
+                );
+                let last_attr = layout
+                    .attributes()
+                    .iter()
+                    .map(|a| u64::from(a.offset() + a.format().byte_size()))
+                    .max()
+                    .unwrap();
+                let used = 5 * stride + last_attr;
+                assert_eq!(
+                    draw.stream_range(layout, binding, start + used).unwrap(),
+                    (start, used)
+                );
+                assert!(draw.stream_range(layout, binding, start + used - 1).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn vertex_range_checks_original_vertex_end_and_rebased_byte_offset() {
+        let shader = range_test_shader("position");
+        let layouts = [range_test_layout()];
+        for indexed in [false, true] {
+            assert!(matches!(
+                DrawVertexRange::new(u32::MAX, 1, indexed, &shader, &layouts),
+                Err(IrSubmitError::InvalidIr(ir::Error::InvalidValue))
+            ));
+        }
+        let last = DrawVertexRange::new(u32::MAX - 1, 1, false, &shader, &layouts).unwrap();
+        let start = u64::from(u32::MAX - 1) * 40;
+        assert_eq!(
+            last.stream_range(&layouts[0], 0, start + 40).unwrap(),
+            (start, 40)
+        );
+        assert!(last.stream_range(&layouts[0], 0, start - 1).is_err());
+        assert!(
+            last.stream_range(&layouts[0], u64::MAX - start + 1, u64::MAX)
+                .is_err()
+        );
+    }
+
     #[test]
     fn glass_vertex_stream_excludes_unused_frame_capacity() {
         let layout = ir::VertexBufferLayout::new(
@@ -2233,7 +2424,7 @@ mod tests {
         )
         .unwrap();
         let capacity = 196_608 * 40;
-        // A six-vertex draw at first_vertex 12 keeps that shader-visible ID.
+        // An unre-based six-vertex draw at first_vertex 12 includes its prefix.
         assert_eq!(
             vertex_stream_size(&layout, capacity, Some(18)).unwrap(),
             720

@@ -434,7 +434,7 @@ impl Drop for RawBuffer {
 }
 
 pub(crate) struct ContextResources {
-    draw_metadata: Vec<Arc<RawBuffer>>,
+    temporary_buffers: Vec<Arc<RawBuffer>>,
     pub(crate) conversion_programs: Vec<(u8, Arc<crate::programmable::ConversionPrograms>)>,
     pub(crate) programmable_pipelines: core::cell::RefCell<Vec<(ir::ProgrammableRenderPipelineId, Rc<crate::programmable::CompiledPipeline>)>>,
     pub(crate) resources: Rc<ir::ResourceTable>,
@@ -447,7 +447,7 @@ pub(crate) struct ContextResources {
 }
 
 impl ContextResources {
-    pub(crate) fn draw_metadata_buffer(&mut self, size: usize) -> HandleResult<Arc<RawBuffer>> {
+    pub(crate) fn temporary_buffer(&mut self, size: usize) -> HandleResult<Arc<RawBuffer>> {
         // Each small attachment already occupies a page. Keep at most 128 KiB
         // of logical storage per resource table. Larger records stay transient.
         const PAGE_BYTES: usize = 4096;
@@ -455,14 +455,14 @@ impl ContextResources {
         if size > PAGE_BYTES {
             return RawBuffer::create(&self.context, size as u64).map(Arc::new);
         }
-        // Only this table lends these buffers. A prepared or queued draw holds
-        // a strong reference until the transport is done with its metadata.
-        if let Some(idle) = self.draw_metadata.iter().find(|b| Arc::strong_count(b) == 1) {
+        // Only this table lends these buffers. Each prepared draw or transfer holds
+        // a strong reference until its work has retired.
+        if let Some(idle) = self.temporary_buffers.iter().find(|b| Arc::strong_count(b) == 1) {
             return Ok(Arc::clone(idle));
         }
         let buffer = Arc::new(RawBuffer::create(&self.context, PAGE_BYTES as u64)?);
-        if self.draw_metadata.len() < MAX_CACHED_PAGES && self.draw_metadata.try_reserve(1).is_ok() {
-            self.draw_metadata.push(Arc::clone(&buffer));
+        if self.temporary_buffers.len() < MAX_CACHED_PAGES && self.temporary_buffers.try_reserve(1).is_ok() {
+            self.temporary_buffers.push(Arc::clone(&buffer));
         }
         Ok(buffer)
     }
@@ -472,7 +472,7 @@ impl ContextResources {
         context: Arc<ContextInner>,
     ) -> Result<Self, IrSubmitError> {
         Ok(Self {
-            draw_metadata: Vec::new(),
+            temporary_buffers: Vec::new(),
             conversion_programs: Vec::new(),
             programmable_pipelines: core::cell::RefCell::new(Vec::new()),
             resources,

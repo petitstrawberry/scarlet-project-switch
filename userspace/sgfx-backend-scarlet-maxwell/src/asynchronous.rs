@@ -251,7 +251,7 @@ impl ContextResources {
                     append_render_chunks(context, &resources, &pipelines, &mut operations,
                         &external_bindings, native_limit, &mut chunks, &mut owned_bytes)?;
                     let image = self.texture(*texture)?;
-                    let transfer = crate::image_subresource::prepare_upload(&self.context, image, *write)?;
+                    let transfer = crate::image_subresource::prepare_upload(self, image, *write)?;
                     retain_bytes(&mut owned_bytes, transfer.budget_bytes())?;
                     chunks.try_reserve(1).map_err(|_| IrSubmitError::OutOfMemory)?;
                     chunks.push(transfer.into_chunk());

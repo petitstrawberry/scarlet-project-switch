@@ -470,7 +470,7 @@ impl Context {
                 ir::TextureUsage::COPY_SRC | ir::TextureUsage::COPY_DST)?;
             let temporary = Arc::new(resource::RawImage::create_logical(&self.inner, temporary_desc)?);
             let area = ir::PixelRect::new(0, 0, width, height)?;
-            let transfer = image_subresource::prepare_blit(&self.inner, image, Arc::clone(&temporary),
+            let transfer = image_subresource::prepare_blit(&mut resources.inner, image, Arc::clone(&temporary),
                 0, 0, area, area, ir::FilterMode::Nearest, [false; 2])?;
             self.inner.raw.create_queue()?.submit(&transfer.bytes)?;
             image = temporary;
