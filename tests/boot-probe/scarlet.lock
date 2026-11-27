@@ -6,8 +6,8 @@ hash = "sha256:fc737ba77308c6ab6ad7c8913792714097ffefd063b129f6d353dd6620a5c594"
 [[sections.initramfs.layers]]
 kind = "cargo"
 git = "https://github.com/petitstrawberry/Scarlet"
-git_ref = "79fc62e1c9736b85dd27e49513a8585fe98387cc"
-resolved_rev = "79fc62e1c9736b85dd27e49513a8585fe98387cc"
+git_ref = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27"
+resolved_rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27"
 package = "scarlet-ld"
 bin = "scarlet-ld"
 subdir = "user/scarlet-ld"
@@ -17,7 +17,7 @@ hash = ""
 [sections.initramfs.layers.source]
 type = "git"
 url = "https://github.com/petitstrawberry/Scarlet"
-rev = "79fc62e1c9736b85dd27e49513a8585fe98387cc"
+rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27"
 
 [[sections.initramfs.layers]]
 kind = "cargo"

@@ -10,5 +10,5 @@ path = "src/main.rs"
 
 [dependencies]
 scarlet-switch-joycon-abi = { path = "../joycon-abi" }
-scarlet-abi = { git = "https://github.com/petitstrawberry/Scarlet", rev = "79fc62e1c9736b85dd27e49513a8585fe98387cc" }
-scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "79fc62e1c9736b85dd27e49513a8585fe98387cc", default-features = false, features = ["std"] }
+scarlet-abi = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27" }
+scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27", default-features = false, features = ["std"] }
