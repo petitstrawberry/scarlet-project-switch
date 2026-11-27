@@ -460,12 +460,20 @@ fn main() {
     devices(&[RIGHT]);
     radio.report(RIGHT, 0, 1234, 2345);
     mini_r.expect(&[(3, 0, 1750), (3, 1, 1234), (1, 0x130, 0)]);
-    link(LEFT, false);
+    radio.control(wire::WAKE, LEFT, wire::PEER_OPENS_HID);
     topology(&[UprightL, MiniR]);
     devices(&[LEFT, RIGHT]);
     radio.lights(LEFT, 1, 1);
     radio.lights(RIGHT, 3, 1);
+    assert_eq!(radio.control(wire::PEER_HID_OPEN, LEFT, 0), 1);
     let mut reconnected = Reader::raw(LEFT);
+    radio.report(LEFT, 1 << 22, 3000, MID);
+    reconnected.expect(&[(1, 0x136, 1), (3, 0, 3000)]);
+    radio.report(LEFT, 0, MID, MID);
+    reconnected.expect(&[(1, 0x136, 0), (3, 0, 2048)]);
+    println!(
+        "BT_QA_PEER_HID_PASS inbound ACL control/interrupt pending-to-final press/release player-lamp"
+    );
     btctl(&["disconnect", ADDR[1]]);
     topology(&[UprightL]);
     mini_r.expect(&[(3, 0, 2048), (3, 1, 2048)]);
@@ -507,6 +515,23 @@ fn main() {
         );
     }
     assert!(InputDevice::open(RAW[1]).is_err());
+    devices(&[]);
+    // Some bonded peripherals page the host and let it open both HID channels.
+    // A fresh page is valid as soon as the controller confirms the explicit close.
+    link(LEFT, false);
+    topology(&[UprightL]);
+    let closed = btctl(&["disconnect", ADDR[0]]);
+    assert!(closed.contains("connected=false"));
+    radio.control(wire::WAKE, LEFT, wire::HOST_OPENS_HID);
+    wait("host-opened HID after a fresh page", || {
+        btctl(&["devices"])
+            .contains(&format!("{}profile-ready=true", encrypted_peer(LEFT)))
+            .then_some(())
+    });
+    topology(&[UprightL]);
+    radio.lights(LEFT, 1, 1);
+    btctl(&["disconnect", ADDR[0]]);
+    topology(&[]);
     devices(&[]);
     assert!(broker.try_wait().unwrap().is_none());
     assert!(daemon.try_wait().unwrap().is_none());

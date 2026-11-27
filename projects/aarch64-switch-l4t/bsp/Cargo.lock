@@ -298,7 +298,7 @@ dependencies = [
 [[package]]
 name = "scarlet"
 version = "1.0.1"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=7dd651c6eeeb50c46a76163f9e5cbb1f342db2db#7dd651c6eeeb50c46a76163f9e5cbb1f342db2db"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=5a276e98759f8973bb42ea832b0d93dc0b8d7f46#5a276e98759f8973bb42ea832b0d93dc0b8d7f46"
 dependencies = [
  "aes",
  "ccm",
@@ -316,7 +316,7 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=7dd651c6eeeb50c46a76163f9e5cbb1f342db2db#7dd651c6eeeb50c46a76163f9e5cbb1f342db2db"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=5a276e98759f8973bb42ea832b0d93dc0b8d7f46#5a276e98759f8973bb42ea832b0d93dc0b8d7f46"
 
 [[package]]
 name = "scarlet-driver-bcm-bluetooth"

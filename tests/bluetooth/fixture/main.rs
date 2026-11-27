@@ -80,6 +80,18 @@ impl Wire {
     }
 }
 
+// The peer keeps the connection identifiers outstanding across SDP. Neither
+// channel can be configured until the final response to its own request.
+const HID_OPEN_IDS: [u8; 2] = [0xb1, 0xb2];
+const HID_CONFIG_IDS: [u8; 2] = [0xc1, 0xc2];
+
+#[derive(Clone, Copy, Default)]
+struct IncomingChannel {
+    pending: bool,
+    host_configured: bool,
+    peer_configured: bool,
+}
+
 struct Peer {
     address: [u8; 6],
     base_handle: u16,
@@ -96,6 +108,8 @@ struct Peer {
     // Remote channel IDs deliberately differ by peer. Local channel IDs can legally coincide.
     remote_control: u16,
     remote_interrupt: u16,
+    paging: bool,
+    incoming: Option<[IncomingChannel; 2]>,
     sample: u64,
     staged: Option<u64>,
     echoes: u8,
@@ -119,8 +133,10 @@ impl Peer {
             remote_sdp: remote + 2,
             local_control: 0,
             local_interrupt: 0,
-            remote_control: remote,
-            remote_interrupt: remote + 1,
+            remote_control: 0,
+            remote_interrupt: 0,
+            paging: false,
+            incoming: None,
             staged: None,
             echoes: 0,
             sample: wire::sample(0, 2048, 2048),
@@ -130,9 +146,18 @@ impl Peer {
             hold_led_retry: true,
         }
     }
-    fn connected(&mut self, rx: &mut Wire) {
+    fn connected(&mut self, rx: &mut Wire, accepted_page: bool) {
         assert!(self.handle.is_none(), "duplicate ACL for the same peer");
         let h = self.base_handle + self.connects;
+        assert_eq!(
+            accepted_page,
+            core::mem::take(&mut self.paging),
+            "wrong ACL initiator"
+        );
+        // Allocate fresh peripheral-side CIDs on every ACL, independent of
+        // Scarlet's local CIDs and of the SDP channel.
+        self.remote_control = 0x4000 | (h << 1);
+        self.remote_interrupt = self.remote_control + 1;
         self.handle = Some(h);
         self.connects += 1;
         self.authenticated = false;
@@ -155,6 +180,7 @@ impl Peer {
     }
     fn lost(&mut self, rx: &mut Wire, reason: u8) {
         let handle = self.handle.take().unwrap();
+        self.incoming = None;
         self.authenticated = false;
         self.encrypted = false;
         rx.event(5, &[&[0][..], &handle.to_le_bytes(), &[reason]].concat());
@@ -177,6 +203,56 @@ impl Peer {
             false,
         );
     }
+    fn peer_hid_open(&self) -> bool {
+        self.incoming.is_some_and(|channels| {
+            channels
+                .iter()
+                .all(|c| c.host_configured && c.peer_configured)
+        })
+    }
+    fn connect_response(&mut self, rx: &mut Wire, id: u8, body: &[u8]) {
+        assert_eq!(body.len(), 8);
+        let index = HID_OPEN_IDS
+            .iter()
+            .position(|&open_id| open_id == id)
+            .expect("unknown HID open ID");
+        assert_eq!(
+            word(&body[2..]),
+            [self.remote_control, self.remote_interrupt][index]
+        );
+        let previous_local = [self.local_control, self.local_interrupt][index];
+        assert_eq!(previous_local, 0, "response after final HID open");
+        let state = &mut self
+            .incoming
+            .as_mut()
+            .expect("unsolicited connection response")[index];
+        match word(&body[4..]) {
+            1 => {
+                assert!(!state.pending, "duplicate pending HID response");
+                assert!(
+                    !self.discovery.identity_complete,
+                    "expected pending during SDP"
+                );
+                state.pending = true;
+            }
+            0 => {
+                assert!(state.pending, "final HID response without pending");
+                assert!(self.discovery.identity_complete && self.local_sdp.is_none());
+                assert_eq!(word(&body[6..]), 0);
+                let local = word(body);
+                assert!(
+                    local >= 0x40 && local != self.local_control && local != self.local_interrupt
+                );
+                if index == 0 {
+                    self.local_control = local;
+                } else {
+                    self.local_interrupt = local;
+                }
+                self.signal(rx, 4, HID_CONFIG_IDS[index], &words(&[local, 0]));
+            }
+            result => panic!("peer HID open rejected: id={id:#x} result={result:#x}"),
+        }
+    }
     fn signaling(&mut self, rx: &mut Wire, data: &[u8]) {
         let id = data[1];
         let body = &data[4..];
@@ -184,28 +260,50 @@ impl Peer {
         match data[0] {
             2 => {
                 let local = word(&body[2..]);
-                let remote = match word(body) {
+                let (remote, config_id) = match word(body) {
                     1 => {
                         assert!(self.local_sdp.replace(local).is_none());
-                        self.remote_sdp
+                        if self.incoming.is_some() {
+                            assert!(
+                                self.encrypted
+                                    && self.authenticated
+                                    && !self.discovery.identity_complete
+                            );
+                            for (id, psm, cid) in [
+                                (HID_OPEN_IDS[0], 0x11, self.remote_control),
+                                (HID_OPEN_IDS[1], 0x13, self.remote_interrupt),
+                            ] {
+                                self.signal(rx, 2, id, &words(&[psm, cid]));
+                            }
+                        }
+                        (self.remote_sdp, 0xa0)
                     }
                     0x11 => {
+                        assert!(
+                            self.incoming.is_none(),
+                            "host opened peer-initiated control"
+                        );
                         assert!(
                             self.discovery.identity_complete && self.local_sdp.is_none(),
                             "HID before SDP completion and teardown"
                         );
                         self.local_control = local;
-                        self.remote_control
+                        (self.remote_control, 0xa1)
                     }
                     0x13 => {
+                        assert!(
+                            self.incoming.is_none(),
+                            "host opened peer-initiated interrupt"
+                        );
                         self.local_interrupt = local;
-                        self.remote_interrupt
+                        (self.remote_interrupt, 0xa2)
                     }
                     psm => panic!("unexpected PSM {psm:#x}"),
                 };
                 self.signal(rx, 3, id, &words(&[remote, local, 0, 0]));
-                self.signal(rx, 4, remote as u8, &words(&[local, 0]));
+                self.signal(rx, 4, config_id, &words(&[local, 0]));
             }
+            3 => self.connect_response(rx, id, body),
             4 => {
                 let remote = word(body);
                 let local = if remote == self.remote_sdp {
@@ -216,6 +314,15 @@ impl Peer {
                     assert_eq!(remote, self.remote_interrupt);
                     self.local_interrupt
                 };
+                assert!(
+                    local >= 0x40,
+                    "configuration before final connection response"
+                );
+                if remote != self.remote_sdp
+                    && let Some(channels) = &mut self.incoming
+                {
+                    channels[usize::from(remote == self.remote_interrupt)].host_configured = true;
+                }
                 self.signal(rx, 5, id, &words(&[local, 0, 0]));
             }
             9 => {
@@ -223,7 +330,18 @@ impl Peer {
                 assert_eq!(body, &self.address);
                 self.echoes += 1;
             }
-            5 => assert_eq!(word(&body[4..]), 0),
+            5 => {
+                assert_eq!(word(&body[4..]), 0);
+                if let Some(index) = HID_CONFIG_IDS.iter().position(|&config_id| config_id == id) {
+                    assert_eq!(
+                        word(body),
+                        [self.remote_control, self.remote_interrupt][index]
+                    );
+                    assert_eq!(word(&body[2..]), 0);
+                    assert!([self.local_control, self.local_interrupt][index] >= 0x40);
+                    self.incoming.as_mut().unwrap()[index].peer_configured = true;
+                }
+            }
             6 => {
                 if word(body) == self.remote_sdp {
                     assert_eq!(self.local_sdp.take(), Some(word(&body[2..])));
@@ -248,6 +366,12 @@ impl Peer {
         input
     }
     fn hid(&mut self, rx: &mut Wire, output: &[u8]) {
+        if self.incoming.is_some() {
+            assert!(
+                self.peer_hid_open(),
+                "HID traffic before both configuration exchanges"
+            );
+        }
         assert_eq!(&output[..2], &[0xa2, 1]);
         let mut input = self.report(0x21);
         input[15] = output[11];
@@ -293,6 +417,7 @@ impl Peer {
 }
 
 struct Controller {
+    page_scan: bool,
     rx: Wire,
     peers: [Peer; 2],
     wake: Option<Arc<Waker>>,
@@ -301,6 +426,7 @@ impl Controller {
     fn new() -> Self {
         Self {
             rx: Wire::default(),
+            page_scan: false,
             peers: [Peer::new(LEFT, 0x123, 0x83), Peer::new(RIGHT, 0x234, 0x93)],
             wake: None,
         }
@@ -309,6 +435,11 @@ impl Controller {
         let rx = &mut self.rx;
         match op {
             0x0c03 | 0x0c01 | 0x0c56 | 0x0c45 => rx.complete(op, &[0]),
+            0x0c1a => {
+                assert!(matches!(data, [0] | [2]));
+                self.page_scan = data == [2];
+                rx.complete(op, &[0]);
+            }
             0x1009 => rx.complete(op, &[&[0], ADAPTER.as_slice()].concat()),
             0x1005 => rx.complete(op, &[0, 128, 0, 0, 1, 0, 0, 0]),
             0x0401 => {
@@ -360,9 +491,17 @@ impl Controller {
                         });
                         rx.event(7, &result);
                     }
-                    0x0405 => {
+                    0x040a => {
+                        p.paging = false;
+                        p.incoming = None;
                         rx.accepted(op);
-                        p.connected(rx);
+                    }
+                    0x0405 | 0x0409 => {
+                        if op == 0x0409 {
+                            assert_eq!(&data[6..], &[1]);
+                        }
+                        rx.accepted(op);
+                        p.connected(rx, op == 0x0409);
                     }
                     0x040c => {
                         assert!(!p.bonded, "reconnect must use the stored link key");
@@ -460,7 +599,12 @@ impl ControlOps for Radio {
     fn control(&self, cmd: u32, arg: usize) -> Result<i32, &'static str> {
         let (result, wake) = {
             let mut controller = self.0.lock();
-            let Controller { peers, rx, wake } = &mut *controller;
+            let Controller {
+                peers,
+                rx,
+                wake,
+                page_scan,
+            } = &mut *controller;
             let side = (cmd & 1) as usize;
             let p = &mut peers[side];
             let result = match cmd & !1 {
@@ -509,6 +653,17 @@ impl ControlOps for Radio {
                     0
                 }
                 wire::ECHO_COUNT => return Ok(i32::from(p.echoes)),
+                wire::PEER_HID_OPEN => return Ok(i32::from(p.peer_hid_open())),
+                wire::WAKE if *page_scan && p.bonded && p.handle.is_none() && !p.paging => {
+                    p.incoming = match arg as u64 {
+                        wire::HOST_OPENS_HID => None,
+                        wire::PEER_OPENS_HID => Some([IncomingChannel::default(); 2]),
+                        _ => return Err("invalid HID opener"),
+                    };
+                    p.paging = true;
+                    rx.event(0x04, &[&p.address[..], &[8, 0x25, 0, 1]].concat());
+                    0
+                }
                 wire::UNPLUG if p.encrypted => {
                     p.lost(rx, 0x08);
                     0
