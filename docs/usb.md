@@ -21,15 +21,15 @@ sustained SuperSpeed transfers still require hardware validation.
 
 ## Controller and USB-C ownership
 
-The console project enables the driver. The direct SD boot script grants
-physical-controller ownership by adding the empty `scarlet,usb-host` property
-to both `/xusb@70090000` and `/i2c@7000c000/bm92t@18`. The driver checks these
-grants before programming XUSB, the BM92T controller or the charger. Booting
-through Switchvisor does not grant them: its guest overlays disable the
-physical USB resources, which belong to the monitor. Use its existing virtual
-USB console/network path when booting that way.
+Direct SD boot and a verified Switchvisor loader handoff grant physical USB to
+Scarlet. Both set `scarlet,usb-host` on XUSB and BM92T before either driver
+can touch the controller or charger. They also set `scarlet,dock-display = <1>`
+on DC0 and DC1, enable DC1 and remove its six inherited pinctrl states. In
+resident mode the guest uses Switchvisor's virtual devices and DC1 stays
+disabled. The same development upload works with either ownership policy.
+See [Switchvisor mode selection](switchvisor-usb-debug.md#selecting-the-physical-port-after-upload).
 
-The direct boot script also replaces XUSB's standard `phys` property with
+The physical USB path also replaces XUSB's standard `phys` property with
 `scarlet,usb-host-phys = <0x55 0x58>`, retaining the inspected ODIN lane
 phandles and `phy-names`. The board driver validates these private values
 and initializes the PHYs itself. Leaving standard `phys` present makes the
@@ -66,8 +66,9 @@ BM92T firmware handles cable orientation and the PI3USB30532 mux's board
 control pins. The driver monitors data role, attachment, VBUS and faults. It
 enables BQ24193 OTG boost only for an appropriate source-mode attachment;
 host data role and power-source role are checked separately. It withdraws
-the source supply on disconnect, power-source role loss or a status error. Active
-DisplayPort assignments and accessories are outside this host binding.
+the source supply on disconnect, power-source role loss or a status error.
+A negotiated DP assignment can coexist with USB and charging. An inherited
+assignment or an accessory role keeps the host isolated.
 For an attached source-mode OTG cable, boost can start before the data role
 or VBUS-valid indication has settled. Requiring DFP before sourcing would
 prevent an attachment that needs power first. xHCI startup and PHY connection
@@ -78,7 +79,7 @@ USB-C initialization follows the pinned Switchroot Linux driver: disable
 both source paths, wait 100 ms, withdraw boost, and conditionally send
 `SYS_RESET` for an inherited host, active DP or failed last command. After
 the reset's 100 ms wait it clears alerts, enables overcurrent protection
-and both source paths, disables DP alerts, and waits another 100 ms before
+and both source paths, programs the DP alert mask, and waits another 100 ms before
 processing attachments. These waits advance in monitor context. Ordinary
 source-mode OTG attachments enable the charger boost without PD negotiation;
 host connection additionally waits at least the Linux regulator's 220 ms
@@ -128,6 +129,36 @@ and does not implement Linux's complete charger thermal manager. This USB
 port therefore does not replace that manager with fixed battery settings.
 Checked reserve subtraction and direct sub-500 mA programming avoid the
 reference driver's low-current arithmetic/ramp bugs.
+
+## Dock and DisplayPort handoff
+
+The existing Type-C IRQ worker discovers the partner after a verified sink
+contract and host data role, or after a source-plugin event and settled VBUS.
+A Nintendo alternate-mode adapter with VID/PID `057e:2003` uses Nintendo's
+vendor Enter Mode. Other partners must advertise SVID `ff01` and a DP sink
+mode. The BM92T then performs automatic DP discovery. The worker waits for its
+completion and the 100 ms settling interval before configuring the pins and
+starting HPD handling.
+
+ODIN prefers assignment D for two DP lanes plus USB. For a partner supporting
+only C, the controller requests C and the display receives the board limit of
+two lanes. Nintendo requires the receptacle pin field even though it reports
+a plug. The controller firmware drives the PI3USB30532 orientation pins. The
+worker runs the dock's device-state, LED and hub-enable sequence and retains
+USB host and charger policy during its commands. An unsupported partner or
+rejected discovery falls back to USB. Rejected configurations use a bounded
+stop/exit on the same attachment. [Switchroot BM92T driver](https://github.com/CTCaer/switch-l4t-kernel-4.9/blob/2d0059fd3167a8df756de2aa0489d4aa70a9fc15/drivers/misc/bm92txx.c#L701-L779)
+
+After Configure + Start HPD succeeds, the worker publishes two lanes through
+`scarlet_driver_tegra210::dock::publish_status(lanes, hpd, explicit, irq)`.
+The initial HPD level comes from BM92T DP_STATUS bit 7 (`SIGNAL_ON`) with
+`explicit=false`, so the display can check native DPAUX1 HPD even when that
+hint is low. A forwarded DP Status Update ACK or Attention supplies the sink
+level with `explicit=true`. An explicit low suppresses streaming until a new
+explicit report raises HPD or the route is withdrawn. A high report carrying
+IRQ_HPD produces a single IRQ pulse. Detach, CC-side change, fault and loss
+of the configured route publish zero lanes and clear the saved report.
+[ODIN display wiring](https://github.com/CTCaer/switch-l4t-platform-t210-nx/blob/cf785c4c176499b301170d79fe57b77f365b73cd/kernel-dts/nx-platforms/tegra210-nx-common-disp.dtsi#L140-L150)
 
 ## USB-C event service
 
@@ -267,8 +298,7 @@ A serialized core hook is needed to test the initial SSPI sequence safely.
 Its relationship to descriptor timeouts or `FW_HANG` is not established.
 
 This implementation does not add XUDC device/gadget mode, power-role-swap
-commands, Nintendo dock VDMs, DisplayPort negotiation, a complete charger
-thermal policy, or suspend/resume. Generic powered-hub data-role negotiation
+commands, a complete charger thermal policy, or suspend/resume. Generic powered-hub data-role negotiation
 and ordinary unpowered OTG are separate paths; validate each on hardware.
 
 ## Common xHCI correction

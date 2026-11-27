@@ -527,7 +527,7 @@ impl GpuBackendImage for Image {
                 owner,
             )
             .ok()
-        } else {
+        } else if layout.modifier == GPU_IMAGE_MODIFIER_LINEAR {
             GpuDisplayResource::new_linear(
                 paddr,
                 self.memory.size,
@@ -538,6 +538,8 @@ impl GpuBackendImage for Image {
                 owner,
             )
             .ok()
+        } else {
+            None
         }
     }
 }
@@ -1158,8 +1160,7 @@ impl GpuBackend for Backend {
         let tiled = chain
             || depth
             || create.usage & GPU_IMAGE_USAGE_DEPTH_COMPATIBLE != 0
-            || (create.width == 1280
-                && create.height == 720
+            || (matches!((create.width, create.height), (1280, 720) | (1920, 1080))
                 && create.usage & (GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_RENDER_TARGET)
                     == GPU_IMAGE_USAGE_PRESENTABLE | GPU_IMAGE_USAGE_RENDER_TARGET);
         let planned = maxwell_image_layout::plan(

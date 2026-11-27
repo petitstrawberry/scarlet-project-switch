@@ -17,7 +17,7 @@ use scarlet::{
         controllers::ExternalInterruptGate, register_and_enable_platform_irq_device,
         register_external_interrupt_gate, resolve_platform_irq,
     },
-    sync::{IrqSpinLock, SpinLock, Waker},
+    sync::{IrqSpinLock, Mutex, SpinLock, Waker},
 };
 
 #[derive(Clone, Copy)]
@@ -95,10 +95,20 @@ static PADS: IrqSpinLock<Option<Mmio>> = IrqSpinLock::new(None);
 static GPIO: IrqSpinLock<Option<Arc<TegraGpio>>> = IrqSpinLock::new(None);
 static TYPEC_PAD_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
 static PMC: IrqSpinLock<Option<Mmio>> = IrqSpinLock::new(None);
+// DPD users share request ports, sampling enable and timer through completion.
+// Acquire before the CAR register lock, which is needed only for MMIO.
+pub(crate) static PMC_DPD: Mutex<()> = Mutex::new(());
 static FAN: IrqSpinLock<Option<Mmio>> = IrqSpinLock::new(None);
 static UARTS: IrqSpinLock<Vec<(u32, Arc<TegraUart>)>> = IrqSpinLock::new(Vec::new());
 fn car() -> Result<Arc<Car>, &'static str> {
     CAR.lock().clone().ok_or(PROBE_DEFER)
+}
+pub(crate) fn display_controllers(provider: u32) -> Result<(Arc<Car>, Mmio), &'static str> {
+    let car = car()?;
+    if car.phandle != provider {
+        return Err("unexpected external display clock provider");
+    }
+    Ok((car, (*PMC.lock()).ok_or(PROBE_DEFER)?))
 }
 /// Obtain the CAR mapping for a validated provider. CPU clock registers are
 /// exclusively owned by the cpufreq driver; peripheral clock registers stay
@@ -206,6 +216,7 @@ pub fn with_pcie_clock_control<T>(
         return Err("unexpected PCIe clock provider");
     }
     let pmc = (*PMC.lock()).ok_or(PROBE_DEFER)?;
+    let _dpd = PMC_DPD.lock();
     let _guard = car.lock.lock();
     operation(car.regs, pmc)
 }
@@ -215,6 +226,7 @@ pub fn gpio() -> Result<Arc<TegraGpio>, &'static str> {
 pub fn audio_platform() -> Result<crate::AudioPlatform, &'static str> {
     let car = car()?;
     let pmc = (*PMC.lock()).ok_or(PROBE_DEFER)?;
+    let _dpd = PMC_DPD.lock();
     crate::AudioPlatform::new(car, pmc)
 }
 /// SDMMC1 clock and pad ownership uses the same CAR mapping and lock as the

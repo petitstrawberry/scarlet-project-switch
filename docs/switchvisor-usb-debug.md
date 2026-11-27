@@ -7,7 +7,7 @@ U-Boot and loads the installed Scarlet kernel/initramfs from SD. The
 `switchvisor-dev` entry (`SCR-SWD`) waits indefinitely for USB uploads and never
 automatically boots SD. The direct Scarlet SD entry remains available separately.
 
-Switchvisor owns the Switch USB controller in both entries. The guest uses its
+With the pinned resident monitor, Switchvisor owns the Switch USB controller in both entries. The guest uses its
 virtual NS16550A UART for logs and input. The optional USB network profile
 exposes a virtio-net NIC to Scarlet through Switchvisor's CDC-NCM bridge.
 Connect the USB data cable before boot to capture early UART output.
@@ -45,9 +45,51 @@ shared. No host or USB upload is required.
 The host `bundle.json` is for `SCR-SWD`. It sends U-Boot to `0xaa000000`,
 `uImage` to `0xa0000000`, and initramfs to `0x92000000`. Development U-Boot
 skips SD reads for those two images. Both boot scripts select the platform DTB
-from their pinned `nx-plat.dtimg` on SD and apply their USB overlays before
-entering Scarlet. Uploads should use the development entry; it has no timeout
+from their pinned `nx-plat.dtimg` on SD. Resident entries apply the USB
+ownership overlays before entering Scarlet. Uploads should use the development entry; it has no timeout
 and cannot race with automatic SD boot.
+
+### Selecting the physical port after upload
+
+With a loader-capable Switchvisor package, select **switchvisor-dev-loader**
+in Hekate to upload the bundle and then give Scarlet the physical port for USB
+host and dock video. The ordinary **switchvisor-dev** entry for the same
+hypervisor-default image retains virtual USB UART/control. Both choices use
+the same files and wait for the same upload. After the loader shuts down its
+USB device controller, the upload/control connection ends and the dock can
+use that port.
+
+For a verified hypervisor-default development image the packager adds this
+second section to `L4T-scarlet-switchvisor-dev.ini`.
+
+```ini
+[switchvisor-dev-loader]
+l4t=1
+boot_prefixes=/switchroot/scarlet-switchvisor-dev/
+id=SCR-LDR
+switchvisor_mode=loader
+scarlet_boot_mode=kernel
+r2p_action=bootloader
+```
+
+The packager checks the BL33 digest, the `SVBOOT06` bootstrap marker, the
+embedded payload descriptor and checksum, the embedded U-Boot digest, and
+the manifest default. On a verified image the Hekate setting selects
+`hypervisor` or `loader`. An entry that omits the setting uses the image's
+default. The older pinned bootstrap always uses resident ownership. Selecting
+the normal SD prefix still loads kernel/initramfs from SD in either mode.
+
+A loader-capable toolchain can also build both entries with a loader default.
+
+```sh
+python3 scripts/package-switchvisor.py --boot-mode loader
+```
+
+These packages use USB control during preboot. A custom loader-default
+distribution may omit every overlay. When a loader-default image is explicitly
+selected as a resident hypervisor, the script applies the supplied control-only
+USB overlay or disables the same ODIN physical devices directly. DC1 stays
+disabled. Loader handoff skips all resident overlays.
 
 ### USB network profile
 
@@ -241,8 +283,10 @@ python3 scripts/package-switchvisor.py \
   --switchvisor-dev-dist /path/to/development-distribution
 ```
 
-Both must use USB UART/control, the same network profile and the pinned
-bootstack. The normal Nix build records the public source commit
+Both must carry the pinned Noble bootstack and their respective fallback
+settings. Resident UART builds use USB control and matching network profiles.
+A loader-default distribution uses preboot control with virtual UART/net
+disabled. The normal Nix build records the public source commit
 in the package manifest; a custom build without source metadata records no
 revision.
 

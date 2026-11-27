@@ -11,6 +11,10 @@ Optional Switchvisor EL2 monitor
     -> switchvisor: packaged U-Boot -> installed SD kernel/initramfs
     -> switchvisor-dev: indefinite USB wait -> uploaded U-Boot / kernel / initramfs
     -> the same guest path
+
+Switchvisor native loader (loader-capable BL33)
+    -> switchvisor-dev-loader: USB upload -> USB shutdown -> native U-Boot
+    -> Scarlet owns USB-C for a dock or host peripherals
 ```
 
 Bootstack pins are in the project's `bootstack.json`. The importer requires

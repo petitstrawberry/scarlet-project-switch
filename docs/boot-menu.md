@@ -4,13 +4,15 @@
 | --- | --- | --- | --- |
 | `switchvisor` | `SCR-SWV` | `switchroot/scarlet-switchvisor` | Automatic U-Boot fallback; kernel/initramfs from the installed `scarlet-console` directory |
 | `switchvisor-dev` | `SCR-SWD` | `switchroot/scarlet-switchvisor-dev` | Indefinite USB upload wait; no automatic SD boot |
+| `switchvisor-dev-loader` | `SCR-LDR` | `switchroot/scarlet-switchvisor-dev` | USB upload then physical USB/dock handoff, offered for a verified hypervisor-default SVBOOT06 development image |
 | `scarlet` | `SCR-NXC` | `switchroot/scarlet-console` | Direct SD kernel/initramfs boot |
 
-All three normally use the Scarlet ext2 root on `/dev/mmcblk0p4`.
+These entries normally use the Scarlet ext2 root on `/dev/mmcblk0p4`.
 The [console package](console.md) supplies the kernel/initramfs used by
 all entries. The [Switchvisor package](switchvisor-usb-debug.md) generates
-both monitor profiles, overlays and a host upload bundle. Both Switchvisor
-entries keep USB UART/control and optional virtio-net at EL2. The normal entry
+both monitor profiles, overlays and a host upload bundle. Resident
+entries keep USB UART/control and optional virtio-net at EL2. The loader entry
+shares the development payload and gives Scarlet ownership after upload. The normal entry
 starts its packaged U-Boot after the USB preboot window (currently two seconds);
 use `switchvisor-dev` for uploads so host timing cannot trigger SD boot.
 `scripts/start-switchvisor.py` always selects the development entry.

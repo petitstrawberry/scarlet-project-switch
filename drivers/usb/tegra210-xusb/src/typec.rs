@@ -5,7 +5,7 @@
 //! Linux 2d0059fd3167a8df756de2aa0489d4aa70a9fc15, drivers/misc/bm92txx.c
 //! and drivers/power/supply/bq2419x-charger.c. Charger fields also follow TI
 //! SLUSBG7A, tables 8 and 12. The separate `pd` policy owns bounded PD command
-//! negotiation; no DisplayPort commands are sent. BM92T firmware drives the
+//! negotiation. DisplayPort discovery shares the monitor and its IRQ. Firmware drives the
 //! board's PI3USB30532 orientation/mode pins.
 //!
 //! Role snapshots and diagnostics never consume ALERT_STATUS. IRQ work drains
@@ -141,8 +141,8 @@ impl PortState {
         let command_busy = status1 & (1 << 13) != 0;
         let vbus_valid = attached && status1 & (1 << 10) != 0;
         let dp_active = attached && dp_status & ((1 << 15) | (1 << 7)) != 0;
-        // Accessory or active DP pin assignments are outside this fixed-host
-        // implementation. Power role is independent of USB data role.
+        // A raw observation cannot authorize a busy command or active DP
+        // assignment. The owner separately checks its negotiated attachment.
         let host_role = attached
             && matches!(data_role, DataRole::Host)
             && fault == 0
@@ -170,13 +170,17 @@ impl PortState {
     /// indications can settle. Do not require DFP or VSAFE to start boost;
     /// those remain prerequisites for connecting the xHCI host PHY.
     pub fn can_source(&self) -> bool {
+        self.can_source_with(crate::displayport::Access::default())
+    }
+
+    pub(crate) fn can_source_with(&self, access: crate::displayport::Access) -> bool {
         self.attached
             && self.data_role != DataRole::Accessory
             && self.is_source
             && self.otg_inserted
             && self.fault == 0
             && self.status2 & (3 << 10) == 0
-            && !self.dp_active
+            && access.permits_mode(*self)
     }
 }
 
@@ -306,6 +310,7 @@ fn prepare_controller(io: &impl Registers) -> Result<(), &'static str> {
 
 #[derive(Default)]
 struct SourcePolicy {
+    access: crate::displayport::Access,
     saved_power: Option<u8>,
     fault_attachment: Option<Orientation>,
     unresolved_fault: bool,
@@ -324,7 +329,7 @@ impl SourcePolicy {
     }
 
     fn apply(&mut self, io: &impl Registers, state: PortState) -> Result<(), &'static str> {
-        if !state.can_source() {
+        if !state.can_source_with(self.access) {
             return self.stop(io);
         }
         if self.saved_power.is_none() {
@@ -336,7 +341,7 @@ impl SourcePolicy {
                 0
             });
         }
-        crate::charger::source_enable(io)
+        crate::charger::source_enable_with(io, self.access)
     }
 
     fn observe(&mut self, io: &impl Registers) -> Result<PortState, ObservationError> {
@@ -349,6 +354,7 @@ impl SourcePolicy {
         }
     }
 
+    #[cfg(test)]
     fn poll(&mut self, io: &impl Registers) -> Result<PortState, ObservationError> {
         self.poll_with_alert(io, None)
     }
@@ -430,7 +436,7 @@ impl SourcePolicy {
             // Revalidate role after enabling boost. A VSAFE indication can
             // arrive on a later poll while the 5 V output rises.
             let state = self.observe(io)?;
-            if !state.can_source() {
+            if !state.can_source_with(self.access) {
                 self.stop(io).map_err(ObservationError::Unsafe)?;
             }
             Ok(state)
@@ -450,6 +456,7 @@ impl SourcePolicy {
 #[derive(Default)]
 struct HostPolicy {
     init: ControllerInit,
+    dp: crate::displayport::Policy,
     source: SourcePolicy,
     pd: crate::pd::PdPolicy,
     charge: crate::charger::ChargePolicy,
@@ -479,6 +486,7 @@ impl HostPolicy {
         };
         [
             boost,
+            self.dp.next_deadline(),
             self.pd.next_deadline_ns(now_ns),
             self.charge.next_deadline_ns(),
         ]
@@ -493,6 +501,7 @@ impl HostPolicy {
     }
 
     fn observation_failed(&mut self, error: ObservationError) -> &'static str {
+        self.dp.invalidate();
         if let ObservationError::Transport(reason) = error {
             self.pd
                 .transport_lost(reason, post_io_time(self.monitored_at));
@@ -503,8 +512,10 @@ impl HostPolicy {
     }
 
     fn poll(&mut self, io: &impl Registers) -> Result<PortState, &'static str> {
+        self.source.access = self.dp.access();
         let result = self.poll_inner(io);
         if result.is_err() {
+            self.dp.invalidate();
             self.clear_source_settle();
         }
         result
@@ -528,18 +539,24 @@ impl HostPolicy {
             self.boost_ready_at = None;
             self.boost_waiting_tick = false;
         }
+        self.dp.observe(state);
+        state.is_host = self.dp.access().host(state) && self.dp.host_permitted();
         if state.is_source && state.otg_inserted {
             state.is_host &= self
                 .boost_ready_at
                 .is_some_and(|deadline| self.monitored_at >= deadline);
         }
         state.is_host &= self.pd.host_allowed();
+        if self.pd.status().phase == crate::pd::PdPhase::Complete {
+            state.is_host &= self.pd.completed_on(state.orientation) && !state.is_source;
+        }
         Ok(state)
     }
 
     fn monitor(&mut self, io: &impl Registers, now_ns: u64) -> Result<PortState, &'static str> {
         let result = self.monitor_inner(io, now_ns);
         if result.is_err() {
+            self.dp.invalidate();
             self.clear_source_settle();
         }
         result
@@ -557,6 +574,12 @@ impl HostPolicy {
         // drains remain fresh and are owned by the PD policy.
         let alert = word(io, 0x02)
             .map_err(|reason| self.observation_failed(ObservationError::Transport(reason)))?;
+        if alert & crate::displayport::INVALIDATED != 0 {
+            self.dp.invalidate();
+        }
+        self.source.access = self.dp.access();
+        self.pd.access = self.source.access;
+        self.pd.dp_events = 0;
         self.pd.capture_alert(alert);
         if self.init.phase != InitPhase::Ready && alert & 3 != 0 {
             self.source.unresolved_fault = true;
@@ -607,6 +630,58 @@ impl HostPolicy {
         }
         self.pd.poll_with_alert(io, raw, now_ns, alert);
         let pd = self.pd.status();
+        // PD validation may have consumed an additional event *after* raw
+        // was sampled. Check LASTCMD, actual role and CC after those drains.
+        let dp_state = if self
+            .dp
+            .needs_snapshot(raw, pd.phase == crate::pd::PdPhase::Complete)
+        {
+            match self.source.observe(io) {
+                Ok(state) => state,
+                Err(error) => {
+                    let reason = self.observation_failed(error);
+                    self.source.stop(io)?;
+                    return Err(reason);
+                }
+            }
+        } else {
+            raw
+        };
+        self.dp.poll(
+            io,
+            dp_state,
+            self.pd.dp_events,
+            self.pd.completed_on(dp_state.orientation),
+            self.boost_ready_at.is_some_and(|due| now_ns >= due),
+            post_io_time(now_ns),
+        );
+        // Preserve read-clear faults from both PD's contract readback and DP's
+        // last command-boundary drain, including a same-side replacement.
+        let late = core::mem::take(&mut self.dp.late_alert);
+        let fresh_faults = (self.pd.dp_events | late) & 3 & !alert;
+        if fresh_faults != 0 {
+            self.pd.capture_alert(fresh_faults);
+            self.dp.invalidate();
+            self.source.access = self.dp.access();
+            return self
+                .source
+                .poll_with_alert(io, Some(fresh_faults))
+                .map_err(|error| self.observation_failed(error));
+        }
+        if late & crate::displayport::INVALIDATED != 0 {
+            self.pd.capture_alert(late);
+            self.dp.invalidate();
+        }
+        if let Some(error) = self.dp.observation_error.take() {
+            if let ObservationError::Fault(state) = error {
+                self.source.fault_attachment = state.attached.then_some(state.orientation);
+            }
+            let reason = self.observation_failed(error);
+            self.source.stop(io)?;
+            return Err(reason);
+        }
+        let pd = self.pd.status();
+        self.charge.access = self.dp.access();
         if pd.charge_ready_at_ns != self.charge_scheduled_at {
             if self.charge.is_active() {
                 self.charge.cancel(io)?;
@@ -625,7 +700,7 @@ impl HostPolicy {
             && !raw.otg_inserted
             && raw.fault == 0
             && raw.status2 & (3 << 10) == 0
-            && !raw.dp_active;
+            && self.charge.access.permits_mode(raw);
         self.charge.poll(io, sink_safe, now_ns)?;
         // A command or I2C operation can cross a cable/role transition.
         // Withdraw source power and revalidate actual VBUS/data role again.
@@ -646,9 +721,10 @@ pub enum InitPhase {
 
 /// Switchroot probe/oneshot initialization, expressed as bounded monitor
 /// steps: source paths OFF, 100 ms, conditional SYS_RESET + 100 ms, alerts
-/// clear, OCP/source paths ON/DP alerts OFF, then another 100 ms.
+/// clear, OCP/source paths ON and DP alert mask, then another 100 ms.
 #[derive(Default)]
 struct ControllerInit {
+    dp_enabled: bool,
     phase: InitPhase,
     deadline: u64,
     drained_alert: Option<u16>,
@@ -657,8 +733,10 @@ struct ControllerInit {
 impl ControllerInit {
     fn configure(&mut self, io: &impl Registers, now_ns: u64) -> Result<(), &'static str> {
         prepare_controller(io)?;
-        // This USB-only binding uses Linux's rohm,dp-disable policy.
-        io.write(BM92T_ADDRESS, DP_ALERT_ENABLE, &0u16.to_le_bytes())?;
+        // bm92t_set_dp_alerts enables both bytes. The IRQ worker consumes the
+        // aggregate DP event and samples the current signal level.
+        let mask = if self.dp_enabled { u16::MAX } else { 0 };
+        io.write(BM92T_ADDRESS, DP_ALERT_ENABLE, &mask.to_le_bytes())?;
         self.phase = InitPhase::WaitSettle;
         self.deadline = post_io_time(now_ns).saturating_add(100_000_000);
         Ok(())
@@ -751,11 +829,11 @@ mod hardware {
         }
 
         fn write(&self, address: u8, register: u8, data: &[u8]) -> Result<(), &'static str> {
-            // PD SET_RDO is a four-byte object with a one-byte length prefix.
-            if data.is_empty() || data.len() > 5 {
+            // BM92T VDM blocks contain up to seven VDOs and a length byte.
+            if data.is_empty() || data.len() > 29 {
                 return Err("invalid Switch Type-C register write");
             }
-            let mut bytes = [0; 6];
+            let mut bytes = [0; 30];
             bytes[0] = register;
             bytes[1..data.len() + 1].copy_from_slice(data);
             self.bus
@@ -914,6 +992,8 @@ mod hardware {
             if bus.bus_number() != 1 {
                 return Err("unsupported Switch Type-C I2C bus");
             }
+            let dp_enabled = device.property("rohm,dp-disable").is_none()
+                && cell(device, "rohm,dp-lanes", 0).unwrap_or(2) == 2;
             let io = Hardware { bus };
             let identity = identify(&io)?;
             let mut source = SourcePolicy::default();
@@ -937,7 +1017,11 @@ mod hardware {
                 interrupt_provider,
                 interrupt_pin,
                 policy: SpinLock::new(HostPolicy {
-                    init: ControllerInit::default(),
+                    init: ControllerInit {
+                        dp_enabled,
+                        ..Default::default()
+                    },
+                    dp: crate::displayport::Policy::new(dp_enabled),
                     source,
                     pd: crate::pd::PdPolicy::default(),
                     charge: crate::charger::ChargePolicy::default(),
@@ -968,12 +1052,18 @@ mod hardware {
 
         /// Poll even while detached: source VBUS is withdrawn on role loss.
         pub fn poll(&self) -> Result<PortState, &'static str> {
-            self.policy.lock().poll(&self.io)
+            let mut policy = self.policy.lock();
+            let state = policy.poll(&self.io);
+            policy.dp.publish_route(false);
+            state
         }
 
         /// One claimed GPIO event or due policy timer advances bounded work.
         pub fn monitor(&self, now_ns: u64) -> Result<PortState, &'static str> {
-            self.policy.lock().monitor(&self.io, now_ns)
+            let mut policy = self.policy.lock();
+            let state = policy.monitor(&self.io, now_ns);
+            policy.dp.publish_route(policy.dp.irq_hpd);
+            state
         }
 
         pub fn pd_status(&self) -> crate::pd::PdStatus {
@@ -992,6 +1082,8 @@ mod hardware {
         /// source again, so the permanent monitor must retain that failure.
         pub fn stop_sourcing(&self) -> Result<(), &'static str> {
             let mut policy = self.policy.lock();
+            policy.dp.invalidate();
+            scarlet_driver_tegra210::dock::publish(0, false, false);
             policy.clear_source_settle();
             policy.source.stop(&self.io)?;
             if policy.charge.is_active() {
@@ -1036,6 +1128,8 @@ mod tests {
         requested_rdo: RefCell<u32>,
         reads: RefCell<Vec<(u8, u8)>>,
         writes: RefCell<Vec<(u8, u8, Vec<u8>)>>,
+        incoming: RefCell<[u8; 29]>,
+        alert_on_payload: RefCell<u16>,
         detach_on_boost: bool,
         fail_status: bool,
         fail_status_after_fault_alert: bool,
@@ -1062,6 +1156,8 @@ mod tests {
                 requested_rdo: RefCell::new(0),
                 reads: RefCell::new(Vec::new()),
                 writes: RefCell::new(Vec::new()),
+                incoming: RefCell::new([0; 29]),
+                alert_on_payload: RefCell::new(0),
                 detach_on_boost: false,
                 fail_status: false,
                 fail_status_after_fault_alert: false,
@@ -1106,6 +1202,10 @@ mod tests {
                 };
             } else {
                 assert_eq!(address, BM92T_ADDRESS);
+                if register == 0x50 {
+                    data.copy_from_slice(&self.incoming.borrow()[..data.len()]);
+                    return Ok(());
+                }
                 if register == 0x08 {
                     data.fill(0);
                     data[0] = 8;
@@ -1177,7 +1277,11 @@ mod tests {
                 (BM92T_ADDRESS, VENDOR_CONFIG) => {
                     *self.vendor.borrow_mut() = u16::from_le_bytes(data.try_into().unwrap())
                 }
-                (BM92T_ADDRESS, DP_ALERT_ENABLE) => assert_eq!(data, [0, 0]),
+                (BM92T_ADDRESS, DP_ALERT_ENABLE) => assert!(data == [0, 0] || data == [255, 255]),
+                (BM92T_ADDRESS, 0x60) => {
+                    assert_eq!(data.len(), 1 + usize::from(data[0]));
+                    *self.alert.borrow_mut() |= self.alert_on_payload.replace(0);
+                }
                 (BM92T_ADDRESS, COMMAND) => match u16::from_le_bytes(data.try_into().unwrap()) {
                     0x0d0d => *self.status.borrow_mut() = (UFP, 0, 0),
                     0x0707 => {
@@ -1186,7 +1290,7 @@ mod tests {
                         *self.alert.borrow_mut() = 1 << 12;
                     }
                     0x0505 => *self.alert.borrow_mut() = 1 << 2,
-                    0x0808 => {}
+                    0x0808 | 0x1111 | 0x1616 | 0x3131 | 0x3232 | 0x3636 | 0x3b3b => {}
                     0x1818 => {
                         if self.swap_stalls {
                             self.status.borrow_mut().0 |= 1 << 13;
@@ -1967,4 +2071,5 @@ mod tests {
         }));
         assert_eq!(policy.next_deadline_ns(100_000_000), None);
     }
+    mod displayport_tests;
 }

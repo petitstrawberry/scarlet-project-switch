@@ -93,6 +93,8 @@ impl Default for PdStatus {
 
 #[derive(Default)]
 pub struct PdPolicy {
+    pub(crate) access: crate::displayport::Access,
+    pub(crate) dp_events: u16,
     status: PdStatus,
     orientation: Option<Orientation>,
     stable_since: Option<u64>,
@@ -162,7 +164,7 @@ fn input_limit(io: &impl Registers) -> Result<u8, PdError> {
     Ok(byte[0])
 }
 
-fn sink_power_valid(state: PortState) -> bool {
+fn sink_power_valid(state: PortState, access: crate::displayport::Access) -> bool {
     state.attached
         && state.vbus_valid
         && state.status1 & (1 << 14) != 0
@@ -170,11 +172,15 @@ fn sink_power_valid(state: PortState) -> bool {
         && !state.otg_inserted
         && state.fault == 0
         && state.status2 & (3 << 10) == 0
-        && !state.dp_active
+        && access.permits_mode(state)
         && matches!(state.data_role, DataRole::Device | DataRole::Host)
 }
 
 impl PdPolicy {
+    pub(crate) fn completed_on(&self, side: Orientation) -> bool {
+        self.status.phase == PdPhase::Complete && self.orientation == Some(side)
+    }
+
     pub fn status(&self) -> PdStatus {
         self.status
     }
@@ -259,6 +265,7 @@ impl PdPolicy {
             Some(alert) => alert,
             None => word(io, ALERT)?,
         };
+        self.dp_events |= alert;
         self.status.last_alert = alert;
         // ALERT is read-clear. Observed faults/connection changes cannot be
         // discarded by a later status NACK or successful transport recovery.
@@ -290,7 +297,7 @@ impl PdPolicy {
                 "BM92T connection changed during data-role handoff",
             ));
         }
-        if !sink_power_valid(state) {
+        if !sink_power_valid(state, self.access) {
             return Err(PdError::Unsafe(
                 "BM92T sink power or USB path changed during data-role handoff",
             ));
@@ -598,6 +605,7 @@ impl PdPolicy {
     /// can fail. A completed contract must not recover across a consumed
     /// fault, contract change or same-orientation replacement notification.
     pub(crate) fn capture_alert(&mut self, alert: u16) {
+        self.dp_events |= alert;
         self.status.last_alert = alert;
         self.captured_alert = Some(self.captured_alert.unwrap_or(0) | alert);
         if alert & ALERT_FAULT != 0 {
@@ -675,7 +683,7 @@ impl PdPolicy {
         ) {
             if self.status.charge_ready_at_ns.is_some() {
                 let result = (|| {
-                    if !sink_power_valid(raw) {
+                    if !sink_power_valid(raw, self.access) {
                         return Err(PdError::Unsafe(
                             "BM92T retained charging lost its valid sink power path",
                         ));
@@ -692,7 +700,7 @@ impl PdPolicy {
             return;
         }
         if self.status.phase != PdPhase::Idle {
-            if !sink_power_valid(raw) {
+            if !sink_power_valid(raw, self.access) {
                 self.fail("BM92T sink power or USB path changed during data-role handoff");
                 return;
             }
@@ -711,7 +719,8 @@ impl PdPolicy {
                     // if a subsequent power-object read is unavailable. A
                     // valid power proof may still retain Linux's independent
                     // charging work, but cannot revive this USB host session.
-                    let role_lost = state.command_busy || state.data_role != DataRole::Host;
+                    let role_lost =
+                        !self.access.permits_busy(state) || state.data_role != DataRole::Host;
                     let checked = match self.checked_contract_state(io) {
                         Err(error) if role_lost => return Err(PdError::Unsafe(error.reason())),
                         result => result?,
@@ -719,7 +728,10 @@ impl PdPolicy {
                     let Some(checked) = checked else {
                         return Ok(());
                     };
-                    if role_lost || checked.command_busy || checked.data_role != DataRole::Host {
+                    if role_lost
+                        || !self.access.permits_busy(checked)
+                        || checked.data_role != DataRole::Host
+                    {
                         // A verified role loss is not a transient transport
                         // failure and cannot recover the previous host claim.
                         self.data_role_failed("BM92T completed handoff lost its USB host role");
@@ -750,7 +762,10 @@ impl PdPolicy {
         }
         // SourcePolicy and PortState gate ordinary OTG and unrelated unsafe
         // connections. Do not permanently poison them before a sink attempt.
-        if !sink_power_valid(raw) || raw.data_role != DataRole::Device || raw.command_busy {
+        if !sink_power_valid(raw, self.access)
+            || raw.data_role != DataRole::Device
+            || raw.command_busy
+        {
             self.stable_since = None;
             self.stable_polls = 0;
             return;

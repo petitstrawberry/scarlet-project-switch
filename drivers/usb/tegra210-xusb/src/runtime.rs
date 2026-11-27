@@ -508,6 +508,11 @@ fn typec_monitor() {
             Some(now.saturating_add(100_000_000))
         } else if failed {
             irq.mask();
+            // A mailbox/startup failure can arrive during this monitor pass.
+            // Service it once before leaving so the route and VBUS are revoked.
+            if state.is_some() {
+                continue;
+            }
             return;
         } else {
             let asserted = irq.rearm();

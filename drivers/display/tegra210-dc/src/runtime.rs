@@ -17,7 +17,8 @@ use scarlet::{
         graphics::{
             FramebufferConfig, GpuDisplayResource, GpuPresentOptions, GraphicsDevice, PixelFormat,
             manager::GraphicsManager,
-            output::{ConnectorInfo, ConnectorKind, DisplayRegion},
+            monitor::MonitorIdentity,
+            output::{ConnectorInfo, ConnectorKind, DisplayMode, DisplayRegion},
         },
         manager::{DeviceManager, DriverPriority},
         platform::{
@@ -113,6 +114,7 @@ struct State {
 }
 
 struct Display {
+    has_dock: bool,
     base: usize,
     mc: usize,
     backlight: Option<Backlight>,
@@ -874,8 +876,7 @@ impl GraphicsDevice for Display {
         Some(alloc::format!("platform:{DC0_PHYS:x}"))
     }
     fn connectors(&self) -> Vec<ConnectorInfo> {
-        // Probe only adopts the built-in panel on DC0's firmware DSI scanout.
-        vec![ConnectorInfo {
+        let mut connectors = vec![ConnectorInfo {
             index: 0,
             name: self.get_display_name().into(),
             kind: ConnectorKind::Internal,
@@ -884,7 +885,82 @@ impl GraphicsDevice for Display {
             height: self.config.height,
             refresh_mhz: 0,
             physical_size_mm: None,
-        }]
+        }];
+        if self.has_dock {
+            connectors.push(crate::external::info());
+        }
+        connectors
+    }
+    fn connector_modes(&self, index: u32) -> Vec<DisplayMode> {
+        match index {
+            0 => vec![DisplayMode {
+                width: self.config.width,
+                height: self.config.height,
+                refresh_millihz: 0,
+            }],
+            1 if self.has_dock => crate::external::modes(),
+            _ => Vec::new(),
+        }
+    }
+    fn request_connector_mode(&self, index: u32, mode: DisplayMode) -> Result<(), &'static str> {
+        if index == 1 && self.has_dock {
+            return crate::external::request_mode(mode);
+        }
+        Err("display mode switching unavailable")
+    }
+    fn connector_monitor_identity(&self, index: u32) -> Option<MonitorIdentity> {
+        if index == 1 && self.has_dock {
+            crate::external::identity()
+        } else {
+            None
+        }
+    }
+    fn connector_mapping_device(
+        &self,
+        index: u32,
+    ) -> Result<Option<Arc<dyn Device>>, &'static str> {
+        match index {
+            0 => Ok(None),
+            1 if self.has_dock => Ok(Some(crate::external::display()?)),
+            _ => Err("unknown Tegra connector"),
+        }
+    }
+    fn connector_framebuffer_info(
+        &self,
+        index: u32,
+    ) -> Result<(FramebufferConfig, u64), &'static str> {
+        match index {
+            0 => self.get_framebuffer_info(),
+            1 if self.has_dock => crate::external::display()?.get_framebuffer_info(),
+            _ => Err("unknown Tegra connector"),
+        }
+    }
+    fn present_connector_framebuffer_region(
+        &self,
+        index: u32,
+        region: DisplayRegion,
+    ) -> Result<(), &'static str> {
+        match index {
+            0 => self.present_current_framebuffer_region(region),
+            1 if self.has_dock => {
+                crate::external::display()?.present_current_framebuffer_region(region)
+            }
+            _ => Err("unknown Tegra connector"),
+        }
+    }
+    fn present_connector_gpu_resource_region(
+        &self,
+        index: u32,
+        image: GpuDisplayResource,
+        region: DisplayRegion,
+        options: GpuPresentOptions,
+    ) -> Result<(), &'static str> {
+        match index {
+            0 => self.present_gpu_resource_region_with_options(image, region, options),
+            1 if self.has_dock => crate::external::display()?
+                .present_gpu_resource_region_with_options(image, region, options),
+            _ => Err("unknown Tegra connector"),
+        }
     }
     fn get_framebuffer_config(&self) -> Result<FramebufferConfig, &'static str> {
         Ok(self.config.clone())
@@ -1075,6 +1151,13 @@ impl GraphicsDevice for Display {
 }
 
 fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
+    if device
+        .get_resources()
+        .iter()
+        .any(|r| r.res_type == PlatformDeviceResourceType::MEM && r.start == crate::external::DC1)
+    {
+        return crate::external::probe(device);
+    }
     if REGISTERED.load(Ordering::Acquire) {
         return Err("Tegra DC is already registered");
     }
@@ -1263,6 +1346,7 @@ fn probe(device: &PlatformDeviceInfo) -> Result<(), &'static str> {
         }
     };
     let display = Arc::new(Display {
+        has_dock: cell(device, "scarlet,dock-display", 0) == Some(1),
         base,
         mc,
         backlight,

@@ -11,6 +11,8 @@ extern crate alloc;
 #[cfg_attr(not(any(target_os = "none", test)), allow(dead_code))]
 pub mod charger;
 #[cfg_attr(not(any(target_os = "none", test)), allow(dead_code))]
+mod displayport;
+#[cfg_attr(not(any(target_os = "none", test)), allow(dead_code))]
 pub mod falcon;
 pub mod firmware;
 pub mod mailbox;

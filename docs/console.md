@@ -98,8 +98,8 @@ together, use the [combined menu procedure](boot-menu.md).
 
 The native [display driver](display.md) adopts the firmware's panel mode.
 The inherited framebuffer remains available when native adoption cannot
-complete. Cold panel setup, HDMI output and suspend/resume are outside this
-port's implemented display path.
+complete. With a physical-port boot profile, the second display head drives
+the dock's HDMI converter over two-lane DisplayPort.
 
 The direct SD entry uses `init.console=/dev/null`. Switchvisor supplies the
 ordinary `/dev/tty0` console and a text login through its virtual UART.

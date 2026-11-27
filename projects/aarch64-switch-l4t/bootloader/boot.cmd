@@ -112,8 +112,7 @@ fdt set /cpus/cpu@3 performance-domains <0x5343>
 fdt set /gpu clocks <0x36 184 0x36 299 0x36 189>
 fdt set /gpu clock-names gpu pwr ref
 fdt set /gpu vdd-supply <0x2f>
-# DC0 adopts this inspected, physically addressed Hekate DSI mode. DC1 and
-# uninspected cold panel/HDMI paths are not enabled by this binding.
+# DC0 adopts the inspected, physically addressed Hekate DSI mode.
 fdt set /host1x/dc@54200000 scarlet,boot-scanout <1>
 # This driver preserves Hekate's DSI pad state. Do not request Noble's cold
 # PMC pinctrl transitions during the common platform pre-probe pass.
@@ -124,11 +123,30 @@ fdt rm /host1x/dc@54200000 pinctrl-2
 fdt rm /host1x/dc@54200000 pinctrl-3
 fdt rm /host1x/dc@54200000 pinctrl-4
 fdt rm /host1x/dc@54200000 pinctrl-5
-fdt set /host1x/dc@54240000 status disabled
-# Physical USB belongs to Scarlet only in the direct SD entry. This opt-in
-# must precede BM92T/charger writes as well as XUSB MMIO. Switchvisor's guest
-# overlays disable these nodes and keep their controller ownership at EL2.
+# The packaged script identifies the BL33 default only after verifying a
+# loader-capable bootstrap and its descriptor. Legacy monitors stay resident.
+setenv scarlet_physical_usb 0
 if test "${scarlet_switchvisor}" != 1; then
+    setenv scarlet_physical_usb 1
+elif test "${scarlet_switchvisor_default}" = hypervisor -o "${scarlet_switchvisor_default}" = loader; then
+    if test "${switchvisor_mode}" = loader; then
+        setenv scarlet_physical_usb 1
+    elif test -z "${switchvisor_mode}" -a "${scarlet_switchvisor_default}" = loader; then
+        setenv scarlet_physical_usb 1
+    fi
+fi
+
+if test "${scarlet_physical_usb}" = 1; then
+    fdt set /host1x/dc@54200000 scarlet,dock-display <1>
+    fdt set /host1x/dc@54240000 scarlet,dock-display <1>
+    fdt set /host1x/dc@54240000 status okay
+    fdt rm /host1x/dc@54240000 pinctrl-names
+    fdt rm /host1x/dc@54240000 pinctrl-0
+    fdt rm /host1x/dc@54240000 pinctrl-1
+    fdt rm /host1x/dc@54240000 pinctrl-2
+    fdt rm /host1x/dc@54240000 pinctrl-3
+    fdt rm /host1x/dc@54240000 pinctrl-4
+    fdt rm /host1x/dc@54240000 pinctrl-5
     # This fixed ODIN host driver initializes its PHYs directly. Standard
     # phys would make Scarlet's common pre-probe wait for an unused generic
     # PHY provider. Retain the inspected ODIN phandles as private metadata.
@@ -136,8 +154,8 @@ if test "${scarlet_switchvisor}" != 1; then
     fdt rm /xusb@70090000 phys
     fdt set /xusb@70090000 scarlet,usb-host
     fdt set /i2c@7000c000/bm92t@18 scarlet,usb-host
-fi
-if test "${scarlet_switchvisor}" = 1; then
+else
+    fdt set /host1x/dc@54240000 status disabled
     if test "${scarlet_switchvisor_control}" = 1; then
         if load mmc ${devnum}:${distro_bootpart} 0x8c000000 ${boot_dir}/switchvisor-control.dtbo; then
             fdt addr ${fdtraddr}
@@ -172,18 +190,30 @@ if test "${scarlet_switchvisor}" = 1; then
             reset
         fi
     fi
-    if load mmc ${devnum}:${distro_bootpart} 0x8c000000 ${boot_dir}/usb-uart.dtbo; then
+    # A loader-default package has no virtual UART. When selected as a
+    # hypervisor it needs the control-only physical device exclusions.
+    test -n "${scarlet_switchvisor_overlay}" || setenv scarlet_switchvisor_overlay usb-uart.dtbo
+    if test "${scarlet_switchvisor_overlay}" = control-only; then
+        for node in /xusb@70090000 /xusb_padctl@7009f000 /usb_cd /mailbox@70098000 /i2c@7000c000/bm92t@18 /power-domain/xusba-pd /power-domain/xusbb-pd /power-domain/xusbc-pd; do
+            if fdt set ${node} status disabled; then
+                echo Switchvisor owns ${node}
+            else
+                echoe Switchvisor physical USB exclusion failed
+                reset
+            fi
+        done
+    elif load mmc ${devnum}:${distro_bootpart} 0x8c000000 ${boot_dir}/${scarlet_switchvisor_overlay}; then
         fdt addr ${fdtraddr}
         fdt resize 8192
         if fdt apply 0x8c000000; then
-            echo Switchvisor virtual UART selected
+            echo Switchvisor USB ownership overlay applied
         else
-            echoe Switchvisor UART overlay failed
+            echoe Switchvisor USB ownership overlay failed
             sleep 3
             reset
         fi
     else
-        echoe Switchvisor UART overlay read failed
+        echoe Switchvisor USB ownership overlay read failed
         sleep 3
         reset
     fi

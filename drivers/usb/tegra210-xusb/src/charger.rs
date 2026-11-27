@@ -63,8 +63,11 @@ fn update(
     Ok(())
 }
 
-fn source_safe(io: &impl Registers) -> Result<(), &'static str> {
-    if typec::snapshot(io)?.can_source() {
+fn source_safe(
+    io: &impl Registers,
+    access: crate::displayport::Access,
+) -> Result<(), &'static str> {
+    if typec::snapshot(io)?.can_source_with(access) {
         Ok(())
     } else {
         Err("BQ24193 source attachment changed")
@@ -74,9 +77,18 @@ fn source_safe(io: &impl Registers) -> Result<(), &'static str> {
 /// Linux's VBUS-enable sequence, with the board's no-OTG-watchdog policy.
 /// The owner must serialize this with PD and charging work.
 pub fn source_enable(io: &impl Registers) -> Result<(), &'static str> {
-    update(io, TIMER, WATCHDOG_MASK, 0, || source_safe(io))?;
-    update(io, POWER, BOOST_LIMIT, BOOST_LIMIT, || source_safe(io))?;
-    update(io, POWER, MODE_MASK, OTG_MODE, || source_safe(io))
+    source_enable_with(io, Default::default())
+}
+
+pub(crate) fn source_enable_with(
+    io: &impl Registers,
+    access: crate::displayport::Access,
+) -> Result<(), &'static str> {
+    update(io, TIMER, WATCHDOG_MASK, 0, || source_safe(io, access))?;
+    update(io, POWER, BOOST_LIMIT, BOOST_LIMIT, || {
+        source_safe(io, access)
+    })?;
+    update(io, POWER, MODE_MASK, OTG_MODE, || source_safe(io, access))
 }
 
 pub fn source_enabled(io: &impl Registers) -> Result<bool, &'static str> {
@@ -111,7 +123,7 @@ pub fn source_disable(io: &impl Registers, restore_mode: Option<u8>) -> Result<(
     }
 }
 
-fn sink(state: PortState) -> bool {
+fn sink(state: PortState, access: crate::displayport::Access) -> bool {
     // After a verified PS_RDY contract, Linux's delayed power work is
     // independent of an in-flight data-role command. Command BUSY alone
     // does not revoke sink power; the PD owner supplies contract eligibility.
@@ -122,12 +134,16 @@ fn sink(state: PortState) -> bool {
         && state.fault == 0
         && matches!(state.data_role, DataRole::Device | DataRole::Host)
         && state.status2 & (3 << 10) == 0
-        && !state.dp_active
+        && access.permits_mode(state)
 }
 
-fn sink_safe(io: &impl Registers, orientation: Orientation) -> Result<(), &'static str> {
+fn sink_safe(
+    io: &impl Registers,
+    orientation: Orientation,
+    access: crate::displayport::Access,
+) -> Result<(), &'static str> {
     let state = typec::snapshot(io)?;
-    if sink(state) && state.orientation == orientation {
+    if sink(state, access) && state.orientation == orientation {
         Ok(())
     } else {
         Err("BQ24193 sink attachment changed")
@@ -161,6 +177,7 @@ pub struct ChargeStatus {
 
 #[derive(Default)]
 pub struct ChargePolicy {
+    pub(crate) access: crate::displayport::Access,
     status: ChargeStatus,
     due_ns: u64,
     target_index: u8,
@@ -207,11 +224,11 @@ impl ChargePolicy {
 
     fn begin(&mut self, io: &impl Registers, now_ns: u64) -> Result<(), &'static str> {
         let state = typec::snapshot(io)?;
-        if !sink(state) {
+        if !sink(state, self.access) {
             return Err("BQ24193 charging requires a sink attachment");
         }
         self.orientation = Some(state.orientation);
-        let validate = || sink_safe(io, state.orientation);
+        let validate = || sink_safe(io, state.orientation, self.access);
         // Linux calls charger_enable before reading REG08. Its enable state
         // and voltage are owned by a thermal manager absent from Scarlet;
         // retain those inherited settings and only own the input callbacks.
@@ -284,7 +301,7 @@ impl ChargePolicy {
             };
             let next = self.applied_index + 1;
             let result = update(io, INPUT, INPUT_CURRENT_MASK, next, || {
-                sink_safe(io, orientation)
+                sink_safe(io, orientation, self.access)
             });
             if result.is_ok() {
                 self.applied_index = next;

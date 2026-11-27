@@ -10,6 +10,13 @@ the shared Tegra210 and MAX77620 modules. The physical link supports USB
 - `src/typec.rs`: BM92T role/status monitoring and BQ24193 source policy.
 - `src/pd.rs` and `src/charger.rs`: Linux fixed-PDO negotiation, data-role
   swap and delayed input-current updates.
+- `src/displayport.rs` handles Nintendo dock and standard DP discovery,
+  pin configuration, HPD and the Nintendo USB hub. The Type-C monitor publishes
+  two routed lanes through `scarlet_driver_tegra210::dock::publish_status` after
+  successful configuration. It marks BM92T SIGNAL_ON as inferred until the
+  partner reports HPD in a DP Status Update ACK or Attention. That explicit
+  level takes precedence for the attachment. Detach, CC change and faults
+  withdraw the route and clear the report.
 - `src/falcon.rs` and `src/firmware.rs`: bounded Falcon boot and checked
   firmware metadata/DMA fetch ranges.
 - `src/mailbox.rs`: firmware messages and fixed-clock replies.
@@ -17,7 +24,7 @@ the shared Tegra210 and MAX77620 modules. The physical link supports USB
   direct DMA, PHY calibration and local port isolation.
 
 Enumeration, hubs, HID keyboard/mouse delivery and existing NIC class
-drivers remain in Scarlet. USB gadget mode, power-role swap, dock/DP negotiation and
+drivers remain in Scarlet. USB gadget mode, power-role swap and
 suspend/resume are future work. A direct Erista boot has configured a keyboard
 and SuperSpeed CDC-NCM NIC and served SSH. Sustained transfers, physical input
 and hotplug still need validation; see the bounded evidence in the USB guide.

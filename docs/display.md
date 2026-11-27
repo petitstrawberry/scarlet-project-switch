@@ -8,16 +8,41 @@ a 1280 × 720 landscape display. DC rotates the image into the inherited
 
 Probe requires the inspected DC clock/reset state, continuous panel mode,
 BGRA portrait pitch of 2880, inherited address `0xf5a00000` and an unused
-window B. The boot script marks DC0 with `scarlet,boot-scanout` and disables
-unclaimed DC1. Unsupported state leaves the inherited framebuffer available.
+window B. The boot script marks DC0 with `scarlet,boot-scanout`.
+Unsupported panel state leaves the inherited framebuffer available.
 
 Window B preserves the original linear boot console during native adoption.
 The first ordinary presentation disables it. The generic `keep_bootcon`
 option keeps B opaque above window A for debugging.
 
-Cold panel/DSI initialization, HDMI modesetting and suspend/resume are outside
-this driver. It preserves inherited EMC/MC bandwidth policy and does not
-reprogram global translation or firmware carveouts.
+## Dock video on Erista
+
+The Switch sends DisplayPort over USB-C. The dock converts it to HDMI.
+On the ODIN board the external head is DC1, which drives SOR1 over link A.
+DPAUX1 reads the monitor EDID and negotiates the link. The per-port crossbar
+routes two DP lanes. A multifunction pin assignment also carries SuperSpeed USB.
+
+Direct SD boot and Switchvisor's native loader hand the port to Scarlet.
+The resident USB debug mode keeps the port at EL2. The boot package records
+the BL33's mode support so an older monitor cannot grant physical USB or DP
+through a loader setting it does not implement.
+
+When Scarlet owns the port, the display driver publishes the dock as a
+second display endpoint. A negotiated Type-C DP route and the sink's HPD
+signal start link training. A monitor is reported as connected after its stream is
+running. The driver exposes EDID-advertised 1280 × 720 or 1920 × 1080 at
+60 Hz when the sink's link can carry the mode. Mapped framebuffers remain
+pinned through unplug and modesets. GPU swapchain images can scan out
+directly in pitch-linear or Tegra H4 block-linear layout.
+
+For a hardware check, boot with a physical-port profile, connect the adapter
+and monitor, and inspect both outputs in Settings → Displays. Nintendo's
+TV-mode procedure connects AC power to the stock dock. The Type-C driver
+also handles source-role adapters powered by the console.
+Confirm that the external monitor shows the desktop at its advertised mode,
+then unplug and reconnect it while the internal panel is active. Kernel logs
+prefix link and mode events with `tegra-dock`. Audio over the DP link and
+suspend/resume need separate implementation.
 
 ## Backlight control
 

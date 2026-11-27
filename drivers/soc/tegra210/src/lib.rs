@@ -10,6 +10,12 @@
 //! are enabled here; display, memory, and other firmware clocks are preserved.
 
 extern crate alloc;
+#[cfg(any(target_os = "none", test))]
+mod external_dp;
+#[cfg(target_os = "none")]
+pub use external_dp::platform::{ExternalDpPlatform, ExternalDpSupplyVote, external_dp_platform};
+#[cfg(any(target_os = "none", test))]
+pub mod dock;
 #[cfg(target_os = "none")]
 mod audio;
 #[cfg(target_os = "none")]
