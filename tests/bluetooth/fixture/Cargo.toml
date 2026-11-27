@@ -9,5 +9,5 @@ name = "bluetooth-qa-kernel"
 path = "main.rs"
 
 [dependencies]
-scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "5a276e98759f8973bb42ea832b0d93dc0b8d7f46", default-features = false, features = ["linux-boot", "network", "user-fpu", "user-vector"] }
+scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "3729abeb01f0b1657d1eb1bee831f3aff4b71110", default-features = false, features = ["linux-boot", "network", "user-fpu", "user-vector"] }
 scarlet-driver-joycon-bt = { path = "../../../drivers/input/joycon-bt" }

@@ -177,6 +177,9 @@ impl Peer {
             3,
             &[&[0][..], &h.to_le_bytes(), &self.address, &[1, 0]].concat(),
         );
+        if self.incoming.is_some() {
+            rx.event(0x17, &self.address);
+        }
     }
     fn lost(&mut self, rx: &mut Wire, reason: u8) {
         let handle = self.handle.take().unwrap();
@@ -263,19 +266,6 @@ impl Peer {
                 let (remote, config_id) = match word(body) {
                     1 => {
                         assert!(self.local_sdp.replace(local).is_none());
-                        if self.incoming.is_some() {
-                            assert!(
-                                self.encrypted
-                                    && self.authenticated
-                                    && !self.discovery.identity_complete
-                            );
-                            for (id, psm, cid) in [
-                                (HID_OPEN_IDS[0], 0x11, self.remote_control),
-                                (HID_OPEN_IDS[1], 0x13, self.remote_interrupt),
-                            ] {
-                                self.signal(rx, 2, id, &words(&[psm, cid]));
-                            }
-                        }
                         (self.remote_sdp, 0xa0)
                     }
                     0x11 => {
@@ -461,7 +451,10 @@ impl Controller {
                     .expect("unknown handle");
                 rx.accepted(op);
                 match op {
-                    0x0411 => rx.event(0x17, &p.address),
+                    0x0411 => {
+                        assert!(p.incoming.is_none(), "host raced peer-initiated security");
+                        rx.event(0x17, &p.address);
+                    }
                     0x0413 => {
                         assert!(p.authenticated, "encryption before authentication");
                         assert_eq!(data[2], 1);
@@ -526,7 +519,21 @@ impl Controller {
                         assert_eq!(&data[6..], &[addr[0]; 16]);
                         p.authenticated = true;
                         rx.complete(op, &reply);
-                        rx.event(6, &[&[0][..], &p.handle.unwrap().to_le_bytes()].concat());
+                        let handle = p.handle.unwrap().to_le_bytes();
+                        if p.incoming.is_some() {
+                            // On button wake the Joy-Con encrypts the ACL and opens HID
+                            // without a host-initiated Authentication Complete event.
+                            p.encrypted = true;
+                            rx.event(8, &[&[0][..], &handle, &[1]].concat());
+                            for (id, psm, cid) in [
+                                (HID_OPEN_IDS[0], 0x11, p.remote_control),
+                                (HID_OPEN_IDS[1], 0x13, p.remote_interrupt),
+                            ] {
+                                p.signal(rx, 2, id, &words(&[psm, cid]));
+                            }
+                        } else {
+                            rx.event(6, &[&[0][..], &handle].concat());
+                        }
                     }
                     _ => panic!("unexpected host HCI opcode {op:#06x}"),
                 }
