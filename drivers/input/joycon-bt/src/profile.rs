@@ -359,9 +359,13 @@ impl Gamepad {
     }
 
     fn update(&mut self, sample: Report) {
-        // A new reader gets the latest raw stick position even after a one-unit
-        // change. Identical periodic reports still drive HID without queueing.
-        if self.published != sample {
+        // Match the rail driver's raw-stick noise threshold. Compare with the
+        // last published position so slow movements still accumulate.
+        const AXIS_FUZZ: u32 = 8;
+        if sample.buttons != self.published.buttons
+            || sample.x.abs_diff(self.published.x) > AXIS_FUZZ
+            || sample.y.abs_diff(self.published.y) > AXIS_FUZZ
+        {
             sample.with_frame(self.side, |frame| self.endpoint.push(frame));
             self.published = sample;
         }

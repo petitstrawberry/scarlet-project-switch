@@ -191,6 +191,33 @@ fn commands_retry_once_on_their_own_deadlines_then_fail_closed() {
 }
 
 #[test]
+fn small_stick_movements_accumulate_without_suppressing_button_edges() {
+    let mut pad = connect(Side::Right, 2);
+    let log = events(&pad);
+    let mut report = ack(0, 0);
+    report[0] = 0x30;
+    for offset in 1..=8 {
+        report[9] = offset;
+        pad.input_report(&report).unwrap();
+    }
+    assert_eq!(log.lock().unwrap().len(), 1);
+
+    report[9] = 9;
+    pad.input_report(&report).unwrap();
+    report[9] = 10;
+    report[3] = 8;
+    pad.input_report(&report).unwrap();
+    report[3] = 0;
+    pad.input_report(&report).unwrap();
+
+    let frames = log.lock().unwrap();
+    assert_eq!(frames.len(), 4);
+    assert!(frame(&frames[1]).contains(&(3, 3, 2057)));
+    assert!(frame(&frames[2]).contains(&(1, 0x131, 1)));
+    assert!(frame(&frames[3]).contains(&(1, 0x131, 0)));
+}
+
+#[test]
 fn raw_halves_emit_upright_controls_and_release_before_removal() {
     let mut left = connect(Side::Left, 1);
     let mut right = connect(Side::Right, 2);
@@ -295,12 +322,12 @@ fn supported_headers_share_stick_decoding_and_keep_each_button_edge() {
     let mut pad = connect(Side::Right, 2);
     let log = events(&pad);
     let mut report = ack(0, 0);
-    // Ignore the other half's buttons. Preserve even a one-unit raw stick move.
+    // Ignore the other half's buttons and decode motion past the noise threshold.
     report[5] = 0xff;
     pad.input_report(&report).unwrap();
     assert_eq!(log.lock().unwrap().len(), 1);
     report[0] = 0x31;
-    report[9] = 1;
+    report[9] = 9;
     pad.input_report(&report[..12]).unwrap();
     pad.input_report(&report[..12]).unwrap();
     report[0] = 0x30;
@@ -323,7 +350,7 @@ fn supported_headers_share_stick_decoding_and_keep_each_button_edge() {
     }
     let log = log.lock().unwrap();
     assert_eq!(log.len(), 4);
-    assert!(frame(&log[1]).contains(&(3, 3, 2049)));
+    assert!(frame(&log[1]).contains(&(3, 3, 2057)));
     assert!(frame(&log[2]).contains(&(1, 0x130, 1)));
     assert!(frame(&log[3]).contains(&(1, 0x130, 0)));
 }
