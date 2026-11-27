@@ -13,7 +13,7 @@ Optional Switchvisor EL2 monitor
     -> the same guest path
 
 Switchvisor native loader (loader-capable BL33)
-    -> switchvisor-dev-loader: USB upload -> USB shutdown -> native U-Boot
+    -> switchvisor-dev with switchvisor_mode=loader: USB upload -> USB shutdown -> native U-Boot
     -> Scarlet owns USB-C for a dock or host peripherals
 ```
 

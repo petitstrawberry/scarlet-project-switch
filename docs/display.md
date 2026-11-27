@@ -23,9 +23,9 @@ DPAUX1 reads the monitor EDID and negotiates the link. The per-port crossbar
 routes two DP lanes. A multifunction pin assignment also carries SuperSpeed USB.
 
 Direct SD boot and Switchvisor's native loader hand the port to Scarlet.
-The resident USB debug mode keeps the port at EL2. The boot package records
-the BL33's mode support so an older monitor cannot grant physical USB or DP
-through a loader setting it does not implement.
+The resident USB debug mode keeps the port at EL2. On a Switchvisor that supports mode
+selection, Hekate's `switchvisor_mode=loader` parameter selects the native
+handoff for that boot.
 
 When Scarlet owns the port, the display driver publishes the dock as a
 second display endpoint. A negotiated Type-C DP route and the sink's HPD

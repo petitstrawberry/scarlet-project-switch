@@ -115,24 +115,6 @@ class SwitchvisorPackageTests(unittest.TestCase):
                 self.assertIn("--usb-uart", command)
                 self.assertIn("--usb-control", command)
 
-    def test_loader_pack_commands_use_only_preboot_control_and_need_no_overlay(self):
-        data = self.dist / "data"
-        data.mkdir()
-        (data / "source.json").write_text("{}")
-        (data / "bootstrap.raw").write_bytes(bytes(40) + b"SVBOOT06")
-        with patch.dict(package.os.environ, {"SWITCHVISOR_DATA": str(data)}), \
-                patch.object(package.subprocess, "run", return_value=SimpleNamespace(stdout="{}")) as run:
-            package.build_distribution(self.dist / "loader", False, development=True, boot_mode="loader")
-            command = run.call_args.args[0]
-            self.assertIn("--usb-control", command)
-            self.assertIn("--no-fallback", command)
-            self.assertEqual(command[command.index("--boot-mode") + 1], "loader")
-            self.assertNotIn("--usb-uart", command)
-            self.assertFalse(list((self.dist / "loader").glob("*.dtbo")))
-            (data / "bootstrap.raw").write_bytes(bytes(40) + b"SVBOOT05")
-            with self.assertRaisesRegex(ValueError, "SVBOOT06"):
-                package.build_distribution(self.dist / "old", False, boot_mode="loader")
-
     def script(self, development=False):
         directory = package.DEV_BOOT_DIRECTORY if development else package.BOOT_DIRECTORY
         data = (self.output / directory / "boot.scr").read_bytes()
@@ -205,32 +187,6 @@ bootm() { printf 'BOOT %s\nARGS %s\n' "$*" "$bootargs"; exit 0; }
         self.assertNotIn("FDT apply ", result.stdout)
         self.assertIn("init.console=/dev/null", result.stdout)
 
-    def set_mode(self, directory, manifest, mode):
-        # Minimal pack-payload SVBOOT06 and SVRAW001 fields consumed by the
-        # packager. Both script images still use a real CRC'd U-Boot header.
-        payload = (self.project / "firmware/bootstack/bl33.bin").read_bytes()
-        bootstrap_size = 4352
-        header = bytearray(bootstrap_size)
-        header[40:48] = b"SVBOOT06"
-        descriptor = bytearray(256)
-        descriptor[:8] = b"SVRAW001"
-        loader = mode == "loader"
-        manifest["boot_mode"] = mode
-        manifest["stage2_enabled"] = not loader
-        manifest["usb_uart"]["enabled"] = not loader
-        flags = 1 | 4 | (32 if loader else 2)
-        if manifest["usb_net"]["enabled"]:
-            flags |= 16
-        if not manifest["usb_control"]["packaged_payload_fallback"]:
-            flags |= 8
-        struct.pack_into("<II4Q", descriptor, 8, 1, flags, bootstrap_size + len(payload),
-                         bootstrap_size, bootstrap_size, len(payload))
-        struct.pack_into("<I", descriptor, 132, zlib.crc32(descriptor))
-        header[4096:] = descriptor
-        image = directory / "bl33.bin"
-        image.write_bytes(header + payload)
-        manifest["sha256"] = package.digest(image)
-
     def assert_device_branch(self, output, physical):
         for dc in ("54200000", "54240000"):
             self.assertEqual(f"FDT set /host1x/dc@{dc} scarlet,dock-display <1>" in output, physical)
@@ -243,74 +199,25 @@ bootm() { printf 'BOOT %s\nARGS %s\n' "$*" "$bootargs"; exit 0; }
             self.assertNotIn("FDT apply ", output)
             self.assertNotIn(".dtbo", output)
 
-    def test_entry_mode_and_default_are_independent_of_payload_source(self):
-        for default in ("legacy", "hypervisor", "loader"):
-            if default != "legacy":
-                for directory, manifest in ((self.dist, self.manifest), (self.dev_dist, self.dev_manifest)):
-                    self.set_mode(directory, manifest, default)
-            result = self.invoke()
-            self.assertEqual(result["switchvisor_boot_default"], default)
-            ini = (self.output / package.DEV_ENTRY_FILE).read_text()
-            self.assertEqual("[switchvisor-dev-loader]" in ini, default == "hypervisor")
-            if default == "hypervisor":
-                loader_entry = ini.split("[switchvisor-dev-loader]", 1)[1]
-                self.assertIn(f"boot_prefixes=/{package.DEV_BOOT_DIRECTORY}/", loader_entry)
-                self.assertIn("id=SCR-LDR\nswitchvisor_mode=loader", loader_entry)
-            for dev in (False, True):
-                for selected in (None, "hypervisor", "loader", "invalid"):
-                    with self.subTest(default=default, development=dev, selected=selected):
-                        boot = self.execute_script(self.script(dev), "/boot", mode=selected)
-                        self.assertEqual(boot.returncode, 0, boot.stderr)
-                        physical = default != "legacy" and (selected or default) == "loader"
-                        self.assert_device_branch(boot.stdout, physical)
-                        self.assertEqual(f"/{package.SOURCE_DIRECTORY}/uImage" in boot.stdout, not dev)
-                        self.assertEqual(f"/{package.SOURCE_DIRECTORY}/initramfs" in boot.stdout, not dev)
-                        if not physical:
-                            if default == "loader":
-                                self.assertNotIn("usb-uart.dtbo", boot.stdout)
-                                for path in ("/usb_cd", "/mailbox@70098000", "/i2c@7000c000/bm92t@18"):
-                                    self.assertIn(f"FDT set {path} status disabled", boot.stdout)
-                            else:
-                                self.assertIn("/boot/usb-uart.dtbo", boot.stdout)
-
-    def test_mixed_distributions_select_their_own_capabilities_and_resident_overlays(self):
-        self.manifest["usb_net"]["enabled"] = True
-        self.set_mode(self.dist, self.manifest, "hypervisor")
-        self.set_mode(self.dev_dist, self.dev_manifest, "loader")
-        (self.dev_dist / "usb-control.dtbo").write_bytes(b"control")
-        (self.dev_dist / "switchvisor-control.dtbo").write_bytes(b"guest control")
-        (self.dev_dist / "usb-uart.dtbo").unlink()
+    def test_existing_entries_select_physical_usb_from_the_boot_parameter(self):
         self.invoke()
-        for dev in (False, True):
-            for selected in ("hypervisor", "loader"):
-                result = self.execute_script(self.script(dev), "/boot", mode=selected)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assert_device_branch(result.stdout, selected == "loader")
-                self.assertEqual("/boot/usb-net.dtbo" in result.stdout, not dev and selected == "hypervisor")
-                self.assertEqual("/boot/usb-control.dtbo" in result.stdout, dev and selected == "hypervisor")
-                self.assertEqual("/boot/switchvisor-control.dtbo" in result.stdout, dev and selected == "hypervisor")
-
-    def test_loader_requires_abi_mode_descriptor_and_matching_uboot(self):
-        self.invoke()
-        before = self.snapshot()
-        self.manifest.update(boot_mode="loader", stage2_enabled=False)
-        self.manifest["usb_uart"]["enabled"] = False
-        with self.assertRaisesRegex(ValueError, "SVBOOT06"):
-            self.invoke()
-        for offset, message in [(4108, "descriptor"), (4352, "embedded U-Boot")]:
-            self.set_mode(self.dist, self.manifest, "loader")
-            image = self.dist / "bl33.bin"
-            data = bytearray(image.read_bytes())
-            data[offset] ^= 1
-            image.write_bytes(data)
-            self.manifest["sha256"] = package.digest(image)
-            with self.assertRaisesRegex(ValueError, message):
-                self.invoke()
-        self.set_mode(self.dist, self.manifest, "hypervisor")
-        self.manifest["boot_mode"] = "loader"
-        with self.assertRaisesRegex(ValueError, "embedded boot mode disagree"):
-            self.invoke()
-        self.assertEqual(self.snapshot(), before)
+        for development, entry, directory in (
+            (False, package.ENTRY_FILE, package.BOOT_DIRECTORY),
+            (True, package.DEV_ENTRY_FILE, package.DEV_BOOT_DIRECTORY),
+        ):
+            template = self.project / "bootloader" / Path(entry).name
+            self.assertEqual((self.output / entry).read_bytes(), template.read_bytes())
+            script = self.script(development)
+            for mode in (None, "hypervisor", "loader"):
+                with self.subTest(development=development, mode=mode):
+                    result = self.execute_script(script, "/" + directory, mode=mode)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assert_device_branch(result.stdout, mode == "loader")
+                    for name in ("uImage", "initramfs"):
+                        self.assertEqual(f"/{package.SOURCE_DIRECTORY}/{name}" in result.stdout,
+                                         not development)
+                    self.assertEqual(f"/{directory}/usb-uart.dtbo" in result.stdout,
+                                     mode != "loader")
 
     def test_missing_sd_image_or_overlay_never_enters_kernel(self):
         self.invoke()

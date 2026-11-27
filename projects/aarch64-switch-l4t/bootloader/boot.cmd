@@ -123,20 +123,8 @@ fdt rm /host1x/dc@54200000 pinctrl-2
 fdt rm /host1x/dc@54200000 pinctrl-3
 fdt rm /host1x/dc@54200000 pinctrl-4
 fdt rm /host1x/dc@54200000 pinctrl-5
-# The packaged script identifies the BL33 default only after verifying a
-# loader-capable bootstrap and its descriptor. Legacy monitors stay resident.
-setenv scarlet_physical_usb 0
-if test "${scarlet_switchvisor}" != 1; then
-    setenv scarlet_physical_usb 1
-elif test "${scarlet_switchvisor_default}" = hypervisor -o "${scarlet_switchvisor_default}" = loader; then
-    if test "${switchvisor_mode}" = loader; then
-        setenv scarlet_physical_usb 1
-    elif test -z "${switchvisor_mode}" -a "${scarlet_switchvisor_default}" = loader; then
-        setenv scarlet_physical_usb 1
-    fi
-fi
-
-if test "${scarlet_physical_usb}" = 1; then
+# Hekate passes the same boot parameters to Switchvisor and Noble U-Boot.
+if test "${scarlet_switchvisor}" != 1 -o "${switchvisor_mode}" = loader; then
     fdt set /host1x/dc@54200000 scarlet,dock-display <1>
     fdt set /host1x/dc@54240000 scarlet,dock-display <1>
     fdt set /host1x/dc@54240000 status okay
@@ -190,30 +178,18 @@ else
             reset
         fi
     fi
-    # A loader-default package has no virtual UART. When selected as a
-    # hypervisor it needs the control-only physical device exclusions.
-    test -n "${scarlet_switchvisor_overlay}" || setenv scarlet_switchvisor_overlay usb-uart.dtbo
-    if test "${scarlet_switchvisor_overlay}" = control-only; then
-        for node in /xusb@70090000 /xusb_padctl@7009f000 /usb_cd /mailbox@70098000 /i2c@7000c000/bm92t@18 /power-domain/xusba-pd /power-domain/xusbb-pd /power-domain/xusbc-pd; do
-            if fdt set ${node} status disabled; then
-                echo Switchvisor owns ${node}
-            else
-                echoe Switchvisor physical USB exclusion failed
-                reset
-            fi
-        done
-    elif load mmc ${devnum}:${distro_bootpart} 0x8c000000 ${boot_dir}/${scarlet_switchvisor_overlay}; then
+    if load mmc ${devnum}:${distro_bootpart} 0x8c000000 ${boot_dir}/usb-uart.dtbo; then
         fdt addr ${fdtraddr}
         fdt resize 8192
         if fdt apply 0x8c000000; then
-            echo Switchvisor USB ownership overlay applied
+            echo Switchvisor virtual UART selected
         else
-            echoe Switchvisor USB ownership overlay failed
+            echoe Switchvisor UART overlay failed
             sleep 3
             reset
         fi
     else
-        echoe Switchvisor USB ownership overlay read failed
+        echoe Switchvisor UART overlay read failed
         sleep 3
         reset
     fi
