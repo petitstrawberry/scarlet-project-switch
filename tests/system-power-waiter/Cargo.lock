@@ -5,12 +5,12 @@ version = 4
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=34e337b9c10ccdcbc97ef51e684d89d4c4625f8c#34e337b9c10ccdcbc97ef51e684d89d4c4625f8c"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=062bc12a00893390532afb3b9ba4fe9b46983494#062bc12a00893390532afb3b9ba4fe9b46983494"
 
 [[package]]
 name = "scarlet-sys"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=34e337b9c10ccdcbc97ef51e684d89d4c4625f8c#34e337b9c10ccdcbc97ef51e684d89d4c4625f8c"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=062bc12a00893390532afb3b9ba4fe9b46983494#062bc12a00893390532afb3b9ba4fe9b46983494"
 dependencies = [
  "scarlet-abi",
 ]

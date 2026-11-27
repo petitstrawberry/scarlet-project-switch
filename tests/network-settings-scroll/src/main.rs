@@ -2,6 +2,7 @@
 use scarlet_os::handle::Handle;
 use std::time::{Duration, Instant};
 use sws_client::Connection;
+use sws_protocol::outputs::{OutputExperience, OutputTransaction};
 fn inject(events: &[(u16, u16, i32)]) {
     let handle = Handle::open("/dev/touch-qa-control", 1).unwrap();
     let mut bytes = Vec::new();
@@ -34,12 +35,21 @@ fn swipe() {
 }
 fn main() {
     let connection = Connection::connect_default().unwrap();
-    // Keep this layout test independent of automatic tablet/focused policy.
-    // The injected device still delivers real native touch events to Settings.
-    connection.set_tablet_mode_override(Some(false)).unwrap();
-    connection
-        .set_windowing_mode_override(Some(sws_protocol::WindowingMode::Freeform))
-        .unwrap();
+    // The swipe coordinates below exercise Settings on the built-in display.
+    let snapshot = connection.outputs().unwrap();
+    let panel = snapshot.outputs.iter().find(|o| o.internal).unwrap().id;
+    let mut configuration = snapshot.configuration;
+    let entry = configuration.iter_mut().find(|c| c.id == panel).unwrap();
+    let previous = entry.experience;
+    if previous != OutputExperience::Desktop {
+        entry.experience = OutputExperience::Desktop;
+        connection
+            .configure_outputs(OutputTransaction {
+                base_generation: snapshot.generation,
+                configuration,
+            })
+            .unwrap();
+    }
     let deadline = Instant::now() + Duration::from_secs(90);
     let id = loop {
         if let Some(window) = connection
@@ -93,4 +103,20 @@ fn main() {
             .any(|w| w.window_id == id && w.visible)
     );
     println!("NETWORK_SCROLL_BOTTOM_READY");
+    if previous != OutputExperience::Desktop {
+        let snapshot = connection.outputs().unwrap();
+        let mut configuration = snapshot.configuration;
+        if let Some(entry) = configuration
+            .iter_mut()
+            .find(|c| c.id == panel && c.experience == OutputExperience::Desktop)
+        {
+            entry.experience = previous;
+            connection
+                .configure_outputs(OutputTransaction {
+                    base_generation: snapshot.generation,
+                    configuration,
+                })
+                .unwrap();
+        }
+    }
 }

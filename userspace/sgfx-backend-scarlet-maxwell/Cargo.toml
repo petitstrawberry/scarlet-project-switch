@@ -14,8 +14,8 @@ maxwell-program-wire = { path = "../../shared/maxwell-program-wire" }
 sgfx-shader-maxwell = { path = "../sgfx-shader-maxwell" }
 maxwell-image-layout = { path = "../../shared/maxwell-image-layout" }
 maxwell-submit-wire = { path = "../../shared/maxwell-submit-wire" }
-gpu-raw = { git = "https://github.com/petitstrawberry/Scarlet", rev = "34e337b9c10ccdcbc97ef51e684d89d4c4625f8c", package = "gpu-raw", default-features = false }
-scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "34e337b9c10ccdcbc97ef51e684d89d4c4625f8c", package = "scarlet-os", default-features = false, features = ["std"], optional = true }
+gpu-raw = { git = "https://github.com/petitstrawberry/Scarlet", rev = "062bc12a00893390532afb3b9ba4fe9b46983494", package = "gpu-raw", default-features = false }
+scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "062bc12a00893390532afb3b9ba4fe9b46983494", package = "scarlet-os", default-features = false, features = ["std"], optional = true }
 sgfx-codegen-maxwell = { path = "../sgfx-codegen-maxwell" }
 sgfx-core = { git = "https://github.com/petitstrawberry/sgfx", rev = "3a6a987aaa5284056d4b1dcb0cd45326d30b3fe1", default-features = false }
 
