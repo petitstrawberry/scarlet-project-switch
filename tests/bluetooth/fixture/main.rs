@@ -430,6 +430,8 @@ impl Controller {
                 self.page_scan = data == [2];
                 rx.complete(op, &[0]);
             }
+            // Local Supported Features, page 0: the radio supports BR/EDR role switch.
+            0x1003 => rx.complete(op, &[0, 0x20, 0, 0, 0, 0, 0, 0, 0]),
             0x1009 => rx.complete(op, &[&[0], ADAPTER.as_slice()].concat()),
             0x1005 => rx.complete(op, &[0, 128, 0, 0, 1, 0, 0, 0]),
             0x0401 => {
@@ -491,7 +493,7 @@ impl Controller {
                     }
                     0x0405 | 0x0409 => {
                         if op == 0x0409 {
-                            assert_eq!(&data[6..], &[1]);
+                            assert_eq!(&data[6..], &[0], "HID host should request Central");
                         }
                         rx.accepted(op);
                         p.connected(rx, op == 0x0409);
