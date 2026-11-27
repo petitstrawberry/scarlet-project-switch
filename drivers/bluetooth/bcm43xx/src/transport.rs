@@ -352,6 +352,10 @@ mod board {
     }
 
     impl H4Transport for Transport {
+        fn fast_connectable(&self) -> bool {
+            true
+        }
+
         fn start(&self, wake: Arc<Waker>) -> Result<(), &'static str> {
             let _guard = self.lifecycle.lock();
             if self.online.load(Ordering::Acquire) {

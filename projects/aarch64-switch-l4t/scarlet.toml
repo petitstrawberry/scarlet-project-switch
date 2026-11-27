@@ -11,7 +11,7 @@ path = "bsp"
 package = "scarlet"
 
 [bsp.kernel]
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8a8ea87ed101fafdb06723382f95ceb3b3d829a6" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba" }
 features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true, sync-debug = false }
 
 [modules]
@@ -45,12 +45,12 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8a8ea87ed101fafdb06723382f95ceb3b3d829a6" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba" }
 subdir = "bundles/base"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8a8ea87ed101fafdb06723382f95ceb3b3d829a6" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba" }
 subdir = "bundles/cli-utils"
 
 [[images.initramfs.layers]]
@@ -60,12 +60,12 @@ subdir = "scarlet"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8a8ea87ed101fafdb06723382f95ceb3b3d829a6" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba" }
 subdir = "bundles/wireless"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8a8ea87ed101fafdb06723382f95ceb3b3d829a6" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba" }
 subdir = "bundles/bluetooth"
 
 [[images.initramfs.layers]]
@@ -104,7 +104,7 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.rootfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8a8ea87ed101fafdb06723382f95ceb3b3d829a6" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba" }
 subdir = "bundles/full"
 
 [[images.rootfs.layers]]

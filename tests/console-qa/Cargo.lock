@@ -15,12 +15,12 @@ dependencies = [
 [[package]]
 name = "sbus"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8a8ea87ed101fafdb06723382f95ceb3b3d829a6#8a8ea87ed101fafdb06723382f95ceb3b3d829a6"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=82b38f7026328a2b839c90004ce2de7655caa6ba#82b38f7026328a2b839c90004ce2de7655caa6ba"
 
 [[package]]
 name = "sbus-client"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8a8ea87ed101fafdb06723382f95ceb3b3d829a6#8a8ea87ed101fafdb06723382f95ceb3b3d829a6"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=82b38f7026328a2b839c90004ce2de7655caa6ba#82b38f7026328a2b839c90004ce2de7655caa6ba"
 dependencies = [
  "sbus",
  "scarlet-os",
@@ -29,17 +29,17 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8a8ea87ed101fafdb06723382f95ceb3b3d829a6#8a8ea87ed101fafdb06723382f95ceb3b3d829a6"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=82b38f7026328a2b839c90004ce2de7655caa6ba#82b38f7026328a2b839c90004ce2de7655caa6ba"
 
 [[package]]
 name = "scarlet-desktop-config"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8a8ea87ed101fafdb06723382f95ceb3b3d829a6#8a8ea87ed101fafdb06723382f95ceb3b3d829a6"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=82b38f7026328a2b839c90004ce2de7655caa6ba#82b38f7026328a2b839c90004ce2de7655caa6ba"
 
 [[package]]
 name = "scarlet-os"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8a8ea87ed101fafdb06723382f95ceb3b3d829a6#8a8ea87ed101fafdb06723382f95ceb3b3d829a6"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=82b38f7026328a2b839c90004ce2de7655caa6ba#82b38f7026328a2b839c90004ce2de7655caa6ba"
 dependencies = [
  "scarlet-abi",
  "scarlet-sys",
@@ -48,7 +48,7 @@ dependencies = [
 [[package]]
 name = "scarlet-sys"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8a8ea87ed101fafdb06723382f95ceb3b3d829a6#8a8ea87ed101fafdb06723382f95ceb3b3d829a6"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=82b38f7026328a2b839c90004ce2de7655caa6ba#82b38f7026328a2b839c90004ce2de7655caa6ba"
 dependencies = [
  "scarlet-abi",
 ]

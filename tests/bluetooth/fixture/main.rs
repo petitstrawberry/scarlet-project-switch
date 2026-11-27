@@ -408,6 +408,8 @@ impl Peer {
 
 struct Controller {
     page_scan: bool,
+    page_scan_interval: u16,
+    page_scan_type: u8,
     rx: Wire,
     peers: [Peer; 2],
     wake: Option<Arc<Waker>>,
@@ -417,6 +419,8 @@ impl Controller {
         Self {
             rx: Wire::default(),
             page_scan: false,
+            page_scan_interval: 0x0800,
+            page_scan_type: 0,
             peers: [Peer::new(LEFT, 0x123, 0x83), Peer::new(RIGHT, 0x234, 0x93)],
             wake: None,
         }
@@ -428,10 +432,28 @@ impl Controller {
             0x0c1a => {
                 assert!(matches!(data, [0] | [2]));
                 self.page_scan = data == [2];
+                if self.page_scan {
+                    assert_eq!((self.page_scan_interval, self.page_scan_type), (0x0100, 1));
+                }
                 rx.complete(op, &[0]);
             }
-            // Local Supported Features, page 0: the radio supports BR/EDR role switch.
-            0x1003 => rx.complete(op, &[0, 0x20, 0, 0, 0, 0, 0, 0, 0]),
+            // Role switch and interlaced page scan, as advertised by the BCM4356.
+            0x1003 => rx.complete(op, &[0, 0x20, 0, 0, 0x20, 0, 0, 0, 0]),
+            0x0c1b => {
+                let [lo, hi] = self.page_scan_interval.to_le_bytes();
+                rx.complete(op, &[0, lo, hi, 0x12, 0]);
+            }
+            0x0c1c => {
+                assert_eq!(data, &[0, 1, 0x12, 0]);
+                self.page_scan_interval = 0x0100;
+                rx.complete(op, &[0]);
+            }
+            0x0c46 => rx.complete(op, &[0, self.page_scan_type]),
+            0x0c47 => {
+                assert_eq!(data, &[1]);
+                self.page_scan_type = 1;
+                rx.complete(op, &[0]);
+            }
             0x1009 => rx.complete(op, &[&[0], ADAPTER.as_slice()].concat()),
             0x1005 => rx.complete(op, &[0, 128, 0, 0, 1, 0, 0, 0]),
             0x0401 => {
@@ -576,6 +598,10 @@ impl Controller {
 
 struct Radio(SpinLock<Controller>);
 impl H4Transport for Radio {
+    fn fast_connectable(&self) -> bool {
+        true
+    }
+
     fn start(&self, wake: Arc<Waker>) -> Result<(), &'static str> {
         self.0.lock().wake = Some(wake);
         Ok(())
@@ -613,6 +639,7 @@ impl ControlOps for Radio {
                 rx,
                 wake,
                 page_scan,
+                ..
             } = &mut *controller;
             let side = (cmd & 1) as usize;
             let p = &mut peers[side];

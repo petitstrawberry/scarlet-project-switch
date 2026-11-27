@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-scarlet-sys = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8a8ea87ed101fafdb06723382f95ceb3b3d829a6" }
+scarlet-sys = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba" }
 
 [profile.release]
 panic = "abort"

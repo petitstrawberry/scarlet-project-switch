@@ -8,4 +8,4 @@ license = "GPL-2.0-only"
 description = "Switchvisor control device for Scarlet guests"
 
 [target.'cfg(all(target_arch = "aarch64", target_os = "none"))'.dependencies]
-scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8a8ea87ed101fafdb06723382f95ceb3b3d829a6", default-features = false, features = ["network"] }
+scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "82b38f7026328a2b839c90004ce2de7655caa6ba", default-features = false, features = ["network"] }
