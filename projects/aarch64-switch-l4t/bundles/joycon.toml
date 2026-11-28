@@ -1,0 +1,11 @@
+[[layers]]
+kind = "cargo"
+source = "../../../userspace/joycond"
+package = "joycond"
+bin = "joycond"
+to = "/bin/joycond"
+
+[[layers]]
+kind = "copy"
+source = "../../../userspace/joycond/stemd.toml"
+to = "/etc/stemd.d/services/21-joycond.toml"

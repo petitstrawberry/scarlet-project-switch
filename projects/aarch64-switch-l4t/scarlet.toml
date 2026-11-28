@@ -11,10 +11,12 @@ path = "bsp"
 package = "scarlet"
 
 [bsp.kernel]
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8ce361419ac527b0b501c813862e377c999fc7a4" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27" }
 features = { linux-boot = true, limine = false, hypervisor = false, network = true, user-fpu = true, user-vector = true, sync-debug = false }
 
 [modules]
+"scarlet-driver-bcm-bluetooth" = { path = "../../drivers/bluetooth/bcm43xx", enabled = true }
+"scarlet-driver-joycon-bt" = { path = "../../drivers/input/joycon-bt", enabled = true }
 "scarlet-switchvisor" = { path = "../../drivers/virtual/switchvisor", enabled = true }
 "scarlet-driver-tegra210-pcie" = { path = "../../drivers/pcie/tegra210", enabled = true }
 "scarlet-driver-brcmfmac" = { path = "../../drivers/network/brcmfmac", enabled = true }
@@ -43,12 +45,12 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8ce361419ac527b0b501c813862e377c999fc7a4" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27" }
 subdir = "bundles/base"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8ce361419ac527b0b501c813862e377c999fc7a4" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27" }
 subdir = "bundles/cli-utils"
 
 [[images.initramfs.layers]]
@@ -58,12 +60,25 @@ subdir = "scarlet"
 
 [[images.initramfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8ce361419ac527b0b501c813862e377c999fc7a4" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27" }
 subdir = "bundles/wireless"
 
 [[images.initramfs.layers]]
 kind = "bundle"
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27" }
+subdir = "bundles/bluetooth"
+
+[[images.initramfs.layers]]
+kind = "bundle"
 path = "bundles/wifi-firmware.toml"
+
+[[images.initramfs.layers]]
+kind = "bundle"
+path = "bundles/bluetooth-firmware.toml"
+
+[[images.initramfs.layers]]
+kind = "bundle"
+path = "bundles/joycon.toml"
 
 [[images.initramfs.layers]]
 kind = "bundle"
@@ -89,7 +104,7 @@ path = "bundles/sgfx-maxwell.toml"
 
 [[images.rootfs.layers]]
 kind = "bundle"
-source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8ce361419ac527b0b501c813862e377c999fc7a4" }
+source = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27" }
 subdir = "bundles/full"
 
 [[images.rootfs.layers]]
@@ -100,6 +115,21 @@ subdir = "scarlet"
 [[images.rootfs.layers]]
 kind = "bundle"
 path = "bundles/wifi-firmware.toml"
+
+[[images.rootfs.layers]]
+kind = "bundle"
+path = "bundles/bluetooth-firmware.toml"
+
+[[images.rootfs.layers]]
+kind = "bundle"
+path = "bundles/joycon.toml"
+
+[[images.rootfs.layers]]
+kind = "cargo"
+source = "../../userspace/joycon-manager"
+package = "joycon-manager"
+bin = "joycon-manager"
+to = "/bin/joycon-manager"
 
 [[images.rootfs.layers]]
 kind = "bundle"

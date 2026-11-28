@@ -1,0 +1,14 @@
+[package]
+name = "bluetooth-qa"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "bluetooth-qa"
+path = "main.rs"
+
+[dependencies]
+joycond = { path = "../../../userspace/joycond" }
+scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27", default-features = false, features = ["std"] }
+sws-protocol = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27", default-features = false, features = ["std"] }

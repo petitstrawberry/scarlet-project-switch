@@ -43,12 +43,12 @@ dependencies = [
 [[package]]
 name = "scarlet-abi"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8ce361419ac527b0b501c813862e377c999fc7a4#8ce361419ac527b0b501c813862e377c999fc7a4"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=1a0c72ddd39507c55f67d89a4be37ea1c5487e27#1a0c72ddd39507c55f67d89a4be37ea1c5487e27"
 
 [[package]]
 name = "scarlet-os"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8ce361419ac527b0b501c813862e377c999fc7a4#8ce361419ac527b0b501c813862e377c999fc7a4"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=1a0c72ddd39507c55f67d89a4be37ea1c5487e27#1a0c72ddd39507c55f67d89a4be37ea1c5487e27"
 dependencies = [
  "scarlet-abi",
  "scarlet-rt",
@@ -58,7 +58,7 @@ dependencies = [
 [[package]]
 name = "scarlet-rt"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8ce361419ac527b0b501c813862e377c999fc7a4#8ce361419ac527b0b501c813862e377c999fc7a4"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=1a0c72ddd39507c55f67d89a4be37ea1c5487e27#1a0c72ddd39507c55f67d89a4be37ea1c5487e27"
 dependencies = [
  "lock_api",
  "scarlet-sys",
@@ -69,7 +69,7 @@ dependencies = [
 [[package]]
 name = "scarlet-std"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8ce361419ac527b0b501c813862e377c999fc7a4#8ce361419ac527b0b501c813862e377c999fc7a4"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=1a0c72ddd39507c55f67d89a4be37ea1c5487e27#1a0c72ddd39507c55f67d89a4be37ea1c5487e27"
 dependencies = [
  "hashbrown",
  "scarlet-abi",
@@ -82,7 +82,7 @@ dependencies = [
 [[package]]
 name = "scarlet-sys"
 version = "1.0.0"
-source = "git+https://github.com/petitstrawberry/Scarlet?rev=8ce361419ac527b0b501c813862e377c999fc7a4#8ce361419ac527b0b501c813862e377c999fc7a4"
+source = "git+https://github.com/petitstrawberry/Scarlet?rev=1a0c72ddd39507c55f67d89a4be37ea1c5487e27#1a0c72ddd39507c55f67d89a4be37ea1c5487e27"
 dependencies = [
  "scarlet-abi",
 ]

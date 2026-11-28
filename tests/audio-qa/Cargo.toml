@@ -5,4 +5,4 @@ edition = "2024"
 license = "GPL-2.0-only"
 
 [dependencies]
-sas-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "8ce361419ac527b0b501c813862e377c999fc7a4" }
+sas-client = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27" }

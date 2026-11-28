@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
+mod uart_console;
+mod uartd;
 use crate::packet::{self, Registers};
 use alloc::{boxed::Box, string::ToString, sync::Arc, vec, vec::Vec};
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -19,6 +21,7 @@ use scarlet::{
     },
     sync::{IrqSpinLock, Mutex, SpinLock, Waker},
 };
+pub use uartd::{BluetoothUart, claim_bluetooth_uart};
 
 #[derive(Clone, Copy)]
 pub struct Mmio(pub(crate) usize);
@@ -456,17 +459,11 @@ impl Car {
         self.regs.write(rst + 4, bit);
         let _ = self.regs.read(source);
     }
-    fn uart_baud(&self, source: usize, baud: u32) -> Result<(), &'static str> {
-        let divider = match baud {
-            1_000_000 => 49,
-            3_000_000 => 15,
-            _ => return Err("unsupported rail UART baud"),
-        };
+    fn uart_divider(&self, source: usize, divider: u32) {
         let _lock = self.lock.lock();
         self.regs
             .modify(source, (7 << 29) | (1 << 24) | 0xffff, (1 << 24) | divider);
         delay_us(2);
-        Ok(())
     }
 }
 
@@ -910,11 +907,18 @@ impl Drop for UartTxGuard<'_> {
 struct UartRxInterrupt {
     waker: Option<Arc<Waker>>,
     queue: crate::uart_rx::RxQueue,
+    irq_count: u32,
+    last_iir: u32,
 }
 pub struct UartRxError {
     status: u32,
     received: usize,
     sample: [u8; 16],
+}
+impl UartRxError {
+    pub fn is_break(&self) -> bool {
+        crate::uart_rx::is_reboot_break(self.status)
+    }
 }
 impl core::fmt::Display for UartRxError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -932,13 +936,38 @@ impl TegraUart {
     const FIFO_CONTROL: u32 = 1 | (3 << 6);
     // serial-tegra.c PIO: receive data, line status and receive timeout.
     const RX_INTERRUPTS: u32 = 1 | (1 << 2) | (1 << 4);
+    fn new(
+        regs: Mmio,
+        instance: u8,
+        source: usize,
+        car: Arc<Car>,
+        interrupt_id: InterruptId,
+        rx_capacity: usize,
+    ) -> Self {
+        Self {
+            regs,
+            instance,
+            source,
+            car,
+            interrupt_id,
+            lock: IrqSpinLock::new(()),
+            tx_busy: AtomicBool::new(false),
+            rx_interrupt: IrqSpinLock::new(UartRxInterrupt {
+                waker: None,
+                queue: crate::uart_rx::RxQueue::new(rx_capacity),
+                irq_count: 0,
+                last_iir: 1,
+            }),
+        }
+    }
     pub fn instance(&self) -> u8 {
         self.instance
     }
     pub fn configure(&self, baud: u32) -> Result<(), &'static str> {
+        let line = crate::uart_line::settings(self.instance, baud)?;
         let _tx = self.claim_tx()?;
         let _lock = self.lock.lock();
-        self.car.uart_baud(self.source, baud)?;
+        self.car.uart_divider(self.source, line.divider);
         self.regs.write(4, 0);
         {
             let mut rx = self.rx_interrupt.lock();
@@ -947,7 +976,7 @@ impl TegraUart {
         self.regs.write(0x0c, 0x83);
         self.regs.write(0, 1);
         self.regs.write(4, 0);
-        self.regs.write(0x0c, if baud > 1_000_000 { 7 } else { 3 });
+        self.regs.write(0x0c, line.lcr);
         let _ = self.regs.read(0x1c); // Post the divisor and line configuration.
         self.regs.write(8, Self::FIFO_CONTROL);
         let _ = self.regs.read(0x1c);
@@ -955,10 +984,19 @@ impl TegraUart {
         self.regs.write(0x10, 0);
         delay_us(96);
         self.clear_fifos(6, baud);
-        self.regs.modify(0x20, 0, (1 << 1) | (1 << 3));
+        let clear_inversion = if self.instance == 3 { 0x0f } else { 0 };
+        self.regs.modify(0x20, clear_inversion, line.inversion);
         // L4T enables CTS for TX and hardware RTS for RX. FIFO backpressure
         // must remain active while another task or rail is being serviced.
-        self.regs.write(0x10, (1 << 5) | (1 << 6));
+        // UARTD asserts host RTS after the BCM power-on settling interval.
+        self.regs.write(
+            0x10,
+            if self.instance == 3 {
+                1 << 5
+            } else {
+                (1 << 5) | (1 << 6)
+            },
+        );
         let _ = self.regs.read(0x1c);
         // Linux waits two character intervals after changing the divisor.
         delay_us(22_000_000u64.div_ceil(baud as u64));
@@ -1026,24 +1064,25 @@ impl TegraUart {
         let _tx = self.claim_tx()?;
         // CTS can pause a transfer while the controller handles a command.
         let start = scarlet::time::current_time_ns();
-        let deadline = start.saturating_add(100_000_000);
-        for byte in bytes {
-            // T210 exposes FIFO-full in LSR bit 8. THRE waits for an empty
-            // FIFO and needlessly separates bytes of a single wire packet.
-            loop {
-                {
-                    let _lock = self.lock.lock();
-                    if self.regs.read(0x14) & (1 << 8) == 0 {
-                        self.regs.write(0, *byte as u32);
-                        break;
-                    }
-                }
-                if scarlet::time::current_time_ns() >= deadline {
-                    return Err("rail UART TX timeout");
-                }
-                Self::wait_tx(start);
-            }
+        let mut deadline = start.saturating_add(100_000_000);
+        if self.instance == 3 {
+            // Budget ten wire bits per byte plus the normal CTS stall allowance.
+            deadline = deadline.saturating_add((bytes.len() as u64).saturating_mul(86_806));
         }
+        crate::uart_line::enqueue_bytes(
+            bytes,
+            (self.instance != 3).then_some(start),
+            |byte| {
+                let _lock = self.lock.lock();
+                // TXFIFO_FULL is the PIO admission condition in serial-tegra.c.
+                if self.tx_status()? & (1 << 8) != 0 {
+                    return Ok(Some(scarlet::time::current_time_ns()));
+                }
+                self.regs.write(0, u32::from(byte));
+                Ok(None)
+            },
+            Self::wait_tx,
+        )?;
         if !drain {
             // Post the final FIFO write without reading THR or acknowledging
             // RX line errors through LSR; those belong to the RX IRQ handler.
@@ -1054,7 +1093,7 @@ impl TegraUart {
         loop {
             {
                 let _lock = self.lock.lock();
-                if self.regs.read(0x14) & 0x40 != 0 {
+                if self.tx_status()? & 0x40 != 0 {
                     return Ok(());
                 }
             }
@@ -1063,6 +1102,16 @@ impl TegraUart {
             }
             Self::wait_tx(start);
         }
+    }
+    // LSR reads acknowledge line errors. An H4 sender must report a damaged
+    // stream even if its TX poll observed the error before the RX interrupt.
+    fn tx_status(&self) -> Result<u32, &'static str> {
+        let status = self.regs.read(0x14);
+        if self.instance == 3 && status & 0x1e != 0 {
+            self.rx_interrupt.lock().queue.fault_lsr = status;
+            return Err("Bluetooth UART line error during TX");
+        }
+        Ok(status)
     }
     fn claim_tx(&self) -> Result<UartTxGuard<'_>, &'static str> {
         self.tx_busy
@@ -1099,7 +1148,11 @@ impl TegraUart {
             Ok(count) => Ok(count),
             Err((errors, count)) => {
                 drop(rx);
-                self.recover_rx();
+                // BCM abandons the entire H4 stream on error. Keep the
+                // original state for the worker diagnostic until power-off.
+                if self.instance != 3 {
+                    self.recover_rx();
+                }
                 Err(Self::rx_error(errors, &bytes[..count]))
             }
         }
@@ -1151,7 +1204,9 @@ impl TegraUart {
     fn recover_rx(&self) {
         self.regs.write(0x10, 0);
         // The source divider selects exactly baud * 16 with divisor 1.
-        let baud = if self.regs.read(0x0c) & 4 != 0 {
+        let baud = if self.instance == 3 {
+            115_200
+        } else if self.regs.read(0x0c) & 4 != 0 {
             3_000_000
         } else {
             1_000_000
@@ -1181,7 +1236,8 @@ impl InterruptCapableDevice for TegraUart {
     }
     fn claim_interrupt(&self) -> InterruptResult<InterruptClaim> {
         let lock = self.lock.lock();
-        if self.regs.read(8) & 1 != 0 {
+        let iir = self.regs.read(8);
+        if iir & 1 != 0 {
             // These UARTs own dedicated LIC/GIC lines. The worker can drain
             // RX before an already-pending controller delivery reaches us.
             // Like serial-tegra.c, acknowledge that late delivery as handled.
@@ -1189,6 +1245,10 @@ impl InterruptCapableDevice for TegraUart {
         }
         let waker = {
             let mut rx = self.rx_interrupt.lock();
+            if self.instance == 3 {
+                rx.irq_count = rx.irq_count.wrapping_add(1);
+                rx.last_iir = iir;
+            }
             if rx.queue.interrupt(&self.regs) {
                 rx.waker.clone()
             } else {
@@ -1371,6 +1431,18 @@ fn probe_uart(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
         .find(|r| r.res_type == PlatformDeviceResourceType::MEM)
         .ok_or("UART has no MMIO")?
         .start;
+    if d.property("console-port").is_some()
+        || scarlet::device::DeviceInfo::compatible(d).contains(&"nvidia,tegra20-uart")
+    {
+        return Err("Tegra UART reserved for console");
+    }
+    let fdt = scarlet::device::fdt::FdtManager::get_manager()
+        .get_fdt()
+        .ok_or(PROBE_DEFER)?;
+    uart_console::exclude_chosen(fdt, addr)?;
+    if addr == uartd::ADDRESS {
+        return uartd::discover(d);
+    }
     let (index, reset, clock, source) = match addr {
         0x70006040 => (1, 7, 224, 0x17c),
         0x70006200 => (2, 55, 55, 0x1a0),
@@ -1404,19 +1476,14 @@ fn probe_uart(d: &PlatformDeviceInfo) -> Result<(), &'static str> {
         .ok_or("Tegra UART IRQ missing")?;
     let interrupt_id = resolve_platform_irq(irq).map_err(|_| "Tegra UART IRQ resolution failed")?;
     car.enable(reset, source, 2);
-    let uart = Arc::new(TegraUart {
+    let uart = Arc::new(TegraUart::new(
         regs,
-        instance: index as u8,
+        index as u8,
         source,
         car,
-        lock: IrqSpinLock::new(()),
-        tx_busy: AtomicBool::new(false),
         interrupt_id,
-        rx_interrupt: IrqSpinLock::new(UartRxInterrupt {
-            waker: None,
-            queue: crate::uart_rx::RxQueue::new(),
-        }),
-    });
+        512,
+    ));
     uart.configure(1_000_000)?;
     // IER remains masked through synchronous Joy-Con initialization. The
     // worker enables RX only after its parser and wake queue are installed.

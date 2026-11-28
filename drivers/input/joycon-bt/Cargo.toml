@@ -1,0 +1,9 @@
+[package]
+name = "scarlet-driver-joycon-bt"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-only"
+
+[target.'cfg(target_os = "none")'.dependencies]
+scarlet = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27", default-features = false, features = ["network"] }
+scarlet-switch-joycon-abi = { path = "../../../userspace/joycon-abi" }

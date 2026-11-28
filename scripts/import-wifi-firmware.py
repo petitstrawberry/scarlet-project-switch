@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import hash-pinned Wi-Fi files from the local Switchroot rootfs or archive."""
+"""Import hash-pinned radio firmware from the local Switchroot rootfs or archive."""
 import argparse
 import hashlib
 import json
@@ -20,8 +20,8 @@ def digest(path):
     return result.hexdigest()
 
 
-def import_files(directory, pins):
-    destination = PROJECT / 'firmware/wifi'
+def import_files(directory, pins, radio="wifi"):
+    destination = PROJECT / 'firmware' / radio
     for name, expected in pins['files'].items():
         source = directory / name
         if not source.is_file() or source.stat().st_size != expected['size'] or digest(source) != expected['sha256']:
@@ -35,19 +35,20 @@ def import_files(directory, pins):
             shutil.copyfile(directory / name, destination / name)
         if digest(destination / name) != pins['files'][name]['sha256']:
             raise ValueError(f'import readback mismatch: {name}')
-    print(f'Imported and verified {len(pins["files"])} Wi-Fi files: {destination}')
+    print(f'Imported and verified {len(pins["files"])} {radio} files: {destination}')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument('--directory', type=Path, help='directory containing the two pinned files')
+    source.add_argument('--directory', type=Path, help='directory containing the pinned files')
     source.add_argument('--archive', type=Path, help='original Switchroot archive; requires tar and debugfs')
     parser.add_argument('--debugfs', default='debugfs')
+    parser.add_argument('--radio', choices=['wifi', 'bluetooth'], default='wifi')
     args = parser.parse_args()
-    pins = json.loads((PROJECT / 'wifi-firmware.json').read_text())
+    pins = json.loads((PROJECT / f'{args.radio}-firmware.json').read_text())
     if args.directory:
-        import_files(args.directory, pins)
+        import_files(args.directory, pins, args.radio)
         return
     if digest(args.archive) != pins['archive_sha256']:
         raise ValueError('Switchroot archive hash mismatch')
@@ -62,7 +63,7 @@ def main():
         for name in pins['files']:
             subprocess.run([args.debugfs, '-R', f'dump {pins["source_directory"]}/{name} {work / name}',
                             str(image)], check=True, capture_output=True)
-        import_files(work, pins)
+        import_files(work, pins, args.radio)
 
 
 if __name__ == '__main__':
