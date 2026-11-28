@@ -1,0 +1,14 @@
+[package]
+name = "joycon-manager"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-2.0-only"
+
+[dependencies]
+joycond = { path = "../joycond" }
+
+[target.'cfg(target_os = "scarlet")'.dependencies]
+scarlet-ui = { git = "https://github.com/petitstrawberry/scarlet-ui", rev = "1a442db8b2786f9031689b7d7fb78fd49d407ca5", default-features = false, features = ["std", "platform-sws"] }
+
+[target.'cfg(not(target_os = "scarlet"))'.dev-dependencies]
+scarlet-ui = { git = "https://github.com/petitstrawberry/scarlet-ui", rev = "1a442db8b2786f9031689b7d7fb78fd49d407ca5", default-features = false, features = ["std"] }

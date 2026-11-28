@@ -125,6 +125,13 @@ kind = "bundle"
 path = "bundles/joycon.toml"
 
 [[images.rootfs.layers]]
+kind = "cargo"
+source = "../../userspace/joycon-manager"
+package = "joycon-manager"
+bin = "joycon-manager"
+to = "/bin/joycon-manager"
+
+[[images.rootfs.layers]]
 kind = "bundle"
 path = "bundles/nvdec-player.toml"
 

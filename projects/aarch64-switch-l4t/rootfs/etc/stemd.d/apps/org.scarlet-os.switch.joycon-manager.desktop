@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Joy-Con
+Exec=/bin/joycon-manager
+Icon=applications-games
+Type=Application
+Terminal=false

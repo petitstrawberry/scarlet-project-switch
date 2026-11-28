@@ -1,4 +1,6 @@
 //! Joy-Con layout policy operates on complete, side-local evdev snapshots.
+pub use joycond::Half as Id;
+use joycond::{Edit, Layout as ClientLayout, Orientation, Pad, Snapshot};
 use std::collections::BTreeMap;
 
 pub const KEY: u16 = 1;
@@ -31,14 +33,17 @@ const LEFT_SL: u16 = 0x2c2;
 const RIGHT_SR: u16 = 0x2c3;
 const RIGHT_SL: u16 = 0x2c4;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
-pub enum Id {
-    Left(u8),
-    Right(u8),
+/// Board-specific raw controls for a logical half identifier.
+pub trait RawId: Copy {
+    fn path(self) -> String;
+    fn buttons(self) -> &'static [u16];
+    fn axes(self) -> &'static [u16];
+    fn rails(self) -> u32;
+    fn shoulders(self) -> u32;
 }
 
-impl Id {
-    pub fn path(self) -> String {
+impl RawId for Id {
+    fn path(self) -> String {
         match self {
             Self::Left(n) => format!("/dev/joycon-left{n}"),
             Self::Right(n) => format!("/dev/joycon-right{n}"),
@@ -190,11 +195,19 @@ struct Half {
 
 #[derive(Default)]
 pub struct Seat {
+    revision: u64,
     halves: BTreeMap<Id, Half>,
     pub pads: BTreeMap<Layout, u8>,
 }
 
 impl Seat {
+    pub fn new(revision: u64) -> Self {
+        Self {
+            revision,
+            ..Self::default()
+        }
+    }
+
     fn assign(&mut self, layout: Layout) {
         let mut counts = [0; 4];
         for &player in self.pads.values() {
@@ -211,6 +224,7 @@ impl Seat {
     pub fn remove(&mut self, id: Id) {
         self.halves.remove(&id);
         if let Some(layout) = self.layout(id) {
+            self.revision += 1;
             let player = self.pads.remove(&layout).unwrap();
             if let Some(partner) = layout.partner(id) {
                 self.pads.insert(Layout::Upright(partner), player);
@@ -222,6 +236,7 @@ impl Seat {
         let layout = self.layout(id).unwrap_or_else(|| {
             let single = Layout::Upright(id);
             self.assign(single);
+            self.revision += 1;
             single
         });
         let half = self.halves.entry(id).or_default();
@@ -231,11 +246,7 @@ impl Seat {
         let rails = id.rails();
         if raw.keys & rails == rails && prev & rails != rails && layout != Layout::Mini(id) {
             half.consumed |= rails;
-            let player = self.pads.remove(&layout).unwrap();
-            self.pads.insert(Layout::Mini(id), player);
-            if let Some(partner) = layout.partner(id) {
-                self.assign(Layout::Upright(partner));
-            }
+            self.orient(layout, id, Layout::Mini(id));
             return;
         }
 
@@ -259,21 +270,103 @@ impl Seat {
             None
         });
         if let Some((other, peer)) = partner {
-            let player = self
-                .pads
-                .remove(&layout)
-                .unwrap()
-                .min(self.pads.remove(&other).unwrap());
             for member in [id, peer] {
                 let half = self.halves.get_mut(&member).unwrap();
                 half.consumed |= half.raw.keys & member.shoulders();
             }
-            let pair = match id {
-                Id::Left(_) => Layout::Pair(id, peer),
-                Id::Right(_) => Layout::Pair(peer, id),
-            };
-            self.pads.insert(pair, player);
+            self.combine(layout, id, other, peer);
         }
+    }
+
+    fn orient(&mut self, old: Layout, id: Id, single: Layout) {
+        if old != single {
+            let player = self.pads.remove(&old).unwrap();
+            self.pads.insert(single, player);
+            if let Some(partner) = old.partner(id) {
+                self.assign(Layout::Upright(partner));
+            }
+            self.revision += 1;
+        }
+    }
+
+    fn combine(&mut self, a: Layout, id: Id, b: Layout, peer: Id) {
+        let player = self
+            .pads
+            .remove(&a)
+            .unwrap()
+            .min(self.pads.remove(&b).unwrap());
+        let pair = match id {
+            Id::Left(_) => Layout::Pair(id, peer),
+            Id::Right(_) => Layout::Pair(peer, id),
+        };
+        self.pads.insert(pair, player);
+        self.revision += 1;
+    }
+
+    pub fn layouts(&self) -> Snapshot {
+        let mut pads: Vec<_> = self
+            .pads
+            .iter()
+            .map(|(&layout, &player)| {
+                let layout = match layout {
+                    Layout::Upright(half) => ClientLayout::Single {
+                        half,
+                        orientation: Orientation::Upright,
+                    },
+                    Layout::Mini(half) => ClientLayout::Single {
+                        half,
+                        orientation: Orientation::Sideways,
+                    },
+                    Layout::Pair(Id::Left(left), Id::Right(right)) => {
+                        ClientLayout::Pair { left, right }
+                    }
+                    Layout::Pair(_, _) => unreachable!("pairs are stored left first"),
+                };
+                Pad { player, layout }
+            })
+            .collect();
+        pads.sort_by_key(|p| p.player);
+        Snapshot {
+            revision: self.revision,
+            pads,
+        }
+    }
+
+    fn single(&self, id: Id) -> Result<Layout, &'static str> {
+        match self.layout(id) {
+            Some(Layout::Pair(_, _)) => Err("Split the pair before changing this half"),
+            Some(layout) => Ok(layout),
+            None => Err("Joy-Con is disconnected"),
+        }
+    }
+
+    pub fn edit(&mut self, revision: u64, edit: Edit) -> Result<(), &'static str> {
+        if self.revision != revision {
+            return Err("Joy-Con layouts changed. Refresh and select again");
+        }
+        match edit {
+            Edit::Orient { half, orientation } => {
+                let old = self.single(half)?;
+                let single = match orientation {
+                    Orientation::Upright => Layout::Upright(half),
+                    Orientation::Sideways => Layout::Mini(half),
+                };
+                self.orient(old, half, single);
+            }
+            Edit::Combine { left, right } => {
+                let (l, r) = (Id::Left(left), Id::Right(right));
+                self.combine(self.single(l)?, l, self.single(r)?, r);
+            }
+            Edit::Split { left, right } => {
+                let id = Id::Left(left);
+                let pair = Layout::Pair(id, Id::Right(right));
+                if !self.pads.contains_key(&pair) {
+                    return Err("These Joy-Con are no longer a pair");
+                }
+                self.orient(pair, id, Layout::Upright(id));
+            }
+        }
+        Ok(())
     }
 
     pub fn snapshot(&self, layout: Layout) -> Vec<Event> {

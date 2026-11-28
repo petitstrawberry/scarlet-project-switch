@@ -1,9 +1,11 @@
 //! Publish logical gamepads from the Switch driver’s raw Joy-Con snapshots.
+mod control;
 mod joycon_layout;
 
 use joycon_layout::{
-    ABS, CENTER, Decoder, Event, HAT_X, HAT_Y, Id, KEY, Layout, MAX, Sample, Seat,
+    ABS, CENTER, Decoder, Event, HAT_X, HAT_Y, Id, KEY, Layout, MAX, RawId, Sample, Seat,
 };
+use joycond::wire::Request;
 use scarlet_abi::fs::VFS_O_WRONLY;
 use scarlet_abi::gamepad::{Axis, GamepadSpec, SCTL_GAMEPAD_CREATE};
 use scarlet_os::handle::HandleError;
@@ -271,9 +273,22 @@ impl Daemon {
 
     fn run(&mut self, mapper: &Handle) -> ! {
         let mut rescan = Instant::now();
+        let mut server = None;
+        let mut retry_bind = None;
         let mut pending = Vec::<TimedSample>::new();
         loop {
             if Instant::now() >= rescan {
+                if server.is_none() && retry_bind.is_none_or(|due| Instant::now() >= due) {
+                    match control::Server::bind() {
+                        Ok(listener) => server = Some(listener),
+                        Err(e) => {
+                            if retry_bind.is_none() {
+                                eprintln!("joycond: layout control unavailable: {e:?}");
+                            }
+                            retry_bind = Some(Instant::now() + Duration::from_secs(5));
+                        }
+                    }
+                }
                 self.discover(mapper);
                 self.sync();
                 rescan = Instant::now() + RESCAN;
@@ -283,8 +298,12 @@ impl Daemon {
                 .values()
                 .map(|raw| PollHandle::new(raw.device.as_handle().as_raw() as u32, POLLIN))
                 .collect();
-            // Empty poll sleeps until discovery is due. Activity on a live
-            // half wakes immediately, without delaying the next hotplug scan.
+            let raw_count = fds.len();
+            if let Some(server) = &mut server {
+                server.poll_handles(&mut fds, Instant::now());
+            }
+            // Idle waits still end at the next hotplug scan. Both physical input
+            // and desktop requests can wake the same wait immediately.
             let mut wait = rescan.saturating_duration_since(Instant::now());
             if let Some(&(time, _, _)) = pending.first() {
                 let now = scarlet_os::time::monotonic_time_ns();
@@ -312,6 +331,15 @@ impl Daemon {
                     self.seat.remove(id);
                 }
                 self.sync();
+            }
+            if let Some(server) = &mut server {
+                server.dispatch(&fds[raw_count..], |request| {
+                    if let Request::Apply { revision, edit } = request {
+                        self.seat.edit(revision, edit)?;
+                        self.sync();
+                    }
+                    Ok(self.seat.layouts())
+                });
             }
         }
     }
@@ -341,7 +369,12 @@ fn claim_instance() -> Result<Handle, String> {
 
 fn main() -> Result<(), String> {
     let mapper = claim_instance()?;
-    Daemon::default().run(&mapper)
+    // A fresh daemon starts in a new revision range even if it reopens the same slots.
+    Daemon {
+        seat: Seat::new(scarlet_os::time::monotonic_time_ns()),
+        ..Daemon::default()
+    }
+    .run(&mapper)
 }
 
 #[cfg(test)]

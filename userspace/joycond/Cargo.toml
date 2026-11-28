@@ -9,6 +9,14 @@ name = "joycond"
 path = "src/main.rs"
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 scarlet-switch-joycon-abi = { path = "../joycon-abi" }
+
+# Native syscall wrappers support these architectures (including the Arm host tests).
+[target.'cfg(any(target_arch = "aarch64", target_arch = "riscv32", target_arch = "riscv64"))'.dependencies]
 scarlet-abi = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27" }
 scarlet-os = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27", default-features = false, features = ["std"] }
+
+[target.'cfg(target_os = "scarlet")'.dependencies]
+scarlet-accounts = { git = "https://github.com/petitstrawberry/Scarlet", rev = "1a0c72ddd39507c55f67d89a4be37ea1c5487e27" }

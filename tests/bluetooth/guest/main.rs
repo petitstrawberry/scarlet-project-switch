@@ -339,6 +339,34 @@ fn right_navigation(radio: &Radio, raw: &mut Reader, logical: &mut Reader) {
     }
 }
 
+// Exercise the GUI's production client and observe the resulting kernel gamepads.
+fn desktop_grips() {
+    use joycond::{Edit, Half, Orientation};
+    let separate = joycond::list().unwrap();
+    assert_eq!(separate.pads.len(), 2);
+    let combined = joycond::apply(separate.revision, Edit::Combine { left: 0, right: 0 }).unwrap();
+    assert_eq!(combined.pads.len(), 1);
+    assert_eq!(
+        combined.pads[0].layout,
+        joycond::Layout::Pair { left: 0, right: 0 }
+    );
+    topology(&[Layout::Combined]);
+    let split = Edit::Split { left: 0, right: 0 };
+    assert!(joycond::apply(separate.revision, split).is_err());
+    let singles = joycond::apply(combined.revision, split).unwrap();
+    topology(&[Layout::UprightL, Layout::UprightR]);
+    joycond::apply(
+        singles.revision,
+        Edit::Orient {
+            half: Half::Right(0),
+            orientation: Orientation::Sideways,
+        },
+    )
+    .unwrap();
+    topology(&[Layout::UprightL, Layout::MiniR]);
+    println!("BT_QA_GUI_GRIPS_PASS list combine split orient stale-revision native-gamepads");
+}
+
 fn main() {
     use Layout::*;
     let mut broker = Command::new("/bin/btctl").arg("--serve").spawn().unwrap();
@@ -530,6 +558,10 @@ fn main() {
     });
     topology(&[UprightL]);
     radio.lights(LEFT, 1, 1);
+    link(RIGHT, false);
+    topology(&[UprightL, UprightR]);
+    desktop_grips();
+    btctl(&["disconnect", ADDR[1]]);
     btctl(&["disconnect", ADDR[0]]);
     topology(&[]);
     devices(&[]);

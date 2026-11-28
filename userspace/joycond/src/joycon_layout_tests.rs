@@ -316,3 +316,142 @@ fn independent_halves_get_first_free_player_and_never_pair_same_side() {
     assert_eq!(s.pads[&Layout::Upright(Id::Right(2))], 3);
     assert_eq!(s.pads[&Layout::Upright(Id::Right(3))], 4);
 }
+
+#[test]
+fn desktop_edits_publish_current_players_slots_and_held_controls() {
+    let mut seat = Seat::new(100);
+    let l = Id::Left(7);
+    let r = Id::Right(3);
+    seat.update(r, sample(&[EAST]));
+    seat.update(l, sample(&[MINUS]));
+    let revision = seat.layouts().revision;
+    seat.edit(
+        revision,
+        Edit::Orient {
+            half: r,
+            orientation: Orientation::Sideways,
+        },
+    )
+    .unwrap();
+    assert_events(&seat.snapshot(Layout::Mini(r)), &[(KEY, SOUTH, 1)]);
+    let minis = seat.layouts();
+    assert_eq!(
+        minis.pads[0],
+        Pad {
+            player: 1,
+            layout: ClientLayout::Single {
+                half: r,
+                orientation: Orientation::Sideways
+            }
+        }
+    );
+    seat.edit(minis.revision, Edit::Combine { left: 7, right: 3 })
+        .unwrap();
+    let combined = seat.layouts();
+    assert_eq!(
+        combined.pads,
+        [Pad {
+            player: 1,
+            layout: ClientLayout::Pair { left: 7, right: 3 }
+        }]
+    );
+    assert_events(
+        &seat.snapshot(Layout::Pair(l, r)),
+        &[(KEY, MINUS, 1), (KEY, EAST, 1)],
+    );
+    for bad in [
+        Edit::Orient {
+            half: l,
+            orientation: Orientation::Upright,
+        },
+        Edit::Split { left: 7, right: 0 },
+        Edit::Combine { left: 7, right: 3 },
+    ] {
+        assert!(seat.edit(combined.revision, bad).is_err());
+        assert_eq!(seat.layouts(), combined);
+    }
+    seat.edit(combined.revision, Edit::Split { left: 7, right: 3 })
+        .unwrap();
+    assert_eq!(
+        seat.pads,
+        BTreeMap::from([(Layout::Upright(l), 1), (Layout::Upright(r), 2)])
+    );
+    for orientation in [Orientation::Sideways, Orientation::Upright] {
+        seat.edit(
+            seat.layouts().revision,
+            Edit::Orient {
+                half: l,
+                orientation,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            seat.layouts().pads[0],
+            Pad {
+                player: 1,
+                layout: ClientLayout::Single {
+                    half: l,
+                    orientation
+                }
+            }
+        );
+    }
+}
+
+#[test]
+fn stale_edits_cannot_reconfigure_reused_slots_or_undo_new_gestures() {
+    let mut seat = Seat::default();
+    seat.update(LEFT, sample(&[]));
+    seat.update(RIGHT, sample(&[]));
+    let original = seat.layouts();
+    let combine = Edit::Combine { left: 0, right: 0 };
+    seat.update(LEFT, sample(&[MINUS]));
+    seat.edit(
+        original.revision,
+        Edit::Orient {
+            half: RIGHT,
+            orientation: Orientation::Upright,
+        },
+    )
+    .unwrap();
+    assert_eq!(seat.layouts(), original);
+    seat.remove(LEFT);
+    assert!(seat.edit(original.revision, combine).is_err());
+    assert!(seat.edit(seat.layouts().revision, combine).is_err());
+    seat.update(LEFT, sample(&[]));
+    assert_eq!(seat.layouts().pads, original.pads);
+    assert!(seat.edit(original.revision, combine).is_err());
+    let before_rails = seat.layouts().revision;
+    seat.update(RIGHT, sample(&[RIGHT_SL, RIGHT_SR]));
+    assert!(seat.edit(before_rails, combine).is_err());
+    let before_pair = seat.layouts().revision;
+    seat.update(LEFT, sample(&[L]));
+    seat.update(RIGHT, sample(&[R]));
+    assert!(
+        seat.edit(before_pair, Edit::Split { left: 0, right: 0 })
+            .is_err()
+    );
+    seat.remove(LEFT);
+    assert_eq!(
+        seat.layouts().pads,
+        [Pad {
+            player: 1,
+            layout: ClientLayout::Single {
+                half: RIGHT,
+                orientation: Orientation::Upright
+            }
+        }]
+    );
+    for bad in [
+        Edit::Orient {
+            half: Id::Right(255),
+            orientation: Orientation::Sideways,
+        },
+        Edit::Combine { left: 8, right: 0 },
+        Edit::Split { left: 0, right: 8 },
+    ] {
+        let before = seat.layouts();
+        assert!(seat.edit(before.revision, bad).is_err());
+        assert_eq!(before, seat.layouts());
+    }
+}

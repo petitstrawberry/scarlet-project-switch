@@ -143,6 +143,9 @@ The Bluetooth bundle installs `btctl` and the Switch Joy-Con bundle installs
 `btctl devices` to see both links. Each half initially works upright. For
 a single horizontal controller, hold SL and SR on that half. For a combined
 controller, hold L on the left half and R on the right half together.
+On the Switch desktop, open **Joy-Con** from the app list to see the player
+assigned to each wireless controller, change its orientation, combine two halves,
+or use them separately. The app follows changes made with the physical buttons.
 `joycond` publishes the selected grip as a native gamepad. The rail
 controller continues to provide input when the Joy-Con are attached.
 
